@@ -24,7 +24,7 @@ func TestEqualCapacityTasksUseBothAccountsAndKeepPinsWhenCapacityCrosses(t *test
 			AccountName: name, Credentials: accounts.Credentials{AccessToken: "test", AccountID: string(name)},
 			AccountState: accounts.AccountReady, SupportedModelSlugs: []string{"luna"}, RefreshedAt: now,
 			AllowanceSample: accounts.AllowanceSample{Allowed: true, ObservedAt: now, Windows: []accounts.ReportedWindow{
-				{UsedPercent: 50, Duration: 7 * 24 * time.Hour, ResetsAt: now.Add(time.Hour)},
+				{UsedPercent: 50, DurationSeconds: int64((7 * 24 * time.Hour).Seconds()), ResetsAt: now.Add(time.Hour)},
 			}},
 		})
 	}

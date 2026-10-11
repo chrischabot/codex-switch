@@ -18,20 +18,18 @@ func (s AccountState) Eligible() bool {
 }
 
 type ReportedWindow struct {
-	UsedPercent     float64       `json:"used_percent"`
-	Duration        time.Duration `json:"-"`
-	DurationSeconds int64         `json:"duration_seconds"`
-	ResetsAt        time.Time     `json:"resets_at"`
+	UsedPercent     float64
+	DurationSeconds int64
+	ResetsAt        time.Time
 }
 
 type AllowanceSample struct {
-	Route                 string           `json:"route"`
-	AccountID             string           `json:"account_id,omitempty"`
-	Email                 string           `json:"email,omitempty"`
-	Plan                  string           `json:"plan,omitempty"`
-	Allowed               bool             `json:"allowed"`
-	LimitReached          bool             `json:"limit_reached"`
-	ObservedAt            time.Time        `json:"observed_at"`
-	AvailableResetCredits *uint32          `json:"available_reset_credits,omitempty"`
-	Windows               []ReportedWindow `json:"windows"`
+	Route                 string
+	AccountID             string
+	Plan                  string
+	Allowed               bool
+	LimitReached          bool
+	ObservedAt            time.Time
+	AvailableResetCredits *uint32
+	Windows               []ReportedWindow
 }

@@ -16,7 +16,7 @@ func TestRawUsageShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.AccountID != "redacted" || s.Email != "a@example.com" || !s.Allowed || s.LimitReached || len(s.Windows) != 1 || s.Windows[0].DurationSeconds != 18000 || !s.Windows[0].ResetsAt.Equal(observed.Add(120*time.Second)) {
+	if s.AccountID != "redacted" || !s.Allowed || s.LimitReached || len(s.Windows) != 1 || s.Windows[0].DurationSeconds != 18000 || !s.Windows[0].ResetsAt.Equal(observed.Add(120*time.Second)) {
 		t.Fatalf("%#v", s)
 	}
 }

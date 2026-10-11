@@ -8,7 +8,6 @@ import (
 )
 
 type UsageResponse struct {
-	Email        string                 `json:"email"`
 	PlanType     string                 `json:"plan_type"`
 	RateLimit    *RateLimit             `json:"rate_limit"`
 	ResetCredits *RateLimitResetCredits `json:"rate_limit_reset_credits"`
@@ -45,7 +44,7 @@ func (u UsageResponse) Sample(route, credentialAccountID string, observedAt time
 	}
 	observedAt = observedAt.UTC()
 	result := AllowanceSample{
-		Route: route, AccountID: credentialAccountID, Email: u.Email, Plan: u.PlanType,
+		Route: route, AccountID: credentialAccountID, Plan: u.PlanType,
 		Allowed: *u.RateLimit.Allowed, LimitReached: *u.RateLimit.LimitReached, ObservedAt: observedAt,
 	}
 	if u.ResetCredits != nil {
