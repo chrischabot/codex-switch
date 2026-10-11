@@ -57,7 +57,7 @@ type Monitor struct {
 // its fact during that read; see keepRequestPathObservations.
 type monitoredAccount struct {
 	fact            AccountRoutingFact
-	credentialStore *CredentialStore
+	savedLogin      *savedLogin
 	lastReadStarted time.Time
 	reading         bool
 }
@@ -85,13 +85,13 @@ func (monitor *Monitor) WaitForFirstRead() {
 }
 
 // Run discovers accounts and reads them until ctx ends. Each account is read
-// independently, so a slow account never delays another.
+// independently, so a slow account never delays another, and discovery goes
+// on while the first reads finish.
 func (monitor *Monitor) Run(ctx context.Context) {
-	var reads sync.WaitGroup
-	defer reads.Wait()
-	monitor.startDueReads(ctx, &reads, false)
-	reads.Wait()
-	close(monitor.firstReadDone)
+	var firstReads, reads sync.WaitGroup
+	defer func() { firstReads.Wait(); reads.Wait() }()
+	monitor.startDueReads(ctx, &firstReads, false)
+	go func() { firstReads.Wait(); close(monitor.firstReadDone) }()
 	ticker := time.NewTicker(requestedAccountReadInterval)
 	defer ticker.Stop()
 	for {
@@ -135,7 +135,7 @@ func (monitor *Monitor) startDueReads(ctx context.Context, reads *sync.WaitGroup
 }
 
 func (monitor *Monitor) readAccount(ctx context.Context, account PoolAccount, monitored *monitoredAccount, scheduled AccountRoutingFact) {
-	read := monitor.observeAccount(ctx, account, monitored.credentialStore, scheduled)
+	read := monitor.observeAccount(ctx, account, monitored.savedLogin, scheduled)
 	monitor.mutex.Lock()
 	latest := monitored.fact
 	read = keepRequestPathObservations(read, scheduled, latest)
@@ -217,12 +217,12 @@ func (monitor *Monitor) RefreshAccountCredentialsAfterUnauthorized(accountName s
 	monitored := monitor.monitoredAccountLocked(accountName)
 	monitor.mutex.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), accountReadTimeout)
-	refreshed, refreshErr := monitored.credentialStore.RefreshAfterUnauthorized(ctx, rejected)
+	refreshed, refreshErr := monitored.savedLogin.RefreshAfterUnauthorized(ctx, rejected)
 	cancel()
 	monitor.mutex.Lock()
 	defer monitor.mutex.Unlock()
 	if refreshErr != nil {
-		if RequiresSignIn(refreshErr) && monitored.fact.AccountName != "" && monitored.fact.Credentials == rejected {
+		if requiresSignIn(refreshErr) && monitored.fact.AccountName != "" && monitored.fact.Credentials == rejected {
 			monitored.fact.AccountState = AccountSignInRequired
 			monitored.fact.AccountStateCause = refreshErr
 		}
@@ -237,7 +237,7 @@ func (monitor *Monitor) RefreshAccountCredentialsAfterUnauthorized(accountName s
 func (monitor *Monitor) monitoredAccountLocked(accountName store.AccountName) *monitoredAccount {
 	monitored, known := monitor.accounts[accountName]
 	if !known {
-		monitored = &monitoredAccount{credentialStore: NewCredentialStore(filepath.Join(monitor.dataDirectory, string(accountName)), monitor.httpClient)}
+		monitored = &monitoredAccount{savedLogin: newSavedLogin(filepath.Join(monitor.dataDirectory, string(accountName)), monitor.httpClient)}
 		monitor.accounts[accountName] = monitored
 	}
 	return monitored

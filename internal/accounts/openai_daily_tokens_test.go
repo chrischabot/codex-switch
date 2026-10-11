@@ -178,7 +178,7 @@ func TestOpenAIDailyTokenSourceRejectsExpiringCredentialsWithoutOpenAIOrAuthWrit
 		return nil, errors.New("OpenAI must not be called with expiring credentials")
 	})}
 
-	if _, err := NewOpenAIDailyTokenSource(home, client).Read(t.Context()); !RequiresSignIn(err) {
+	if _, err := NewOpenAIDailyTokenSource(home, client).Read(t.Context()); !requiresSignIn(err) {
 		t.Fatalf("expired credentials error = %T %v", err, err)
 	}
 	if requests != 0 {
@@ -198,7 +198,7 @@ func TestOpenAIDailyTokenSourceRejects401WithoutRetryOrAuthWrite(t *testing.T) {
 	})}
 
 	_, err := NewOpenAIDailyTokenSource(home, client).Read(t.Context())
-	if !RequiresSignIn(err) || strings.Contains(err.Error(), "private OpenAI response") {
+	if !requiresSignIn(err) || strings.Contains(err.Error(), "private OpenAI response") {
 		t.Fatalf("401 error = %T %v", err, err)
 	}
 	if requests != 1 {

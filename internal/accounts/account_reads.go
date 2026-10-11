@@ -18,7 +18,7 @@ var errWhamUsageUnauthorized = errors.New("wham/usage rejected account credentia
 // starting from the fact as it was when the read was scheduled. Failures are
 // carried on the fact, and the monitor logs a change of state once: the
 // provider, not a monitoring gap, decides limits.
-func (monitor *Monitor) observeAccount(parent context.Context, account PoolAccount, credentialStore *CredentialStore, fact AccountRoutingFact) AccountRoutingFact {
+func (monitor *Monitor) observeAccount(parent context.Context, account PoolAccount, savedLogin *savedLogin, fact AccountRoutingFact) AccountRoutingFact {
 	if fact.Credentials.AccountID != account.AccountID {
 		fact = AccountRoutingFact{Credentials: Credentials{AccountID: account.AccountID}}
 	}
@@ -27,9 +27,9 @@ func (monitor *Monitor) observeAccount(parent context.Context, account PoolAccou
 	startedAt := time.Now()
 	ctx, cancel := context.WithTimeout(parent, accountReadTimeout)
 	defer cancel()
-	credentials, err := credentialStore.Credentials(ctx)
+	credentials, err := savedLogin.Credentials(ctx)
 	if err != nil {
-		if RequiresSignIn(err) || fact.AccountState == AccountSignInRequired {
+		if requiresSignIn(err) || fact.AccountState == AccountSignInRequired {
 			fact.AccountState = AccountSignInRequired
 		} else {
 			fact.AccountState = AccountCredentialsUnavailable
@@ -41,14 +41,14 @@ func (monitor *Monitor) observeAccount(parent context.Context, account PoolAccou
 
 	sample, err := monitor.readAllowanceSample(ctx, account, credentials)
 	if errors.Is(err, errWhamUsageUnauthorized) {
-		credentials, err = credentialStore.RefreshAfterUnauthorized(ctx, credentials)
+		credentials, err = savedLogin.RefreshAfterUnauthorized(ctx, credentials)
 		if err == nil {
 			fact.Credentials = credentials
 			sample, err = monitor.readAllowanceSample(ctx, account, credentials)
 		}
 	}
 	if err != nil {
-		if RequiresSignIn(err) || fact.AccountState == AccountSignInRequired {
+		if requiresSignIn(err) || fact.AccountState == AccountSignInRequired {
 			fact.AccountState = AccountSignInRequired
 		} else if fact.AllowanceSample.ObservedAt.IsZero() {
 			fact.AccountState = AccountUsageCheckFailed
@@ -99,7 +99,7 @@ func (monitor *Monitor) readAllowanceSample(ctx context.Context, account PoolAcc
 		}
 		return AllowanceSample{}, statusError
 	}
-	var usage UsageResponse
+	var usage usageResponse
 	if err := json.NewDecoder(response.Body).Decode(&usage); err != nil {
 		return AllowanceSample{}, err
 	}
@@ -107,7 +107,7 @@ func (monitor *Monitor) readAllowanceSample(ctx context.Context, account PoolAcc
 	if err != nil {
 		return AllowanceSample{}, err
 	}
-	for _, window := range []*Window{usage.RateLimit.Primary, usage.RateLimit.Secondary} {
+	for _, window := range []*usageWindow{usage.RateLimit.Primary, usage.RateLimit.Secondary} {
 		if window == nil || *window.UsedPercent <= 0 || window.ResetAt == nil || *window.ResetAt <= 0 {
 			continue
 		}

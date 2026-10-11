@@ -8,7 +8,7 @@ import (
 
 func TestRawUsageShape(t *testing.T) {
 	observed := time.Date(2026, 7, 12, 12, 0, 0, 0, time.UTC)
-	var raw UsageResponse
+	var raw usageResponse
 	if err := json.Unmarshal([]byte(`{"user_id":"redacted","account_id":"redacted","email":"a@example.com","plan_type":"pro","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":54,"limit_window_seconds":18000,"reset_after_seconds":120,"reset_at":0}}}`), &raw); err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +23,7 @@ func TestRawUsageShape(t *testing.T) {
 
 func TestUsageResponseRequiresExplicitRateLimitState(t *testing.T) {
 	for _, data := range []string{`{}`, `{"rate_limit":{}}`, `{"rate_limit":{"allowed":true}}`} {
-		var raw UsageResponse
+		var raw usageResponse
 		if err := json.Unmarshal([]byte(data), &raw); err != nil {
 			t.Fatal(err)
 		}
@@ -39,7 +39,7 @@ func TestUsageResponseRejectsIncompleteWindows(t *testing.T) {
 		`{"account_id":"id-1","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":0,"reset_at":1784487709}}}`,
 		`{"account_id":"id-1","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":0,"limit_window_seconds":18000}}}`,
 	} {
-		var raw UsageResponse
+		var raw usageResponse
 		if err := json.Unmarshal([]byte(data), &raw); err != nil {
 			t.Fatal(err)
 		}
@@ -47,7 +47,7 @@ func TestUsageResponseRejectsIncompleteWindows(t *testing.T) {
 			t.Fatalf("incomplete window was accepted: %s", data)
 		}
 	}
-	var raw UsageResponse
+	var raw usageResponse
 	if err := json.Unmarshal([]byte(`{"account_id":"provider-user-id","rate_limit":{"allowed":true,"limit_reached":false}}`), &raw); err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestUsageResponseRejectsIncompleteWindows(t *testing.T) {
 }
 
 func TestUsageResponseAcceptsTheCurrentWeeklyOnlyShape(t *testing.T) {
-	var raw UsageResponse
+	var raw usageResponse
 	if err := json.Unmarshal([]byte(`{
 		"account_id":"provider-user-a",
 		"email":"one@example.com",
@@ -98,7 +98,7 @@ func TestResetCreditsUseAvailableCount(t *testing.T) {
 		{"not reported", ``, nil},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			var response UsageResponse
+			var response usageResponse
 			body := `{"plan_type":"free","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":25,"limit_window_seconds":2592000,"reset_at":1900000000}}` + test.resetField + `}`
 			if err := json.Unmarshal([]byte(body), &response); err != nil {
 				t.Fatal(err)

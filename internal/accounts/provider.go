@@ -7,25 +7,25 @@ import (
 	"time"
 )
 
-type UsageResponse struct {
+type usageResponse struct {
 	Email        string                 `json:"email"`
 	PlanType     string                 `json:"plan_type"`
-	RateLimit    *RateLimit             `json:"rate_limit"`
-	ResetCredits *RateLimitResetCredits `json:"rate_limit_reset_credits"`
+	RateLimit    *rateLimit             `json:"rate_limit"`
+	ResetCredits *rateLimitResetCredits `json:"rate_limit_reset_credits"`
 }
 
-type RateLimitResetCredits struct {
+type rateLimitResetCredits struct {
 	AvailableCount *uint32 `json:"available_count"`
 }
 
-type RateLimit struct {
-	Allowed      *bool   `json:"allowed"`
-	LimitReached *bool   `json:"limit_reached"`
-	Primary      *Window `json:"primary_window"`
-	Secondary    *Window `json:"secondary_window"`
+type rateLimit struct {
+	Allowed      *bool        `json:"allowed"`
+	LimitReached *bool        `json:"limit_reached"`
+	Primary      *usageWindow `json:"primary_window"`
+	Secondary    *usageWindow `json:"secondary_window"`
 }
 
-type Window struct {
+type usageWindow struct {
 	UsedPercent       *float64 `json:"used_percent"`
 	DurationSeconds   *int64   `json:"limit_window_seconds"`
 	ResetAfterSeconds *int64   `json:"reset_after_seconds"`
@@ -35,7 +35,7 @@ type Window struct {
 // Sample takes the immutable subscription identity from the credentials used
 // for the request. The usage response's account_id currently duplicates its
 // user_id and is not the ChatGPT-Account-ID request header.
-func (u UsageResponse) Sample(route, credentialAccountID string, observedAt time.Time) (AllowanceSample, error) {
+func (u usageResponse) Sample(route, credentialAccountID string, observedAt time.Time) (AllowanceSample, error) {
 	if u.RateLimit == nil || u.RateLimit.Allowed == nil || u.RateLimit.LimitReached == nil {
 		return AllowanceSample{}, errors.New("usage response has no complete rate-limit state")
 	}
@@ -51,7 +51,7 @@ func (u UsageResponse) Sample(route, credentialAccountID string, observedAt time
 	if u.ResetCredits != nil {
 		result.AvailableResetCredits = u.ResetCredits.AvailableCount
 	}
-	for index, raw := range []*Window{u.RateLimit.Primary, u.RateLimit.Secondary} {
+	for index, raw := range []*usageWindow{u.RateLimit.Primary, u.RateLimit.Secondary} {
 		if raw == nil {
 			continue
 		}

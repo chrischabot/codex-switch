@@ -21,13 +21,13 @@ const (
 )
 
 type OpenAIDailyTokenSource struct {
-	credentials *CredentialStore
+	credentials *savedLogin
 	client      *http.Client
 	now         func() time.Time
 }
 
 func NewOpenAIDailyTokenSource(home string, client *http.Client) *OpenAIDailyTokenSource {
-	credentials := NewCredentialStore(home, client)
+	credentials := newSavedLogin(home, client)
 	readOnlyClient := *credentials.client
 	readOnlyClient.CheckRedirect = func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
