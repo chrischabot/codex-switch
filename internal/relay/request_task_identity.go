@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -24,6 +25,20 @@ func taskIdentityForRequest(request *http.Request) store.CodexTaskID {
 		return ""
 	}
 	return store.CodexTaskID(taskidentity.PiSession(sessionID))
+}
+
+// forkSourceTaskForRequest is the task a Codex fork was made from, for example
+// the task a suggested next message is drafted for. Codex names it in the turn
+// metadata it sends with every request and WebSocket handshake; other work
+// has none.
+func forkSourceTaskForRequest(request *http.Request) store.CodexTaskID {
+	var metadata struct {
+		ForkedFromThreadID string `json:"forked_from_thread_id"`
+	}
+	if json.Unmarshal([]byte(request.Header.Get("X-Codex-Turn-Metadata")), &metadata) != nil {
+		return ""
+	}
+	return store.CodexTaskID(strings.TrimSpace(metadata.ForkedFromThreadID))
 }
 
 // clientNameForRequest names the sending client in log lines, as the client

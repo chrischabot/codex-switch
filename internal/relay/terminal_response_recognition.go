@@ -16,7 +16,10 @@ import (
 const providerUsageLimitErrorType = "usage_limit_reached"
 
 type terminalResponseObserver struct {
-	codexTaskID      store.CodexTaskID
+	codexTaskID store.CodexTaskID
+	// forkSourceTaskID is the task a Codex fork was made from. Its responses
+	// count toward that task, as the fork has no name or history of its own.
+	forkSourceTaskID store.CodexTaskID
 	client           string
 	accountName      store.AccountName
 	taskRouter       TaskRouter
@@ -246,9 +249,13 @@ func (observer *terminalResponseObserver) recordCompletedResponse(response compl
 		log.Printf("%s: OpenAI completed response %q without complete token usage; its usage is not recorded", observer.describe(), response.ID)
 		return
 	}
+	taskID := observer.codexTaskID
+	if observer.forkSourceTaskID != "" {
+		taskID = observer.forkSourceTaskID
+	}
 	record := store.CompletedResponseRecord{
 		CompletedResponseID:   store.CompletedResponseID(response.ID),
-		CodexTaskID:           observer.codexTaskID,
+		CodexTaskID:           taskID,
 		AccountName:           observer.accountName,
 		ModelSlug:             response.Model,
 		HarnessMode:           harnessModeForServiceTier(observer.serviceTier),

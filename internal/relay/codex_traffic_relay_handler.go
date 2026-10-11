@@ -205,6 +205,7 @@ func (handler *CodexTrafficRelayHandler) serveAuthenticatedCodexTraffic(response
 		observer := newTerminalResponseObserver(codexTaskID, client, routeDecision.AccountName, handler.taskRouter, handler.completionLedger)
 		observer.modelSlug = modelSlug
 		observer.serviceTier = serviceTier
+		observer.forkSourceTaskID = forkSourceTaskForRequest(request)
 		observer.requestCounters = handler.requestCounters
 		routedRequest.responseObserver = observer
 		if request.Method == http.MethodPost {
