@@ -36,10 +36,6 @@ func OpenStoreDatabase(databasePath string) (*StoreDatabase, error) {
 		sqlDatabase.Close()
 		return nil, fmt.Errorf("create allowance window identity schema: %w", err)
 	}
-	if err := createNativeUsageSchema(sqlDatabase); err != nil {
-		sqlDatabase.Close()
-		return nil, fmt.Errorf("create native usage schema: %w", err)
-	}
 	return &StoreDatabase{sqlDatabase: sqlDatabase}, nil
 }
 
@@ -65,6 +61,12 @@ func addCacheWriteInputTokensColumn(sqlDatabase *sql.DB) error {
 	return err
 }
 
+// SQLDatabase shares this process's one connection with a module that owns its
+// own tables, so its writes queue behind the same connection as routing writes.
+func (database *StoreDatabase) SQLDatabase() *sql.DB {
+	return database.sqlDatabase
+}
+
 // CloseStoreDatabase releases only this process's connection and never affects another generation.
 func (database *StoreDatabase) CloseStoreDatabase() error {
 	return database.sqlDatabase.Close()
@@ -84,21 +86,6 @@ CREATE TABLE IF NOT EXISTS model_request_counts (
     failed INTEGER NOT NULL,
     interrupted INTEGER NOT NULL,
     PRIMARY KEY (account_name, admission_date)
-) STRICT;
-
-CREATE TABLE IF NOT EXISTS provider_token_histories (
-    provider_account_id TEXT PRIMARY KEY,
-    read_started_at_unix_nano INTEGER NOT NULL,
-    reporting_date TEXT NOT NULL,
-    generated_at_unix_nano INTEGER NOT NULL,
-    lifetime_tokens INTEGER NOT NULL
-) STRICT;
-
-CREATE TABLE IF NOT EXISTS provider_daily_token_buckets (
-    provider_account_id TEXT NOT NULL,
-    start_date TEXT NOT NULL,
-    tokens INTEGER NOT NULL,
-    PRIMARY KEY (provider_account_id, start_date)
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS account_identities (

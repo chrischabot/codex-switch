@@ -1,4 +1,4 @@
-package codexusage
+package usage
 
 import (
 	"bufio"
@@ -17,8 +17,8 @@ import (
 	"time"
 )
 
-func Discover(home string, since time.Time) ([]SourceFile, error) {
-	byTask := map[string]SourceFile{}
+func discoverCodexSessions(home string, since time.Time) ([]sessionFile, error) {
+	byTask := map[string]sessionFile{}
 	for _, directory := range []string{"archived_sessions", "sessions"} {
 		err := filepath.WalkDir(filepath.Join(home, directory), func(path string, entry fs.DirEntry, err error) error {
 			if os.IsNotExist(err) {
@@ -49,7 +49,7 @@ func Discover(home string, since time.Time) ([]SourceFile, error) {
 			if readErr != nil {
 				return readErr
 			}
-			var metadata record
+			var metadata codexSessionLine
 			if err = json.Unmarshal(first, &metadata); err != nil {
 				return fmt.Errorf("parse metadata %s: %w", path, err)
 			}
@@ -62,14 +62,14 @@ func Discover(home string, since time.Time) ([]SourceFile, error) {
 			if stat, ok := info.Sys().(*syscall.Stat_t); ok {
 				identity = fmt.Sprintf("%d:%d", stat.Dev, stat.Ino)
 			}
-			byTask[taskID] = SourceFile{Path: path, TaskID: taskID, Size: info.Size(), ModifiedAt: info.ModTime(), Identity: identity}
+			byTask[taskID] = sessionFile{Path: path, TaskID: taskID, Size: info.Size(), ModifiedAt: info.ModTime(), Identity: identity}
 			return nil
 		})
 		if err != nil {
 			return nil, err
 		}
 	}
-	result := make([]SourceFile, 0, len(byTask))
+	result := make([]sessionFile, 0, len(byTask))
 	for _, source := range byTask {
 		result = append(result, source)
 	}
@@ -77,7 +77,7 @@ func Discover(home string, since time.Time) ([]SourceFile, error) {
 	return result, nil
 }
 
-type usageRecord struct {
+type codexTokenCounts struct {
 	Input      int64  `json:"input_tokens"`
 	Cached     int64  `json:"cached_input_tokens"`
 	CacheWrite *int64 `json:"cache_write_input_tokens"`
@@ -86,14 +86,14 @@ type usageRecord struct {
 	Total      int64  `json:"total_tokens"`
 }
 
-func (u *usageRecord) usage() *TokenUsage {
+func (u *codexTokenCounts) usage() *tokenUsage {
 	if u == nil {
 		return nil
 	}
-	return &TokenUsage{u.Input, u.Cached, u.CacheWrite, u.Output, u.Reasoning, u.Total}
+	return &tokenUsage{u.Input, u.Cached, u.CacheWrite, u.Output, u.Reasoning, u.Total}
 }
 
-type record struct {
+type codexSessionLine struct {
 	Timestamp time.Time `json:"timestamp"`
 	Type      string    `json:"type"`
 	Ordinal   int64     `json:"ordinal"`
@@ -102,48 +102,48 @@ type record struct {
 			Model string  `json:"model"`
 			Tier  *string `json:"service_tier"`
 		} `json:"thread_settings"`
-		ResponseID     string          `json:"response_id"`
-		RootTurnID     string          `json:"root_turn_id"`
-		SessionID      string          `json:"session_id"`
-		Usage          *usageRecord    `json:"usage"`
-		ThreadUsage    *usageRecord    `json:"thread_token_usage"`
-		ID             string          `json:"id"`
-		Timestamp      time.Time       `json:"timestamp"`
-		ParentThreadID string          `json:"parent_thread_id"`
-		ForkedFrom     string          `json:"forked_from_id"`
-		Source         json.RawMessage `json:"source"`
-		HistoryOrdinal *int64          `json:"subagent_history_start_ordinal"`
-		Type           string          `json:"type"`
-		Model          string          `json:"model"`
-		Tier           *string         `json:"service_tier"`
-		ThreadID       string          `json:"thread_id"`
-		TurnID         string          `json:"turn_id"`
-		StartedAt      *int64          `json:"started_at"`
+		ResponseID     string            `json:"response_id"`
+		RootTurnID     string            `json:"root_turn_id"`
+		SessionID      string            `json:"session_id"`
+		Usage          *codexTokenCounts `json:"usage"`
+		ThreadUsage    *codexTokenCounts `json:"thread_token_usage"`
+		ID             string            `json:"id"`
+		Timestamp      time.Time         `json:"timestamp"`
+		ParentThreadID string            `json:"parent_thread_id"`
+		ForkedFrom     string            `json:"forked_from_id"`
+		Source         json.RawMessage   `json:"source"`
+		HistoryOrdinal *int64            `json:"subagent_history_start_ordinal"`
+		Type           string            `json:"type"`
+		Model          string            `json:"model"`
+		Tier           *string           `json:"service_tier"`
+		ThreadID       string            `json:"thread_id"`
+		TurnID         string            `json:"turn_id"`
+		StartedAt      *int64            `json:"started_at"`
 		Info           *struct {
-			Total *usageRecord `json:"total_token_usage"`
-			Last  *usageRecord `json:"last_token_usage"`
+			Total *codexTokenCounts `json:"total_token_usage"`
+			Last  *codexTokenCounts `json:"last_token_usage"`
 		} `json:"info"`
 		RateLimits *struct {
-			LimitID   string        `json:"limit_id"`
-			PlanType  string        `json:"plan_type"`
-			Primary   *windowRecord `json:"primary"`
-			Secondary *windowRecord `json:"secondary"`
+			LimitID   string                `json:"limit_id"`
+			PlanType  string                `json:"plan_type"`
+			Primary   *codexAllowanceWindow `json:"primary"`
+			Secondary *codexAllowanceWindow `json:"secondary"`
 		} `json:"rate_limits"`
 	} `json:"payload"`
 }
-type windowRecord struct {
+type codexAllowanceWindow struct {
 	UsedPercent   float64 `json:"used_percent"`
 	WindowMinutes int64   `json:"window_minutes"`
 	ResetsAt      int64   `json:"resets_at"`
 }
 
-func (w *windowRecord) window() *AllowanceWindow {
+func (w *codexAllowanceWindow) window() *sessionAllowanceWindow {
 	if w == nil {
 		return nil
 	}
-	return &AllowanceWindow{w.UsedPercent, w.WindowMinutes, time.Unix(w.ResetsAt, 0)}
+	return &sessionAllowanceWindow{w.UsedPercent, w.WindowMinutes, time.Unix(w.ResetsAt, 0)}
 }
-func relevant(prefix []byte) bool {
+func mayCarryCodexUsage(prefix []byte) bool {
 	for _, marker := range [][]byte{[]byte(`"session_meta"`), []byte(`"turn_context"`), []byte(`"token_count"`), []byte(`"token_usage_record"`), []byte(`"task_started"`), []byte(`"thread_settings_applied"`)} {
 		if bytes.Contains(prefix, marker) {
 			return true
@@ -153,8 +153,8 @@ func relevant(prefix []byte) bool {
 }
 
 // Read parses only complete records within the discovered size. Large tool-output lines are discarded without allocation.
-func Read(ctx context.Context, source SourceFile, cursor Cursor) (ReadResult, error) {
-	result := ReadResult{Cursor: cursor}
+func readCodexSession(ctx context.Context, source sessionFile, cursor sessionReadCursor) (sessionReadResult, error) {
+	result := sessionReadResult{Cursor: cursor}
 	file, err := os.Open(source.Path)
 	if err != nil {
 		return result, err
@@ -165,7 +165,7 @@ func Read(ctx context.Context, source SourceFile, cursor Cursor) (ReadResult, er
 	if err != nil {
 		return result, fmt.Errorf("read session metadata %s: %w", source.Path, err)
 	}
-	var metadata record
+	var metadata codexSessionLine
 	if err = json.Unmarshal(line, &metadata); err != nil {
 		return result, err
 	}
@@ -176,7 +176,7 @@ func Read(ctx context.Context, source SourceFile, cursor Cursor) (ReadResult, er
 	if created.IsZero() {
 		created = metadata.Timestamp
 	}
-	result.Metadata = TaskMetadata{TaskID: source.TaskID, ForkedFromTaskID: metadata.Payload.ForkedFrom, CreatedAt: created}
+	result.Metadata = taskMetadata{TaskID: source.TaskID, ForkedFromTaskID: metadata.Payload.ForkedFrom, CreatedAt: created}
 	var origin struct {
 		Subagent struct {
 			ThreadSpawn struct {
@@ -231,7 +231,7 @@ func Read(ctx context.Context, source SourceFile, cursor Cursor) (ReadResult, er
 		if readErr == io.EOF {
 			break
 		}
-		keep := relevant(fragment)
+		keep := mayCarryCodexUsage(fragment)
 		var complete []byte
 		if keep {
 			complete = append(complete, fragment...)
@@ -255,7 +255,7 @@ func Read(ctx context.Context, source SourceFile, cursor Cursor) (ReadResult, er
 		if !keep {
 			continue
 		}
-		var event record
+		var event codexSessionLine
 		if err = json.Unmarshal(complete, &event); err != nil {
 			return result, fmt.Errorf("parse %s offset %d: %w", source.Path, start, err)
 		}
@@ -289,14 +289,14 @@ func Read(ctx context.Context, source SourceFile, cursor Cursor) (ReadResult, er
 				result.Cursor.PendingResponseID = payload.ResponseID
 				result.Cursor.PendingUsage = payload.Usage.usage()
 				result.Cursor.PreviousTotals = payload.ThreadUsage.usage()
-				result.Observations = append(result.Observations, Observation{SourceKind: result.Metadata.SourceKind, ResponseID: payload.ResponseID, RootTurnID: payload.RootTurnID, SessionID: payload.SessionID, TaskID: payload.ThreadID, TurnID: payload.TurnID, SourcePath: source.Path, SourceOffset: start, At: event.Timestamp, Model: result.Cursor.Model, ServiceTier: result.Cursor.ServiceTier, Usage: payload.Usage.usage()})
+				result.Observations = append(result.Observations, sessionUsageObservation{SourceKind: result.Metadata.SourceKind, ResponseID: payload.ResponseID, RootTurnID: payload.RootTurnID, SessionID: payload.SessionID, TaskID: payload.ThreadID, TurnID: payload.TurnID, SourcePath: source.Path, SourceOffset: start, At: event.Timestamp, Model: result.Cursor.Model, ServiceTier: result.Cursor.ServiceTier, Usage: payload.Usage.usage()})
 			}
 			continue
 		}
 		if payload.Type != "token_count" {
 			continue
 		}
-		var usage *TokenUsage
+		var usage *tokenUsage
 		allowanceResponseID := ""
 		if result.Cursor.PendingResponseID != "" {
 			if payload.Info != nil && reflect.DeepEqual(payload.Info.Last.usage(), result.Cursor.PendingUsage) {
@@ -321,9 +321,9 @@ func Read(ctx context.Context, source SourceFile, cursor Cursor) (ReadResult, er
 		if usage != nil && usage.InputTokens == 0 && usage.OutputTokens == 0 && usage.CachedInputTokens == 0 && usage.ReasoningOutputTokens == 0 {
 			usage = nil
 		}
-		observation := Observation{SourceKind: result.Metadata.SourceKind, ResponseID: allowanceResponseID, TaskID: source.TaskID, TurnID: result.Cursor.TurnID, SourcePath: source.Path, SourceOffset: start, At: event.Timestamp, Model: result.Cursor.Model, ServiceTier: result.Cursor.ServiceTier, Usage: usage}
+		observation := sessionUsageObservation{SourceKind: result.Metadata.SourceKind, ResponseID: allowanceResponseID, TaskID: source.TaskID, TurnID: result.Cursor.TurnID, SourcePath: source.Path, SourceOffset: start, At: event.Timestamp, Model: result.Cursor.Model, ServiceTier: result.Cursor.ServiceTier, Usage: usage}
 		if rate := payload.RateLimits; rate != nil {
-			observation.Allowance = &AllowanceObservation{rate.LimitID, rate.PlanType, rate.Primary.window(), rate.Secondary.window()}
+			observation.Allowance = &sessionAllowance{rate.LimitID, rate.PlanType, rate.Primary.window(), rate.Secondary.window()}
 		}
 		if observation.Usage != nil || observation.Allowance != nil {
 			result.Observations = append(result.Observations, observation)

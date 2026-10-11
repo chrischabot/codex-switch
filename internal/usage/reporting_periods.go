@@ -1,14 +1,29 @@
-package main
+package usage
 
 import (
 	"time"
 
-	accountapi "github.com/josh/codex-switch/internal/accounts"
+	"github.com/josh/codex-switch/internal/accounts"
 	"github.com/josh/codex-switch/internal/menupb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func providerReportingPeriods(pool []accountapi.PoolAccount, histories map[string]accountapi.OpenAIDailyTokenHistory) ([]*menupb.ReportingPeriod, error) {
+// readProviderReportingPeriods uses current pool membership and never starts a network request.
+func (ledger *UsageLedger) readProviderReportingPeriods() ([]*menupb.ReportingPeriod, error) {
+	pool, err := accounts.ReadPool(ledger.dataDirectory)
+	if err != nil {
+		return nil, err
+	}
+	histories, err := ledger.readOpenAIDailyTokenHistories()
+	if err != nil {
+		return nil, err
+	}
+	return providerReportingPeriods(pool, histories)
+}
+
+// providerReportingPeriods totals each account's OpenAI daily tokens for Today, 7 Days and 30 Days,
+// ending on the reporting date every account shares.
+func providerReportingPeriods(pool []accounts.PoolAccount, histories map[string]accounts.OpenAIDailyTokenHistory) ([]*menupb.ReportingPeriod, error) {
 	if len(pool) == 0 {
 		return nil, nil
 	}

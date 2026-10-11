@@ -1,4 +1,4 @@
-package piusage_test
+package usage
 
 import (
 	"context"
@@ -9,9 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/josh/codex-switch/internal/accounting"
-	"github.com/josh/codex-switch/internal/codexusage"
-	"github.com/josh/codex-switch/internal/piusage"
 	"github.com/josh/codex-switch/internal/store"
 	"github.com/josh/codex-switch/internal/taskidentity"
 )
@@ -33,13 +30,9 @@ func TestNativePiUsageImportsOnceAndJoinsItsRoutedResponse(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sessions, "context.jsonl"), []byte("{\"role\":\"user\",\"timestamp\":1786878875526}\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	database, err := store.OpenStoreDatabase(filepath.Join(directory, "usage.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.CloseStoreDatabase()
+	ledger := openTestUsageLedger(t)
 	ctx := context.Background()
-	imported, err := database.ImportPiUsage(ctx, sessions, time.Time{})
+	imported, err := ledger.importPiSessions(ctx, sessions, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,21 +49,21 @@ func TestNativePiUsageImportsOnceAndJoinsItsRoutedResponse(t *testing.T) {
 	if err = file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	imported, err = database.ImportPiUsage(ctx, sessions, time.Time{})
+	imported, err = ledger.importPiSessions(ctx, sessions, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if imported.UsageObservations != 1 {
 		t.Fatalf("completed import: %+v", imported)
 	}
-	repeated, err := database.ImportPiUsage(ctx, sessions, time.Time{})
+	repeated, err := ledger.importPiSessions(ctx, sessions, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if repeated.BytesRead != 0 {
 		t.Fatalf("unchanged import: %+v", repeated)
 	}
-	observations, err := database.ReadNativeUsageObservations(ctx, time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC), time.Date(2026, 9, 7, 0, 0, 0, 0, time.UTC))
+	observations, err := ledger.readSessionUsageObservations(ctx, time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC), time.Date(2026, 9, 7, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +74,7 @@ func TestNativePiUsageImportsOnceAndJoinsItsRoutedResponse(t *testing.T) {
 	if observed.TaskID != "f93bcdbe-7619-834b-9e1e-c6de8ec66b67" || observed.Usage.InputTokens != 5176 || observed.Usage.CachedInputTokens != 4608 || observed.Usage.CacheWriteInputTokens != nil {
 		t.Fatalf("native observation: %+v usage=%+v", observed, observed.Usage)
 	}
-	nativeOnly, err := accounting.ReconcileCompletions(observations, nil)
+	nativeOnly, err := reconcileCompletions(observations, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +82,7 @@ func TestNativePiUsageImportsOnceAndJoinsItsRoutedResponse(t *testing.T) {
 		t.Fatal("Pi's unrecorded service tier was priced")
 	}
 	zero := int64(0)
-	joined, err := accounting.ReconcileCompletions(observations, []store.CompletedResponseRecord{{CompletedResponseID: "response", CodexTaskID: store.CodexTaskID(observed.TaskID), AccountName: "account-2", ModelSlug: "gpt-5.6-luna", HarnessMode: "standard", InputTokens: 5176, CachedInputTokens: 4608, CacheWriteInputTokens: &zero, OutputTokens: 73, ReasoningTokens: 22, CompletedAt: observed.At}})
+	joined, err := reconcileCompletions(observations, []store.CompletedResponseRecord{{CompletedResponseID: "response", CodexTaskID: store.CodexTaskID(observed.TaskID), AccountName: "account-2", ModelSlug: "gpt-5.6-luna", HarnessMode: "standard", InputTokens: 5176, CachedInputTokens: 4608, CacheWriteInputTokens: &zero, OutputTokens: 73, ReasoningTokens: 22, CompletedAt: observed.At}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,11 +111,11 @@ func TestPiForkFirstImportAfterStandardParentRemoval(t *testing.T) {
 			if err = os.WriteFile(path, append(header, '\n'), 0600); err != nil {
 				t.Fatal(err)
 			}
-			sources, err := piusage.Discover(directory, time.Time{})
+			sources, err := discoverPiSessions(directory, time.Time{})
 			if err != nil {
 				t.Fatal(err)
 			}
-			result, err := piusage.Read(context.Background(), sources[0], codexusage.Cursor{KnownParentTaskID: test.knownParent})
+			result, err := readPiSession(context.Background(), sources[0], sessionReadCursor{KnownParentTaskID: test.knownParent})
 			if test.wantError {
 				if err == nil {
 					t.Fatal("missing arbitrary parent was assigned an identity")
@@ -176,15 +169,11 @@ func TestPiParentRecordsImportIncrementallyAndRespectHeaderAncestry(t *testing.T
 	}
 	writeSession(childPath, "child", "")
 	writeSession(parentPath, "parent", "")
-	database, err := store.OpenStoreDatabase(filepath.Join(t.TempDir(), "usage.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.CloseStoreDatabase()
+	ledger := openTestUsageLedger(t)
 	ctx := context.Background()
-	importSessions := func() codexusage.ImportResult {
+	importSessions := func() sessionImportSummary {
 		t.Helper()
-		result, err := database.ImportPiUsage(ctx, directory, time.Time{})
+		result, err := ledger.importPiSessions(ctx, directory, time.Time{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -192,7 +181,7 @@ func TestPiParentRecordsImportIncrementallyAndRespectHeaderAncestry(t *testing.T
 	}
 	checkParent := func() {
 		t.Helper()
-		metadata, err := database.ReadNativeTaskMetadata(ctx)
+		metadata, err := ledger.readTaskMetadata(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -218,7 +207,7 @@ func TestPiParentRecordsImportIncrementallyAndRespectHeaderAncestry(t *testing.T
 	writeSession(otherParentPath, "other-parent", "")
 	appendChildRecord(otherParentPath)
 	importSessions()
-	if _, err := database.ReadNativeTaskMetadata(ctx); err == nil {
+	if _, err := ledger.readTaskMetadata(ctx); err == nil {
 		t.Fatal("incompatible parent evidence was silently accepted")
 	}
 	writeSession(childPath, "child", parentPath)
@@ -228,4 +217,18 @@ func TestPiParentRecordsImportIncrementallyAndRespectHeaderAncestry(t *testing.T
 	writeSession(otherParentPath, "other-parent", "")
 	importSessions()
 	checkParent()
+}
+
+func openTestUsageLedger(t *testing.T) *UsageLedger {
+	t.Helper()
+	database, err := store.OpenStoreDatabase(filepath.Join(t.TempDir(), "usage.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.CloseStoreDatabase() })
+	ledger, err := OpenUsageLedger(database, t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ledger
 }

@@ -1,14 +1,13 @@
-package accounting
+package usage
 
 import (
 	"fmt"
 	"time"
 
-	"github.com/josh/codex-switch/internal/codexusage"
 	"github.com/josh/codex-switch/internal/store"
 )
 
-type AllowanceOwnerReader interface {
+type allowanceOwnerReader interface {
 	FindAccountForAllowanceWindow(int64, time.Time, time.Time) (store.ProviderAccountID, bool, error)
 }
 
@@ -18,14 +17,14 @@ type nativeLocation struct {
 }
 type allowanceIdentityKey struct{ seconds, reset int64 }
 
-// AttributeAccounts uses recorded serving identities or unique authenticated allowance windows.
-func AttributeAccounts(completions []Completion, native []codexusage.Observation, identities []store.AccountIdentity, windows AllowanceOwnerReader) error {
+// attributeAccounts uses recorded serving identities or unique authenticated allowance windows.
+func attributeAccounts(completions []reconciledCompletion, native []sessionUsageObservation, identities []store.AccountIdentity, windows allowanceOwnerReader) error {
 	providerByName := make(map[store.AccountName]store.ProviderAccountID)
 	for _, identity := range identities {
 		providerByName[identity.AccountName] = store.ProviderAccountID(identity.ProviderAccountID)
 	}
-	responseAllowances := make(map[string]*codexusage.AllowanceObservation)
-	locationAllowances := make(map[nativeLocation]*codexusage.AllowanceObservation)
+	responseAllowances := make(map[string]*sessionAllowance)
+	locationAllowances := make(map[nativeLocation]*sessionAllowance)
 	for _, observation := range native {
 		if observation.Allowance == nil {
 			continue
@@ -49,7 +48,7 @@ func AttributeAccounts(completions []Completion, native []codexusage.Observation
 		if allowance == nil || (allowance.LimitID != "" && allowance.LimitID != "codex") {
 			continue
 		}
-		for _, window := range []*codexusage.AllowanceWindow{allowance.Primary, allowance.Secondary} {
+		for _, window := range []*sessionAllowanceWindow{allowance.Primary, allowance.Secondary} {
 			if window == nil || window.WindowMinutes <= 0 || window.ResetsAt.IsZero() {
 				continue
 			}

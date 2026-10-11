@@ -20,6 +20,7 @@ import (
 	"github.com/josh/codex-switch/internal/relay"
 	"github.com/josh/codex-switch/internal/routing"
 	"github.com/josh/codex-switch/internal/store"
+	"github.com/josh/codex-switch/internal/usage"
 )
 
 const defaultUpstreamOrigin = "https://chatgpt.com"
@@ -69,11 +70,13 @@ func serveRelay(tcpListenAddress string) {
 	}
 
 	accountFacts := newPoolAccountRoutingFactsSource(dataDir(), upstreamOrigin, &http.Client{Timeout: 30 * time.Second}, storeDatabase)
-	accountUsage := newPoolAccountUsageSource(dataDir(), &http.Client{Timeout: 15 * time.Second}, storeDatabase)
-	taskUsage := newTaskUsageSource(storeDatabase, accountUsage, dataDir())
+	usageLedger, err := usage.OpenUsageLedger(storeDatabase, dataDir(), &http.Client{Timeout: 15 * time.Second})
+	if err != nil {
+		log.Fatal(err)
+	}
 	factsContext, stopFacts := context.WithCancel(context.Background())
 	var background sync.WaitGroup
-	for _, run := range []func(context.Context){accountFacts.Run, accountUsage.Run, taskUsage.Run} {
+	for _, run := range []func(context.Context){accountFacts.Run, usageLedger.Run} {
 		background.Add(1)
 		go func() { defer background.Done(); run(factsContext) }()
 	}
@@ -106,7 +109,7 @@ func serveRelay(tcpListenAddress string) {
 	log.Print(serving)
 	fmt.Printf("codex-switch listening on %s\ncodex-switch log: %s\n", "http://"+listener.Addr().String(), proxyLogPath(dataDir()))
 
-	server := &http.Server{Handler: menuSnapshotOrRelay(capability, accountFacts, taskRouter, storeDatabase, accountUsage, taskUsage, deployStatusOrRelay(capability, relayHandler))}
+	server := &http.Server{Handler: menuSnapshotOrRelay(capability, accountFacts, taskRouter, usageLedger, deployStatusOrRelay(capability, relayHandler))}
 	serveFailed := make(chan error, 1)
 	go func() { serveFailed <- server.Serve(listener) }()
 

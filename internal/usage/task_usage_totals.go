@@ -1,15 +1,13 @@
-package main
+package usage
 
 import (
 	"context"
 	"log"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
-	"github.com/josh/codex-switch/internal/accounting"
-	accountapi "github.com/josh/codex-switch/internal/accounts"
+	"github.com/josh/codex-switch/internal/accounts"
 	"github.com/josh/codex-switch/internal/codexstate"
 	"github.com/josh/codex-switch/internal/menupb"
 	"github.com/josh/codex-switch/internal/store"
@@ -19,48 +17,29 @@ import (
 type taskUsagePeriod struct{ start, end int64 }
 
 type taskUsageTotals struct {
-	tasks           []accounting.TaskTotal
+	tasks           []taskTotal
 	tokensByAccount map[string]int64
 	costsByAccount  map[string]int64
 	fullyAttributed bool
 	fullyPriced     bool
 }
 
-type taskUsageSource struct {
-	database      *store.StoreDatabase
-	profiles      *poolAccountUsageSource
-	dataDirectory string
-	mutex         sync.Mutex
-	totals        map[taskUsagePeriod]taskUsageTotals
-}
-
-func newTaskUsageSource(database *store.StoreDatabase, profiles *poolAccountUsageSource, directory string) *taskUsageSource {
-	return &taskUsageSource{database: database, profiles: profiles, dataDirectory: directory, totals: make(map[taskUsagePeriod]taskUsageTotals)}
-}
-
-func (source *taskUsageSource) Run(ctx context.Context) {
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
-	for {
-		if err := source.refresh(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("could not total usage per task: %v", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
+// refreshTaskUsage scans local Codex and Pi session history, joins it with the
+// responses the proxy recorded, and totals each reporting period by account and task.
+func (ledger *UsageLedger) refreshTaskUsage(ctx context.Context) {
+	if err := ledger.totalTaskUsage(ctx); err != nil && ctx.Err() == nil {
+		log.Printf("could not total usage per task: %v", err)
 	}
 }
 
-func (source *taskUsageSource) refresh(ctx context.Context) error {
+func (ledger *UsageLedger) totalTaskUsage(ctx context.Context) error {
 	reader, err := codexstate.DefaultReader()
 	if err != nil {
 		return err
 	}
 	now := time.Now().UTC()
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, -29)
-	periods, err := source.profiles.ReadReportingPeriods()
+	periods, err := ledger.readProviderReportingPeriods()
 	if err != nil {
 		return err
 	}
@@ -69,7 +48,7 @@ func (source *taskUsageSource) refresh(ctx context.Context) error {
 			start = period.StartedAt.AsTime()
 		}
 	}
-	if _, err := source.database.ImportCodexUsage(ctx, reader.CodexHome, start); err != nil {
+	if _, err := ledger.importCodexSessions(ctx, reader.CodexHome, start); err != nil {
 		return err
 	}
 	piSessions := os.Getenv("PI_CODING_AGENT_SESSION_DIR")
@@ -84,34 +63,34 @@ func (source *taskUsageSource) refresh(ctx context.Context) error {
 		}
 		piSessions = filepath.Join(piDirectory, "sessions")
 	}
-	if _, err := source.database.ImportPiUsage(ctx, piSessions, start); err != nil {
+	if _, err := ledger.importPiSessions(ctx, piSessions, start); err != nil {
 		return err
 	}
-	periods, err = source.profiles.ReadReportingPeriods()
+	periods, err = ledger.readProviderReportingPeriods()
 	if err != nil || len(periods) == 0 {
 		return err
 	}
-	native, err := source.database.ReadNativeUsageObservations(ctx, start, time.Now().UTC())
+	native, err := ledger.readSessionUsageObservations(ctx, start, time.Now().UTC())
 	if err != nil {
 		return err
 	}
-	metadata, err := source.database.ReadNativeTaskMetadata(ctx)
+	metadata, err := ledger.readTaskMetadata(ctx)
 	if err != nil {
 		return err
 	}
-	responses, err := source.database.ReadCompletedResponsesSince(start)
+	responses, err := ledger.database.ReadCompletedResponsesSince(start)
 	if err != nil {
 		return err
 	}
-	completions, err := accounting.ReconcileCompletions(native, responses)
+	completions, err := reconcileCompletions(native, responses)
 	if err != nil {
 		return err
 	}
-	identities, err := source.database.ReadAccountIdentities()
+	identities, err := ledger.database.ReadAccountIdentities()
 	if err != nil {
 		return err
 	}
-	installed, err := accountapi.ReadPool(source.dataDirectory)
+	installed, err := accounts.ReadPool(ledger.dataDirectory)
 	if err != nil {
 		return err
 	}
@@ -124,7 +103,7 @@ func (source *taskUsageSource) refresh(ctx context.Context) error {
 		identities = append(identities, identity)
 		namesByProvider[store.ProviderAccountID(account.AccountID)] = identity.AccountName
 	}
-	if err := accounting.AttributeAccounts(completions, native, identities, source.database); err != nil {
+	if err := attributeAccounts(completions, native, identities, ledger.database); err != nil {
 		return err
 	}
 	for index := range completions {
@@ -138,7 +117,7 @@ func (source *taskUsageSource) refresh(ctx context.Context) error {
 		if begin.Before(start) {
 			continue
 		}
-		tasks, err := accounting.TotalTasks(completions, metadata, begin, end)
+		tasks, err := totalTasks(completions, metadata, begin, end)
 		if err != nil {
 			return err
 		}
@@ -160,18 +139,20 @@ func (source *taskUsageSource) refresh(ctx context.Context) error {
 		}
 		totals[taskUsagePeriod{begin.Unix(), end.Unix()}] = report
 	}
-	source.mutex.Lock()
-	source.totals = totals
-	source.mutex.Unlock()
+	ledger.taskUsageMutex.Lock()
+	ledger.taskUsageByPeriod = totals
+	ledger.taskUsageMutex.Unlock()
 	return nil
 }
 
-func (source *taskUsageSource) AddTasks(periods []*menupb.ReportingPeriod) {
-	source.mutex.Lock()
-	defer source.mutex.Unlock()
+// addTaskUsage adds account costs and per-task totals to periods whose
+// local totals reconcile with OpenAI's per-account totals.
+func (ledger *UsageLedger) addTaskUsage(periods []*menupb.ReportingPeriod) {
+	ledger.taskUsageMutex.Lock()
+	defer ledger.taskUsageMutex.Unlock()
 	for _, period := range periods {
 		key := taskUsagePeriod{period.StartedAt.AsTime().Unix(), period.EndedAt.AsTime().Unix()}
-		totals, found := source.totals[key]
+		totals, found := ledger.taskUsageByPeriod[key]
 		if !found || !totals.matchesAccounts(period.Accounts) {
 			continue
 		}
@@ -202,7 +183,7 @@ func (source *taskUsageSource) AddTasks(periods []*menupb.ReportingPeriod) {
 }
 
 // Task amounts and account totals share one report only when they reconcile.
-func (totals taskUsageTotals) matchesAccounts(accounts []*menupb.AccountTotal) bool {
+func (totals taskUsageTotals) matchesAccounts(providerTotals []*menupb.AccountTotal) bool {
 	if !totals.fullyAttributed {
 		return false
 	}
@@ -210,7 +191,7 @@ func (totals taskUsageTotals) matchesAccounts(accounts []*menupb.AccountTotal) b
 	for account, tokens := range totals.tokensByAccount {
 		remaining[account] = tokens
 	}
-	for _, account := range accounts {
+	for _, account := range providerTotals {
 		if remaining[account.AccountKey] != account.Tokens {
 			return false
 		}

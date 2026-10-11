@@ -1,16 +1,13 @@
-package store
+package usage
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
 	"time"
-
-	"github.com/josh/codex-switch/internal/codexusage"
-	"github.com/josh/codex-switch/internal/piusage"
 )
 
-func createNativeUsageSchema(database *sql.DB) error {
+func createSessionUsageSchema(database *sql.DB) error {
 	_, err := database.Exec(`
 CREATE TABLE IF NOT EXISTS native_usage_sources (
  task_id TEXT PRIMARY KEY, path TEXT NOT NULL, identity TEXT NOT NULL, size INTEGER NOT NULL, modified INTEGER NOT NULL,
@@ -35,33 +32,33 @@ CREATE TABLE IF NOT EXISTS native_task_child_records (
 	return err
 }
 
-func (database *StoreDatabase) ImportCodexUsage(ctx context.Context, home string, since time.Time) (codexusage.ImportResult, error) {
-	sources, err := codexusage.Discover(home, since)
+func (ledger *UsageLedger) importCodexSessions(ctx context.Context, home string, since time.Time) (sessionImportSummary, error) {
+	sources, err := discoverCodexSessions(home, since)
 	if err != nil {
-		return codexusage.ImportResult{}, err
+		return sessionImportSummary{}, err
 	}
-	return database.importNativeUsage(ctx, sources, codexusage.Read)
+	return ledger.importSessionFiles(ctx, sources, readCodexSession)
 }
 
-func (database *StoreDatabase) ImportPiUsage(ctx context.Context, sessionDirectory string, since time.Time) (codexusage.ImportResult, error) {
-	sources, err := piusage.Discover(sessionDirectory, since)
+func (ledger *UsageLedger) importPiSessions(ctx context.Context, sessionDirectory string, since time.Time) (sessionImportSummary, error) {
+	sources, err := discoverPiSessions(sessionDirectory, since)
 	if err != nil {
-		return codexusage.ImportResult{}, err
+		return sessionImportSummary{}, err
 	}
-	return database.importNativeUsage(ctx, sources, piusage.Read)
+	return ledger.importSessionFiles(ctx, sources, readPiSession)
 }
 
-func (database *StoreDatabase) importNativeUsage(ctx context.Context, sources []codexusage.SourceFile, read func(context.Context, codexusage.SourceFile, codexusage.Cursor) (codexusage.ReadResult, error)) (codexusage.ImportResult, error) {
-	var result codexusage.ImportResult
+func (ledger *UsageLedger) importSessionFiles(ctx context.Context, sources []sessionFile, read func(context.Context, sessionFile, sessionReadCursor) (sessionReadResult, error)) (sessionImportSummary, error) {
+	var result sessionImportSummary
 	var err error
 	result.FilesDiscovered = len(sources)
 	for _, source := range sources {
-		var cursor codexusage.Cursor
+		var cursor sessionReadCursor
 		var previousIdentity, previousPath, previousParentTaskID string
 		var previousSize, modified int64
 		var input, cached, cacheWrite, output, reasoning, total sql.NullInt64
 		var pendingInput, pendingCached, pendingCacheWrite, pendingOutput, pendingReasoning, pendingTotal sql.NullInt64
-		err = database.sqlDatabase.QueryRowContext(ctx, `SELECT path,identity,parent_task_id,size,modified,offset,model,tier,turn_id,history_ended,canonical_seen,previous_input,previous_cached,previous_cache_write,previous_output,previous_reasoning,previous_total,pending_response_id,pending_input,pending_cached,pending_cache_write,pending_output,pending_reasoning,pending_total FROM native_usage_sources WHERE task_id=?`, source.TaskID).Scan(&previousPath, &previousIdentity, &previousParentTaskID, &previousSize, &modified, &cursor.Offset, &cursor.Model, &cursor.ServiceTier, &cursor.TurnID, &cursor.ChildHistoryEnded, &cursor.CanonicalUsageSeen, &input, &cached, &cacheWrite, &output, &reasoning, &total, &cursor.PendingResponseID, &pendingInput, &pendingCached, &pendingCacheWrite, &pendingOutput, &pendingReasoning, &pendingTotal)
+		err = ledger.sqlDatabase.QueryRowContext(ctx, `SELECT path,identity,parent_task_id,size,modified,offset,model,tier,turn_id,history_ended,canonical_seen,previous_input,previous_cached,previous_cache_write,previous_output,previous_reasoning,previous_total,pending_response_id,pending_input,pending_cached,pending_cache_write,pending_output,pending_reasoning,pending_total FROM native_usage_sources WHERE task_id=?`, source.TaskID).Scan(&previousPath, &previousIdentity, &previousParentTaskID, &previousSize, &modified, &cursor.Offset, &cursor.Model, &cursor.ServiceTier, &cursor.TurnID, &cursor.ChildHistoryEnded, &cursor.CanonicalUsageSeen, &input, &cached, &cacheWrite, &output, &reasoning, &total, &cursor.PendingResponseID, &pendingInput, &pendingCached, &pendingCacheWrite, &pendingOutput, &pendingReasoning, &pendingTotal)
 		if err != nil && err != sql.ErrNoRows {
 			return result, err
 		}
@@ -71,15 +68,15 @@ func (database *StoreDatabase) importNativeUsage(ctx context.Context, sources []
 		}
 		cursor.KnownParentTaskID = previousParentTaskID
 		if reset {
-			cursor = codexusage.Cursor{KnownParentTaskID: previousParentTaskID}
+			cursor = sessionReadCursor{KnownParentTaskID: previousParentTaskID}
 		} else if input.Valid {
-			cursor.PreviousTotals = &codexusage.TokenUsage{InputTokens: input.Int64, CachedInputTokens: cached.Int64, OutputTokens: output.Int64, ReasoningOutputTokens: reasoning.Int64, TotalTokens: total.Int64}
+			cursor.PreviousTotals = &tokenUsage{InputTokens: input.Int64, CachedInputTokens: cached.Int64, OutputTokens: output.Int64, ReasoningOutputTokens: reasoning.Int64, TotalTokens: total.Int64}
 			if cacheWrite.Valid {
 				cursor.PreviousTotals.CacheWriteInputTokens = &cacheWrite.Int64
 			}
 		}
 		if !reset && pendingInput.Valid {
-			cursor.PendingUsage = &codexusage.TokenUsage{InputTokens: pendingInput.Int64, CachedInputTokens: pendingCached.Int64, OutputTokens: pendingOutput.Int64, ReasoningOutputTokens: pendingReasoning.Int64, TotalTokens: pendingTotal.Int64}
+			cursor.PendingUsage = &tokenUsage{InputTokens: pendingInput.Int64, CachedInputTokens: pendingCached.Int64, OutputTokens: pendingOutput.Int64, ReasoningOutputTokens: pendingReasoning.Int64, TotalTokens: pendingTotal.Int64}
 			if pendingCacheWrite.Valid {
 				cursor.PendingUsage.CacheWriteInputTokens = &pendingCacheWrite.Int64
 			}
@@ -88,7 +85,7 @@ func (database *StoreDatabase) importNativeUsage(ctx context.Context, sources []
 		if readErr != nil {
 			return result, readErr
 		}
-		if err = database.persistNativeFile(ctx, source, parsed, reset); err != nil {
+		if err = ledger.saveSessionFile(ctx, source, parsed, reset); err != nil {
 			return result, err
 		}
 		result.FilesRead++
@@ -105,20 +102,20 @@ func (database *StoreDatabase) importNativeUsage(ctx context.Context, sources []
 	return result, nil
 }
 
-func tokenArguments(usage *codexusage.TokenUsage) []any {
+func tokenArguments(usage *tokenUsage) []any {
 	if usage == nil {
 		return []any{nil, nil, nil, nil, nil, nil}
 	}
 	return []any{usage.InputTokens, usage.CachedInputTokens, usage.CacheWriteInputTokens, usage.OutputTokens, usage.ReasoningOutputTokens, usage.TotalTokens}
 }
-func windowArguments(window *codexusage.AllowanceWindow) []any {
+func windowArguments(window *sessionAllowanceWindow) []any {
 	if window == nil {
 		return []any{nil, nil, nil}
 	}
 	return []any{window.UsedPercent, window.WindowMinutes, window.ResetsAt.UnixNano()}
 }
-func (database *StoreDatabase) persistNativeFile(ctx context.Context, source codexusage.SourceFile, parsed codexusage.ReadResult, reset bool) error {
-	transaction, err := database.sqlDatabase.BeginTx(ctx, nil)
+func (ledger *UsageLedger) saveSessionFile(ctx context.Context, source sessionFile, parsed sessionReadResult, reset bool) error {
+	transaction, err := ledger.sqlDatabase.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -161,15 +158,15 @@ func (database *StoreDatabase) persistNativeFile(ctx context.Context, source cod
 	return transaction.Commit()
 }
 
-func (database *StoreDatabase) ReadNativeUsageObservations(ctx context.Context, start, end time.Time) ([]codexusage.Observation, error) {
-	rows, err := database.sqlDatabase.QueryContext(ctx, `SELECT o.task_id,s.path,s.source_kind,o.source_offset,o.response_id,o.root_turn_id,o.session_id,o.turn_id,o.observed,o.model,o.tier,o.input,o.cached,o.cache_write,o.output,o.reasoning,o.total,o.limit_id,o.plan_type,o.primary_used,o.primary_minutes,o.primary_resets,o.secondary_used,o.secondary_minutes,o.secondary_resets FROM native_usage_observations o JOIN native_usage_sources s ON o.task_id=s.task_id WHERE o.observed>=? AND o.observed<? ORDER BY o.observed,o.task_id,o.source_offset`, start.UnixNano(), end.UnixNano())
+func (ledger *UsageLedger) readSessionUsageObservations(ctx context.Context, start, end time.Time) ([]sessionUsageObservation, error) {
+	rows, err := ledger.sqlDatabase.QueryContext(ctx, `SELECT o.task_id,s.path,s.source_kind,o.source_offset,o.response_id,o.root_turn_id,o.session_id,o.turn_id,o.observed,o.model,o.tier,o.input,o.cached,o.cache_write,o.output,o.reasoning,o.total,o.limit_id,o.plan_type,o.primary_used,o.primary_minutes,o.primary_resets,o.secondary_used,o.secondary_minutes,o.secondary_resets FROM native_usage_observations o JOIN native_usage_sources s ON o.task_id=s.task_id WHERE o.observed>=? AND o.observed<? ORDER BY o.observed,o.task_id,o.source_offset`, start.UnixNano(), end.UnixNano())
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var observations []codexusage.Observation
+	var observations []sessionUsageObservation
 	for rows.Next() {
-		var observation codexusage.Observation
+		var observation sessionUsageObservation
 		var observed int64
 		var input, cached, cacheWrite, output, reasoning, total, primaryMinutes, primaryResets, secondaryMinutes, secondaryResets sql.NullInt64
 		var limitID, planType sql.NullString
@@ -179,26 +176,26 @@ func (database *StoreDatabase) ReadNativeUsageObservations(ctx context.Context, 
 		}
 		observation.At = time.Unix(0, observed)
 		if input.Valid {
-			observation.Usage = &codexusage.TokenUsage{InputTokens: input.Int64, CachedInputTokens: cached.Int64, OutputTokens: output.Int64, ReasoningOutputTokens: reasoning.Int64, TotalTokens: total.Int64}
+			observation.Usage = &tokenUsage{InputTokens: input.Int64, CachedInputTokens: cached.Int64, OutputTokens: output.Int64, ReasoningOutputTokens: reasoning.Int64, TotalTokens: total.Int64}
 			if cacheWrite.Valid {
 				observation.Usage.CacheWriteInputTokens = &cacheWrite.Int64
 			}
 		}
 		if limitID.Valid {
-			observation.Allowance = &codexusage.AllowanceObservation{LimitID: limitID.String, PlanType: planType.String}
+			observation.Allowance = &sessionAllowance{LimitID: limitID.String, PlanType: planType.String}
 			if primaryUsed.Valid {
-				observation.Allowance.Primary = &codexusage.AllowanceWindow{UsedPercent: primaryUsed.Float64, WindowMinutes: primaryMinutes.Int64, ResetsAt: time.Unix(0, primaryResets.Int64)}
+				observation.Allowance.Primary = &sessionAllowanceWindow{UsedPercent: primaryUsed.Float64, WindowMinutes: primaryMinutes.Int64, ResetsAt: time.Unix(0, primaryResets.Int64)}
 			}
 			if secondaryUsed.Valid {
-				observation.Allowance.Secondary = &codexusage.AllowanceWindow{UsedPercent: secondaryUsed.Float64, WindowMinutes: secondaryMinutes.Int64, ResetsAt: time.Unix(0, secondaryResets.Int64)}
+				observation.Allowance.Secondary = &sessionAllowanceWindow{UsedPercent: secondaryUsed.Float64, WindowMinutes: secondaryMinutes.Int64, ResetsAt: time.Unix(0, secondaryResets.Int64)}
 			}
 		}
 		observations = append(observations, observation)
 	}
 	return observations, rows.Err()
 }
-func (database *StoreDatabase) ReadNativeTaskMetadata(ctx context.Context) ([]codexusage.TaskMetadata, error) {
-	rows, err := database.sqlDatabase.QueryContext(ctx, `SELECT s.task_id,s.parent_task_id,s.forked_from_task_id,s.created,s.source_kind,
+func (ledger *UsageLedger) readTaskMetadata(ctx context.Context) ([]taskMetadata, error) {
+	rows, err := ledger.sqlDatabase.QueryContext(ctx, `SELECT s.task_id,s.parent_task_id,s.forked_from_task_id,s.created,s.source_kind,
  COALESCE(c.parent_task_id,''),COALESCE(c.parent_count,0)
  FROM native_usage_sources s LEFT JOIN (
   SELECT child_task_id,MIN(source_task_id) AS parent_task_id,COUNT(DISTINCT source_task_id) AS parent_count
@@ -208,9 +205,9 @@ func (database *StoreDatabase) ReadNativeTaskMetadata(ctx context.Context) ([]co
 		return nil, err
 	}
 	defer rows.Close()
-	var metadata []codexusage.TaskMetadata
+	var metadata []taskMetadata
 	for rows.Next() {
-		var item codexusage.TaskMetadata
+		var item taskMetadata
 		var created int64
 		var recordedParent string
 		var parentCount int
