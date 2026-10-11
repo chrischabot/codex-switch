@@ -1,42 +1,71 @@
-# Codex Switch product rules
+<!-- Written by AI on 2026.10.11 by model claude-opus-5.5, derived from the owner's steering. It is a map, not the authority: where it disagrees with the owner's own words or with the running system, they win. -->
 
-Codex Switch has one purpose: keep Codex usable across multiple ChatGPT accounts, prove that work is balanced between them, and update without interrupting running agents.
+# Codex Switch: a map for agents
 
-## Product integrity
+## What the owner wants (derived)
 
-- Make the product coherent and immediately understandable without explanatory copy.
-- Never expose uncertainty as UI. Do not add caveats, warnings, notices, information bars, ranges, minimum or maximum values, approximations, remainders, methodology, or hedging because an underlying mechanic is not understood.
-- Treat uncertain UI as evidence that the product is off track. Establish the source of truth or remove the unsupported feature.
-- Preserve the compact menu direction: a clear working state, Today / 7 Days / 30 Days, an account-split donut, compact allowance cards, real routed tasks, a privacy control, a footer, and monitor-aware scrolling.
-- Do not replace missing or incorrect data with prose. Fix the data path.
+One person pays for several ChatGPT subscriptions and wants Codex to use them as
+one pool. In the owner's words: "i point codex dot app at this thing; i log in
+twice, then i never think about it again and both accounts drain equally", and
+"the dumber and simpler the better".
 
-## Live safety
+The owner's own list of what the product must do (4 September):
 
-- Never interrupt a running agent.
-- Treat the source tree, installed menu app, and live proxy as separate states until their identity is proved.
-- Do not install, restart, kill, unload, switch, or reconfigure a live proxy or menu app without explicit approval for that exact action.
-- Prove proxy changes in an isolated environment. Keep proxy deployment separate from menu-app deployment.
-- A safe proxy update admits new work on the new process while every admitted HTTP, SSE, and WebSocket request finishes on the old process. Never replay model work.
+1. "i can use codex and load balance across my 3 accounts"
+2. "i never get interrupted"
+3. "as accounts become limited/unlimited its all seamless and 'just works'"
+4. "we have a good UI that makes it obvious what's being used and where and
+   ideally in which thread, using chatGPT first part APIs where appropriate"
+5. "we have bluegreen deployments so that agents can develop on this without
+   interrupting my work"
 
-## Engineering
+Since then: Pi uses the same pool; the menu should look like OpenUsage but nicer,
+with accurate numbers, and show that the proxy is working; an agent with no
+context must be able to run the product, read its output and logs, and find and
+fix a problem; the repository will be published, so every commit must be
+publishable. Later, not now: Claude support and server-side use.
 
-- Prefer simple, explicit designs with one obvious path. Apply KISS, YAGNI, the Zen of Python, strong module boundaries, and descriptive searchable names.
-- This is a greenfield product. Remove obsolete designs instead of preserving them through compatibility code.
-- Keep one canonical repository. Do not create a separate export repository.
-- Prefer strongly typed contracts. Do not add a stringly typed JSON boundary when protobuf or an existing typed boundary can express the contract.
-- Keep code as boring plumbing. Resolve product meaning and uncertain source interpretation from evidence rather than adding state machines, flags, or defensive branches.
-- Prove the operating path before adding guardrails, regression protection, compatibility machinery, or tests.
+## Where the truth lives
 
-## Proof and tests
+| Question | Source |
+| --- | --- |
+| What did the owner actually ask for? | The owner's messages, if present locally: `.project-private/steering/README.md`. Later messages win. |
+| How does the owner want engineering done? | `~/.codex/AGENTS.md` (the owner's own principles). |
+| What does the accepted menu look like? | `.project-private/visual-steering/accepted-direction/`, then OpenUsage (`robinebers/openusage`). |
+| Is the live proxy working, and how are accounts used? | `codex-switch status`; the log at `~/Library/Application Support/codex-switch/proxy.log`. |
+| Which build is live? | `GET http://127.0.0.1:<port>/client/<capability>/codex-switch/deploy-status`; the capability is in the data directory. |
+| What runs it? | `launchctl list \| grep codex-switch`; the launchd plist names the binary, port and data directory. |
+| How do clients reach it? | Codex: `openai_base_url` in `~/.codex/config.toml` (`codex-switch print-codex-config`). Pi: `~/.pi/agent/models.json`, provider `openai-codex`. |
+| How does Codex itself behave? | The Codex source (`openai/codex`), and the installed client: `/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex`. |
+| How do I prove a change in isolation? | `docs/continuity-rig.md`. |
+| How do I update the live proxy? | `deploy/deploy.sh new <binary> ...`: new work goes to the new process, admitted work finishes on the old one. |
 
-- Test what a person uses: the real CLI, proxy process, Codex traffic, signed menu app, rendered UI, and isolated deployment path.
-- Unit tests, synthetic fixtures, schemas, line counts, screenshot dimensions, and self-agreeing fakes are supporting evidence, not product acceptance.
-- For Mac UI work, open the actual app with Computer Use, inspect every relevant state on screen, and compare it with the applicable design screenshots. A successful build is not proof.
-- Keep a test only when it protects a real human path, a hard external contract, or a small critical rule.
+## The code
 
-## Work structure
+| Path | Owns |
+| --- | --- |
+| `cmd/codex-switch/` | CLI commands and wiring. Logic does not belong here. |
+| `internal/accounts/` | Sign-in, credentials, the account pool, and every read from OpenAI about an account. |
+| `internal/routing/` | Which account serves a task, and when a task moves. |
+| `internal/relay/` | Forwarding HTTP, SSE and WebSocket traffic byte for byte, recording completed responses, draining on update. |
+| `internal/usage/` | Tokens and API-equivalent cost per account and per task, for Today, 7 Days and 30 Days. |
+| `internal/store/` | The one SQLite database. Imports nothing of ours. |
+| `internal/codexstate/` | Reading task titles and model settings from the installed Codex. |
+| `internal/clientcapability/` | The private URL path that stops web pages from using the proxy. |
+| `proto/`, `internal/menupb/` | The typed snapshot the menu renders. |
+| `macos/CodexSwitchMenu/` | The menu bar app. |
+| `deploy/`, `scripts/dev/` | Blue-green updates; build, test and rig scripts (`devenv tasks run dev:build`, `dev:test`). |
 
-- The lead agent owns product judgement and integration. Delegate bounded, orthogonal outcomes with explicit file boundaries.
-- Recover the human intent and accepted or rejected design screenshots before changing product behaviour.
-- Review each coherent slice from zero context for simplicity, naming, mission alignment, human-path correctness, and value to the product mission.
-- Do not substitute reviews, plans, ledgers, tests, or code deletion for a working product.
+## How the owner wants it proved
+
+Declarative, repeatable, full tests in code. Test only the real path, not
+invented mocks. Test as close to the real thing as possible: the real proxy
+process, the real Codex and Pi clients, real accounts on a cheap model, a real
+blue-green update, and the real menu app on screen. A test that only checks the
+code against itself proves nothing.
+
+## Live system
+
+Never interrupt running work. Deploy the proxy only through `deploy/deploy.sh`;
+deploy the menu separately. Do not commit email addresses, task IDs, local
+paths or agent plans.
