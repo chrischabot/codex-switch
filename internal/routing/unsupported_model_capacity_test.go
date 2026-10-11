@@ -45,9 +45,9 @@ func TestUnsupportedModelRetryEntersCapacityWait(t *testing.T) {
 	}
 }
 
-type capacityWaitFacts []AccountRoutingFact
+type capacityWaitFacts []accounts.AccountRoutingFact
 
-func (facts capacityWaitFacts) ReadAccountRoutingFacts() ([]AccountRoutingFact, error) {
+func (facts capacityWaitFacts) ReadAccountRoutingFacts() ([]accounts.AccountRoutingFact, error) {
 	return facts, nil
 }
 func (facts capacityWaitFacts) RequestAccountRoutingFactsRefresh() {}

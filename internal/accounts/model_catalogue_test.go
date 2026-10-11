@@ -1,4 +1,4 @@
-package main
+package accounts
 
 import (
 	"context"
@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
-
-	accountapi "github.com/josh/codex-switch/internal/accounts"
 )
 
 func TestAccountModelCatalogueContract(t *testing.T) {
@@ -44,9 +42,8 @@ func TestAccountModelCatalogueContract(t *testing.T) {
 			}))
 			defer server.Close()
 			origin, _ := url.Parse(server.URL)
-			source := newPoolAccountRoutingFactsSource(t.TempDir(), origin, server.Client(), routingFactsTestDatabase(t))
-			source.codexExecutable = executable
-			got, err := source.fetchSupportedModelSlugs(context.Background(), accountapi.Credentials{AccessToken: "test-token", AccountID: "test-account"})
+			monitor := NewMonitor(t.TempDir(), origin, executable, server.Client(), monitorTestDatabase(t))
+			got, err := monitor.readSupportedModelSlugs(context.Background(), Credentials{AccessToken: "test-token", AccountID: "test-account"})
 			if (err != nil) != test.wantError {
 				t.Fatalf("error = %v", err)
 			}
@@ -71,11 +68,10 @@ func TestAccountModelCatalogueTracksSelectedClientUpgrade(t *testing.T) {
 	}))
 	defer server.Close()
 	origin, _ := url.Parse(server.URL)
-	source := newPoolAccountRoutingFactsSource(t.TempDir(), origin, server.Client(), routingFactsTestDatabase(t))
-	source.codexExecutable = executable
+	monitor := NewMonitor(t.TempDir(), origin, executable, server.Client(), monitorTestDatabase(t))
 	for _, version := range []string{"0.153.1", "0.159.2"} {
 		writeCodexExecutableVersion(t, executable, version)
-		slugs, err := source.fetchSupportedModelSlugs(context.Background(), accountapi.Credentials{})
+		slugs, err := monitor.readSupportedModelSlugs(context.Background(), Credentials{})
 		if err != nil {
 			t.Fatal(err)
 		}

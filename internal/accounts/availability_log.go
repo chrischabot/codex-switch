@@ -1,11 +1,9 @@
-package main
+package accounts
 
 import (
 	"fmt"
 	"strings"
-
-	accountapi "github.com/josh/codex-switch/internal/accounts"
-	"github.com/josh/codex-switch/internal/routing"
+	"time"
 )
 
 // describeAccountAvailabilityChange returns the proxy log line for an account
@@ -13,7 +11,7 @@ import (
 // operator needs to know has changed. Allowance percentages and repeated
 // failures of the same kind do not count as changes; the first observation
 // after the proxy starts always does.
-func describeAccountAvailabilityChange(previous, current routing.AccountRoutingFact, email string) string {
+func describeAccountAvailabilityChange(previous, current AccountRoutingFact, email string) string {
 	firstObservation := previous.AccountName == ""
 	stateChanged := previous.AccountState != current.AccountState
 	modelListChanged := (previous.SupportedModelSlugs == nil) != (current.SupportedModelSlugs == nil)
@@ -35,15 +33,15 @@ func describeAccountAvailabilityChange(previous, current routing.AccountRoutingF
 
 	var state string
 	switch current.AccountState {
-	case accountapi.AccountReady:
+	case AccountReady:
 		state = "available"
-	case accountapi.AccountLimited:
+	case AccountLimited:
 		state = "OpenAI reports its usage limit reached"
-	case accountapi.AccountSignInRequired:
+	case AccountSignInRequired:
 		state = fmt.Sprintf("signed out (%v); run: codex-switch login %s", current.AccountStateCause, current.AccountName)
-	case accountapi.AccountCredentialsUnavailable:
+	case AccountCredentialsUnavailable:
 		state = fmt.Sprintf("cannot read its saved login: %v", current.AccountStateCause)
-	case accountapi.AccountUsageCheckFailed:
+	case AccountUsageCheckFailed:
 		state = fmt.Sprintf("available, but its allowance could not be read: %v", current.AccountStateCause)
 	default:
 		state = "state " + string(current.AccountState)
@@ -67,17 +65,35 @@ func describeAccountAvailabilityChange(previous, current routing.AccountRoutingF
 
 // allowanceReadFailing reports an account whose latest allowance read failed
 // while routing keeps using an earlier reading.
-func allowanceReadFailing(fact routing.AccountRoutingFact) bool {
+func allowanceReadFailing(fact AccountRoutingFact) bool {
 	return fact.AccountStateCause != nil && !fact.AllowanceSample.ObservedAt.IsZero() &&
-		(fact.AccountState == accountapi.AccountReady || fact.AccountState == accountapi.AccountLimited)
+		(fact.AccountState == AccountReady || fact.AccountState == AccountLimited)
 }
 
-func describeAllowanceWindows(sample accountapi.AllowanceSample) string {
+func describeAllowanceWindows(sample AllowanceSample) string {
 	windows := make([]string, 0, len(sample.Windows))
 	for _, window := range sample.Windows {
 		windows = append(windows, fmt.Sprintf("%s %g%% used, %g%% free, resets %s",
-			allowancePeriodLabel(window.DurationSeconds), window.UsedPercent, 100-window.UsedPercent,
+			AllowancePeriodLabel(window.DurationSeconds), window.UsedPercent, 100-window.UsedPercent,
 			window.ResetsAt.Local().Format("Mon 2 Jan 15:04")))
 	}
 	return strings.Join(windows, "; ")
+}
+
+// AllowancePeriodLabel names an allowance window the way the proxy log and the
+// status command show it.
+func AllowancePeriodLabel(seconds int64) string {
+	switch seconds {
+	case 5 * 3600:
+		return "5-hour"
+	case 7 * 86400:
+		return "weekly"
+	}
+	if seconds >= 86400 && seconds%86400 == 0 {
+		return fmt.Sprintf("%d days", seconds/86400)
+	}
+	if seconds >= 3600 && seconds%3600 == 0 {
+		return fmt.Sprintf("%d hours", seconds/3600)
+	}
+	return (time.Duration(seconds) * time.Second).String()
 }

@@ -14,8 +14,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/josh/codex-switch/internal/fslock"
 )
 
 const (
@@ -24,20 +22,20 @@ const (
 	maximumRefreshResponseBytes = 1 << 20
 )
 
-type ErrorKind string
+type credentialErrorKind string
 
 const (
-	ErrorTemporary      ErrorKind = "temporary"
-	ErrorSignInRequired ErrorKind = "sign-in-required"
+	credentialErrorTemporary      credentialErrorKind = "temporary"
+	credentialErrorSignInRequired credentialErrorKind = "sign-in-required"
 )
 
-type CredentialError struct {
-	Kind  ErrorKind
+type credentialError struct {
+	Kind  credentialErrorKind
 	Cause error
 }
 
-func (e *CredentialError) Error() string {
-	if e.Kind == ErrorSignInRequired {
+func (e *credentialError) Error() string {
+	if e.Kind == credentialErrorSignInRequired {
 		return "sign-in required"
 	}
 	if e.Cause != nil {
@@ -46,21 +44,21 @@ func (e *CredentialError) Error() string {
 	return "credential check failed"
 }
 
-func (e *CredentialError) Unwrap() error {
+func (e *credentialError) Unwrap() error {
 	return e.Cause
 }
 
-func RequiresSignIn(err error) bool {
-	var credentialError *CredentialError
-	return errors.As(err, &credentialError) && credentialError.Kind == ErrorSignInRequired
+func requiresSignIn(err error) bool {
+	var credentialError *credentialError
+	return errors.As(err, &credentialError) && credentialError.Kind == credentialErrorSignInRequired
 }
 
 func signInRequired(cause error) error {
-	return &CredentialError{Kind: ErrorSignInRequired, Cause: cause}
+	return &credentialError{Kind: credentialErrorSignInRequired, Cause: cause}
 }
 
 func temporary(cause error) error {
-	return &CredentialError{Kind: ErrorTemporary, Cause: cause}
+	return &credentialError{Kind: credentialErrorTemporary, Cause: cause}
 }
 
 type Credentials struct {
@@ -68,7 +66,8 @@ type Credentials struct {
 	AccountID   string
 }
 
-type CredentialStore struct {
+// savedLogin reads one account's auth.json and refreshes its tokens.
+type savedLogin struct {
 	mu     sync.Mutex
 	home   string
 	client *http.Client
@@ -89,18 +88,18 @@ type tokens struct {
 	AccountID    string `json:"account_id"`
 }
 
-func NewCredentialStore(home string, client *http.Client) *CredentialStore {
+func newSavedLogin(home string, client *http.Client) *savedLogin {
 	if client == nil {
 		client = http.DefaultClient
 	}
-	return &CredentialStore{home: home, client: client, token: tokenURL}
+	return &savedLogin{home: home, client: client, token: tokenURL}
 }
 
-func (s *CredentialStore) Credentials(ctx context.Context) (Credentials, error) {
+func (s *savedLogin) Credentials(ctx context.Context) (Credentials, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var result Credentials
-	err := fslock.WithExistingDirectory(filepath.Join(s.home, "auth.lock"), func() error {
+	err := withAuthLock(s.home, func() error {
 		auth, err := s.read()
 		if err != nil {
 			return err
@@ -118,7 +117,7 @@ func (s *CredentialStore) Credentials(ctx context.Context) (Credentials, error) 
 
 // CurrentCredentials reads the stored ChatGPT credentials without refreshing
 // or modifying them. It accepts only a current access token.
-func (s *CredentialStore) CurrentCredentials() (Credentials, error) {
+func (s *savedLogin) CurrentCredentials() (Credentials, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	auth, err := s.read()
@@ -134,14 +133,14 @@ func (s *CredentialStore) CurrentCredentials() (Credentials, error) {
 // RefreshAfterUnauthorized refreshes only when rejected is still stored.
 // Concurrent callers which observed the same 401 therefore share one
 // same-account refresh-token rotation.
-func (s *CredentialStore) RefreshAfterUnauthorized(ctx context.Context, rejected Credentials) (Credentials, error) {
+func (s *savedLogin) RefreshAfterUnauthorized(ctx context.Context, rejected Credentials) (Credentials, error) {
 	if rejected.AccessToken == "" || rejected.AccountID == "" {
 		return Credentials{}, signInRequired(errors.New("rejected credentials are incomplete"))
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var result Credentials
-	err := fslock.WithExistingDirectory(filepath.Join(s.home, "auth.lock"), func() error {
+	err := withAuthLock(s.home, func() error {
 		auth, err := s.read()
 		if err != nil {
 			return err
@@ -165,7 +164,7 @@ func (s *CredentialStore) RefreshAfterUnauthorized(ctx context.Context, rejected
 	return result, err
 }
 
-func (s *CredentialStore) read() (authFile, error) {
+func (s *savedLogin) read() (authFile, error) {
 	data, err := os.ReadFile(filepath.Join(s.home, "auth.json"))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -183,7 +182,7 @@ func (s *CredentialStore) read() (authFile, error) {
 	return auth, nil
 }
 
-func (s *CredentialStore) refresh(ctx context.Context, auth *authFile) error {
+func (s *savedLogin) refresh(ctx context.Context, auth *authFile) error {
 	body, err := json.Marshal(map[string]string{"client_id": clientID, "grant_type": "refresh_token", "refresh_token": auth.Tokens.RefreshToken})
 	if err != nil {
 		return err

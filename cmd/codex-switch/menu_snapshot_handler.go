@@ -17,7 +17,7 @@ import (
 
 const menuSnapshotEndpoint = "/codex-switch/menu-snapshot"
 
-func menuSnapshotOrRelay(capability string, source *poolAccountRoutingFactsSource, router *routing.TaskRouter, usageLedger *usage.UsageLedger, next http.Handler) http.Handler {
+func menuSnapshotOrRelay(capability, dataDirectory string, router *routing.TaskRouter, usageLedger *usage.UsageLedger, next http.Handler) http.Handler {
 	path := clientcapability.PathPrefix(capability) + menuSnapshotEndpoint
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != path {
@@ -28,7 +28,7 @@ func menuSnapshotOrRelay(capability string, source *poolAccountRoutingFactsSourc
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		snapshot, err := readServingMenuSnapshot(source, router, r.URL.Query().Get("model"))
+		snapshot, err := readServingMenuSnapshot(dataDirectory, router, r.URL.Query().Get("model"))
 		if err != nil {
 			log.Printf("could not build the status snapshot for the menu or status command: %v", err)
 			http.Error(w, "snapshot unavailable", http.StatusServiceUnavailable)
@@ -61,12 +61,12 @@ func menuSnapshotOrRelay(capability string, source *poolAccountRoutingFactsSourc
 	})
 }
 
-func readServingMenuSnapshot(source *poolAccountRoutingFactsSource, router *routing.TaskRouter, modelSlug string) (*menupb.MenuSnapshot, error) {
+func readServingMenuSnapshot(dataDirectory string, router *routing.TaskRouter, modelSlug string) (*menupb.MenuSnapshot, error) {
 	facts, unavailableReasons, err := router.ReadAccountAvailability(modelSlug)
 	if err != nil {
 		return nil, err
 	}
-	installed, err := accountapi.ReadPool(source.dataDirectory)
+	installed, err := accountapi.ReadPool(dataDirectory)
 	if err != nil {
 		return nil, err
 	}

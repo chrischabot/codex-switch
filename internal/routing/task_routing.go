@@ -153,8 +153,8 @@ func (router *TaskRouter) reportExhaustedTaskPin(codexTaskID store.CodexTaskID, 
 	return limitReached + "; task moved to " + router.describeChoice(selected) + " for its next request", nil
 }
 
-func (router *TaskRouter) selectAccountWithMostWeeklyCapacity(facts []AccountRoutingFact, codexTaskID store.CodexTaskID, excludedAccountName store.AccountName, modelSlug string) (AccountRoutingFact, bool, error) {
-	var selected AccountRoutingFact
+func (router *TaskRouter) selectAccountWithMostWeeklyCapacity(facts []accounts.AccountRoutingFact, codexTaskID store.CodexTaskID, excludedAccountName store.AccountName, modelSlug string) (accounts.AccountRoutingFact, bool, error) {
+	var selected accounts.AccountRoutingFact
 	selectedCapacity := -1.0
 	for _, fact := range facts {
 		if fact.AccountName == excludedAccountName {
@@ -162,7 +162,7 @@ func (router *TaskRouter) selectAccountWithMostWeeklyCapacity(facts []AccountRou
 		}
 		problem, err := router.accountUnavailableReason(fact, modelSlug)
 		if err != nil {
-			return AccountRoutingFact{}, false, err
+			return accounts.AccountRoutingFact{}, false, err
 		}
 		if problem != "" {
 			continue
@@ -177,7 +177,7 @@ func (router *TaskRouter) selectAccountWithMostWeeklyCapacity(facts []AccountRou
 }
 
 // describeChoice explains why selectAccountWithMostWeeklyCapacity chose an account.
-func (router *TaskRouter) describeChoice(selected AccountRoutingFact) string {
+func (router *TaskRouter) describeChoice(selected accounts.AccountRoutingFact) string {
 	weeklyFreePercent, reported := router.weeklyAllowanceLeft(selected)
 	if !reported {
 		return fmt.Sprintf("%s, which reports no weekly allowance", selected.AccountName)
@@ -185,7 +185,7 @@ func (router *TaskRouter) describeChoice(selected AccountRoutingFact) string {
 	return fmt.Sprintf("%s, which has the most weekly allowance left (%g%%)", selected.AccountName, weeklyFreePercent)
 }
 
-func (router *TaskRouter) describeUnavailableAccounts(facts []AccountRoutingFact, modelSlug string) string {
+func (router *TaskRouter) describeUnavailableAccounts(facts []accounts.AccountRoutingFact, modelSlug string) string {
 	if len(facts) == 0 {
 		return "no account has been read yet"
 	}
@@ -241,8 +241,8 @@ func (router *TaskRouter) ReportUnsupportedModel(taskID store.CodexTaskID, accou
 	return moved
 }
 
-func accountsWithKnownModels(facts []AccountRoutingFact) []AccountRoutingFact {
-	known := make([]AccountRoutingFact, 0, len(facts))
+func accountsWithKnownModels(facts []accounts.AccountRoutingFact) []accounts.AccountRoutingFact {
+	known := make([]accounts.AccountRoutingFact, 0, len(facts))
 	for _, fact := range facts {
 		if fact.SupportedModelSlugs != nil {
 			known = append(known, fact)
@@ -258,7 +258,7 @@ func (router *TaskRouter) RouteForModelCatalogue() (RouteDecision, error) {
 	if err != nil {
 		return RouteDecision{}, fmt.Errorf("read model catalogue routing facts: %w", err)
 	}
-	var selected *AccountRoutingFact
+	var selected *accounts.AccountRoutingFact
 	for index := range facts {
 		fact := &facts[index]
 		if !accountCredentialsUsable(fact.Credentials) || fact.SupportedModelSlugs == nil {
@@ -277,7 +277,7 @@ func (router *TaskRouter) RouteForModelCatalogue() (RouteDecision, error) {
 
 // ReadAccountAvailability uses the same rule as admission. An empty reason means
 // the account can take new work for modelSlug.
-func (router *TaskRouter) ReadAccountAvailability(modelSlug string) ([]AccountRoutingFact, map[store.AccountName]string, error) {
+func (router *TaskRouter) ReadAccountAvailability(modelSlug string) ([]accounts.AccountRoutingFact, map[store.AccountName]string, error) {
 	facts, err := router.accountFacts.ReadAccountRoutingFacts()
 	if err != nil {
 		return nil, nil, err

@@ -20,7 +20,7 @@ func TestEqualCapacityTasksUseBothAccountsAndKeepPinsWhenCapacityCrosses(t *test
 	now := time.Now()
 	facts := capacityWaitFacts{}
 	for _, name := range []store.AccountName{"account-1", "account-2"} {
-		facts = append(facts, AccountRoutingFact{
+		facts = append(facts, accounts.AccountRoutingFact{
 			AccountName: name, Credentials: accounts.Credentials{AccessToken: "test", AccountID: string(name)},
 			AccountState: accounts.AccountReady, SupportedModelSlugs: []string{"luna"}, RefreshedAt: now,
 			AllowanceSample: accounts.AllowanceSample{Allowed: true, ObservedAt: now, Windows: []accounts.ReportedWindow{

@@ -13,8 +13,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/josh/codex-switch/internal/fslock"
 )
 
 func TestRefreshRotatesAndPersistsTokens(t *testing.T) {
@@ -38,7 +36,7 @@ func TestRefreshRotatesAndPersistsTokens(t *testing.T) {
 		})
 	}))
 	defer server.Close()
-	store := NewCredentialStore(home, server.Client())
+	store := newSavedLogin(home, server.Client())
 	store.token = server.URL
 	credentials, err := store.Credentials(t.Context())
 	if err != nil {
@@ -73,7 +71,7 @@ func TestUnauthorizedRefreshRotatesARejectedTokenOnlyOnce(t *testing.T) {
 		})
 	}))
 	defer server.Close()
-	store := NewCredentialStore(home, server.Client())
+	store := newSavedLogin(home, server.Client())
 	store.token = server.URL
 
 	var wait sync.WaitGroup
@@ -120,13 +118,13 @@ func TestUnauthorizedRefreshRejectsAStoredReplacementFromAnotherAccount(t *testi
 		refreshes.Add(1)
 	}))
 	defer server.Close()
-	store := NewCredentialStore(home, server.Client())
+	store := newSavedLogin(home, server.Client())
 	store.token = server.URL
 
 	replacement := jwt(t, time.Now().Add(2*time.Hour), "account-b")
 	writeTestAuth(t, home, replacement, "refresh-b", "account-b")
 	got, err := store.RefreshAfterUnauthorized(t.Context(), rejected)
-	if !RequiresSignIn(err) || got != (Credentials{}) {
+	if !requiresSignIn(err) || got != (Credentials{}) {
 		t.Fatalf("replacement credentials = %#v, error = %T %v", got, err, err)
 	}
 	if refreshes.Load() != 0 {
@@ -154,10 +152,10 @@ func TestRefreshRejectsAnotherAccountWithoutChangingStoredCredentials(t *testing
 		})
 	}))
 	defer server.Close()
-	store := NewCredentialStore(home, server.Client())
+	store := newSavedLogin(home, server.Client())
 	store.token = server.URL
 
-	if _, err := store.Credentials(t.Context()); !RequiresSignIn(err) {
+	if _, err := store.Credentials(t.Context()); !requiresSignIn(err) {
 		t.Fatalf("refresh error = %T %v", err, err)
 	}
 	data, err := os.ReadFile(filepath.Join(home, "auth.json"))
@@ -197,10 +195,10 @@ func TestRefreshRejectsTrailingOrOversizedSuccessWithoutChangingAuth(t *testing.
 				_, _ = w.Write([]byte(test.body))
 			}))
 			defer server.Close()
-			store := NewCredentialStore(home, server.Client())
+			store := newSavedLogin(home, server.Client())
 			store.token = server.URL
 
-			if _, err := store.Credentials(t.Context()); err == nil || RequiresSignIn(err) ||
+			if _, err := store.Credentials(t.Context()); err == nil || requiresSignIn(err) ||
 				strings.Contains(err.Error(), "private provider response") {
 				t.Fatalf("refresh error = %T %v", err, err)
 			}
@@ -230,10 +228,10 @@ func TestRefresh401RequiresSignInWithoutExposingTheResponse(t *testing.T) {
 				_, _ = w.Write([]byte(body))
 			}))
 			defer server.Close()
-			store := NewCredentialStore(home, server.Client())
+			store := newSavedLogin(home, server.Client())
 			store.token = server.URL
 			_, err := store.Credentials(t.Context())
-			if !RequiresSignIn(err) {
+			if !requiresSignIn(err) {
 				t.Fatalf("error = %T %v", err, err)
 			}
 			if strings.Contains(err.Error(), "secret detail") {
@@ -250,10 +248,10 @@ func TestRefreshServerFailureIsTemporary(t *testing.T) {
 		http.Error(w, "secret detail", http.StatusBadGateway)
 	}))
 	defer server.Close()
-	store := NewCredentialStore(home, server.Client())
+	store := newSavedLogin(home, server.Client())
 	store.token = server.URL
 	_, err := store.Credentials(t.Context())
-	if err == nil || RequiresSignIn(err) {
+	if err == nil || requiresSignIn(err) {
 		t.Fatalf("error = %T %v", err, err)
 	}
 	if strings.Contains(err.Error(), "secret detail") {
@@ -276,7 +274,7 @@ func TestRefreshHoldsThePerAccountLockUntilItsAtomicWriteFinishes(t *testing.T) 
 		})
 	}))
 	defer server.Close()
-	store := NewCredentialStore(home, server.Client())
+	store := newSavedLogin(home, server.Client())
 	store.token = server.URL
 	credentialsDone := make(chan error, 1)
 	go func() {
@@ -288,7 +286,7 @@ func TestRefreshHoldsThePerAccountLockUntilItsAtomicWriteFinishes(t *testing.T) 
 	lockAcquired := make(chan struct{})
 	lockDone := make(chan error, 1)
 	go func() {
-		lockDone <- fslock.With(filepath.Join(home, "auth.lock"), func() error {
+		lockDone <- withAuthLock(home, func() error {
 			close(lockAcquired)
 			return nil
 		})
@@ -328,8 +326,8 @@ func TestMissingMalformedAndIncompleteCredentialsRequireSignIn(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			_, err := NewCredentialStore(home, nil).Credentials(t.Context())
-			if !RequiresSignIn(err) {
+			_, err := newSavedLogin(home, nil).Credentials(t.Context())
+			if !requiresSignIn(err) {
 				t.Fatalf("error = %T %v", err, err)
 			}
 		})

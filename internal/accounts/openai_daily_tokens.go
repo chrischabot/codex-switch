@@ -15,7 +15,6 @@ import (
 
 const (
 	openAIDailyTokenProfileURL       = "https://chatgpt.com/backend-api/wham/profiles/me"
-	openAIDailyTokenDateLayout       = "2006-01-02"
 	maximumOpenAIDailyTokenBodyBytes = 4 << 20
 )
 
@@ -40,8 +39,8 @@ func (h OpenAIDailyTokenHistory) TokensForReportedDays(numberOfDays int) (int64,
 	if numberOfDays < 1 || h.ReportingDate.IsZero() {
 		return 0, errors.New("OpenAI reporting day range is invalid")
 	}
-	firstDate := h.ReportingDate.AddDate(0, 0, 1-numberOfDays).Format(openAIDailyTokenDateLayout)
-	lastDate := h.ReportingDate.Format(openAIDailyTokenDateLayout)
+	firstDate := h.ReportingDate.AddDate(0, 0, 1-numberOfDays).Format(time.DateOnly)
+	lastDate := h.ReportingDate.Format(time.DateOnly)
 	var total int64
 	for _, bucket := range h.Buckets {
 		if bucket.StartDate >= firstDate && bucket.StartDate <= lastDate {
@@ -52,13 +51,13 @@ func (h OpenAIDailyTokenHistory) TokensForReportedDays(numberOfDays int) (int64,
 }
 
 type OpenAIDailyTokenSource struct {
-	credentials *CredentialStore
+	credentials *savedLogin
 	client      *http.Client
 	now         func() time.Time
 }
 
 func NewOpenAIDailyTokenSource(home string, client *http.Client) *OpenAIDailyTokenSource {
-	credentials := NewCredentialStore(home, client)
+	credentials := newSavedLogin(home, client)
 	readOnlyClient := *credentials.client
 	readOnlyClient.CheckRedirect = func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
@@ -163,8 +162,8 @@ func decodeOpenAIDailyTokenHistory(accountID string, readStarted time.Time, enco
 	if wire.Metadata == nil || wire.Metadata.GeneratedAt.IsZero() {
 		return OpenAIDailyTokenHistory{}, errors.New("OpenAI daily tokens response has no reporting metadata")
 	}
-	reportingDate, err := time.Parse(openAIDailyTokenDateLayout, wire.Metadata.StatsAsOf)
-	if err != nil || reportingDate.Format(openAIDailyTokenDateLayout) != wire.Metadata.StatsAsOf {
+	reportingDate, err := time.Parse(time.DateOnly, wire.Metadata.StatsAsOf)
+	if err != nil || reportingDate.Format(time.DateOnly) != wire.Metadata.StatsAsOf {
 		return OpenAIDailyTokenHistory{}, errors.New("OpenAI daily tokens reporting date is invalid")
 	}
 	if statsError := strings.TrimSpace(string(wire.Metadata.StatsError)); statsError != "" && statsError != "null" {
@@ -183,8 +182,8 @@ func decodeOpenAIDailyTokenHistory(accountID string, readStarted time.Time, enco
 	var bucketTotal int64
 	for index, raw := range rawBuckets {
 		startDate := raw.StartDate
-		date, err := time.Parse(openAIDailyTokenDateLayout, startDate)
-		if err != nil || date.Format(openAIDailyTokenDateLayout) != startDate {
+		date, err := time.Parse(time.DateOnly, startDate)
+		if err != nil || date.Format(time.DateOnly) != startDate {
 			return OpenAIDailyTokenHistory{}, fmt.Errorf("OpenAI daily token bucket %d has an invalid date", index)
 		}
 		if date.After(reportingDate) {

@@ -14,7 +14,7 @@ import (
 // accountUnavailableReason is the one rule for whether an account may take new
 // model work. It returns "" when the account can serve modelSlug, otherwise the
 // reason in the words the status command and the proxy log show.
-func (router *TaskRouter) accountUnavailableReason(fact AccountRoutingFact, modelSlug string) (string, error) {
+func (router *TaskRouter) accountUnavailableReason(fact accounts.AccountRoutingFact, modelSlug string) (string, error) {
 	switch {
 	case fact.AccountState == accounts.AccountSignInRequired:
 		return "signed out; run: codex-switch login " + string(fact.AccountName), nil
@@ -61,7 +61,7 @@ func (router *TaskRouter) accountUnavailableReason(fact AccountRoutingFact, mode
 
 // weeklyAllowanceLeft is the free share of the weekly allowance, which ranks
 // accounts for new work. An account that reports no weekly window ranks last.
-func (router *TaskRouter) weeklyAllowanceLeft(fact AccountRoutingFact) (float64, bool) {
+func (router *TaskRouter) weeklyAllowanceLeft(fact accounts.AccountRoutingFact) (float64, bool) {
 	weekly, known := accounts.AnalyseAllowance(fact.AllowanceSample, fact.AccountState, router.currentTime().UTC(), accounts.Weekly)
 	return weekly.FreePercent, known
 }
@@ -70,17 +70,17 @@ func accountCredentialsUsable(credentials accounts.Credentials) bool {
 	return strings.TrimSpace(credentials.AccessToken) != "" && strings.TrimSpace(credentials.AccountID) != ""
 }
 
-func accountSupportsModel(fact AccountRoutingFact, modelSlug string) bool {
+func accountSupportsModel(fact accounts.AccountRoutingFact, modelSlug string) bool {
 	return modelSlug == "" || slices.Contains(fact.SupportedModelSlugs, modelSlug)
 }
 
-func factForAccount(facts []AccountRoutingFact, accountName store.AccountName) (AccountRoutingFact, bool) {
+func factForAccount(facts []accounts.AccountRoutingFact, accountName store.AccountName) (accounts.AccountRoutingFact, bool) {
 	for _, fact := range facts {
 		if fact.AccountName == accountName {
 			return fact, true
 		}
 	}
-	return AccountRoutingFact{}, false
+	return accounts.AccountRoutingFact{}, false
 }
 
 func latestReset(sample accounts.AllowanceSample) time.Time {
