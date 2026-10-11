@@ -94,9 +94,6 @@ func (ledger *UsageLedger) importSessionFiles(ctx context.Context, sources []ses
 			if observation.Usage != nil {
 				result.UsageObservations++
 			}
-			if observation.Allowance != nil {
-				result.AllowanceObservations++
-			}
 		}
 	}
 	return result, nil

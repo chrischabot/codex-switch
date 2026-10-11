@@ -89,9 +89,8 @@ type childTaskRecord struct {
 }
 
 type sessionImportSummary struct {
-	FilesDiscovered       int
-	FilesRead             int
-	UsageObservations     int
-	AllowanceObservations int
-	BytesRead             int64
+	FilesDiscovered   int
+	FilesRead         int
+	UsageObservations int
+	BytesRead         int64
 }
