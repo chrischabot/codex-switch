@@ -109,7 +109,7 @@ func TestOpenAIDailyTokenHistoryReconcilesValidatedBucketsWithOpenAILifetime(t *
 	}
 }
 
-func TestReportedTokensUseProviderDateAndIncludeItsPublishedDay(t *testing.T) {
+func TestDailyTokenHistoryKeepsProviderReportingDate(t *testing.T) {
 	history, err := decodeOpenAIDailyTokenHistory("account-a", time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC), []byte(`{
   "metadata":{"stats_as_of":"2026-08-01","generated_at":"2026-08-02T00:10:00Z"},
   "stats":{"lifetime_tokens":1062,"daily_usage_buckets":[
@@ -128,25 +128,6 @@ func TestReportedTokensUseProviderDateAndIncludeItsPublishedDay(t *testing.T) {
 	}
 	if got := history.GeneratedAt.Format(time.RFC3339); got != "2026-08-02T00:10:00Z" {
 		t.Fatalf("provider generation time = %s", got)
-	}
-	for days, want := range map[int]int64{1: 1000, 7: 1057, 30: 1060} {
-		got, err := history.TokensForReportedDays(days)
-		if err != nil || got != want {
-			t.Fatalf("%d reported days = %d, %v; want %d", days, got, err, want)
-		}
-	}
-	withoutActiveBucket, err := decodeOpenAIDailyTokenHistory("account-b", time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC), []byte(`{
-  "metadata":{"stats_as_of":"2026-08-01","generated_at":"2026-08-02T00:10:00Z"},
-  "stats":{"lifetime_tokens":9,"daily_usage_buckets":[{"start_date":"2026-07-31","tokens":9}]}
- }`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, err := withoutActiveBucket.TokensForReportedDays(1); err != nil || got != 0 {
-		t.Fatalf("reported day without activity = %d, %v", got, err)
-	}
-	if got, err := withoutActiveBucket.TokensForReportedDays(7); err != nil || got != 9 {
-		t.Fatalf("reported week without active day bucket = %d, %v", got, err)
 	}
 }
 

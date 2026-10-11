@@ -54,13 +54,23 @@ func providerReportingPeriods(pool []accounts.PoolAccount, histories map[string]
 			EndedAt:   timestamppb.New(reportingDate.AddDate(0, 0, 1)),
 		}
 		for _, account := range pool {
-			total, err := histories[account.AccountID].TokensForReportedDays(definition.days)
-			if err != nil {
-				return nil, err
-			}
+			total := tokensForReportedDays(histories[account.AccountID], definition.days)
 			period.Accounts = append(period.Accounts, &menupb.AccountTotal{AccountKey: account.Name, Tokens: total})
 		}
 		periods = append(periods, period)
 	}
 	return periods, nil
+}
+
+// tokensForReportedDays includes OpenAI's reporting date and the preceding calendar days.
+func tokensForReportedDays(history accounts.OpenAIDailyTokenHistory, numberOfDays int) int64 {
+	firstDate := history.ReportingDate.AddDate(0, 0, 1-numberOfDays).Format(time.DateOnly)
+	lastDate := history.ReportingDate.Format(time.DateOnly)
+	var total int64
+	for _, bucket := range history.Buckets {
+		if bucket.StartDate >= firstDate && bucket.StartDate <= lastDate {
+			total += bucket.Tokens
+		}
+	}
+	return total
 }
