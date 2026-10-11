@@ -95,13 +95,10 @@ The only thing you do yourself is sign in to each account in the browser.
 
 ### Doing it by hand
 
-You need:
+You need macOS 14 or later, Go 1.24 or later, Xcode 16 or later (for the menu
+app), Codex, and at least two ChatGPT subscriptions.
 
-- macOS 14 or later
-- Go 1.24 or later, for the proxy
-- Xcode 16 or later, for the menu bar app
-- Codex, either the desktop app or the CLI
-- two or more ChatGPT subscriptions
+**1. Install.**
 
 ```sh
 git clone https://github.com/joshp123/codex-switch.git
@@ -110,17 +107,13 @@ deploy/install.sh
 ```
 
 This builds the proxy and runs it under launchd on `127.0.0.1:2455`, so it
-starts at login and restarts if it stops. It builds the menu bar app, signs it
-for this Mac only, copies it to Applications and opens it. You do not need an
-Apple developer account. From then on the app opens at login.
+starts at login and restarts if it stops. It also builds the menu bar app, signs
+it for this Mac only (no Apple developer account needed), puts it in
+Applications and opens it. The `codex-switch` command goes in `~/.local/bin`,
+so make sure that's on your `PATH`.
 
-It also puts the `codex-switch` command in `~/.local/bin`. Make sure that is on
-your `PATH`.
-
-### 1. Sign in to each account
-
-Run `login` once for each account. Each run opens the official Codex sign-in in
-your browser. Sign in with a different account each time.
+**2. Sign in to each account.** Each `login` opens the normal Codex sign-in in
+your browser. Use a different account each time.
 
 ```sh
 codex-switch login
@@ -128,29 +121,24 @@ codex-switch login
 codex-switch accounts
 ```
 
-`accounts` lists what you added:
-
 ```text
 account-1	you@example.com
 account-2	you+work@example.com
 ```
 
-### 2. Point Codex at it
-
-`deploy/install.sh` ends by printing one line:
+**3. Point Codex at it.** `deploy/install.sh` prints one line (and
+`codex-switch print-codex-config` prints it again):
 
 ```toml
 openai_base_url = "http://127.0.0.1:2455/client/<private key>/backend-api/codex"
 ```
 
-Add it to the top of `~/.codex/config.toml`, above any `[section]`, then
-restart Codex. `codex-switch print-codex-config` prints it again. The URL
-contains a private key for your installation, so web pages and other apps that
-do not know it cannot use your accounts through the proxy.
+Put it at the top of `~/.codex/config.toml`, above any `[section]`, and restart
+Codex. The private key in the URL stops web pages and other apps from using your
+accounts through the proxy. To go back to OpenAI directly, delete the line and
+restart Codex.
 
-To go back to OpenAI directly, delete that line and restart Codex.
-
-For Pi, add the same URL to `~/.pi/agent/models.json`:
+For Pi, put the same URL in `~/.pi/agent/models.json`:
 
 ```json
 {
@@ -163,20 +151,19 @@ For Pi, add the same URL to `~/.pi/agent/models.json`:
 }
 ```
 
-The `apiKey` is a placeholder. Pi needs one to start, and the proxy replaces it
-with the real account's sign-in.
+The `apiKey` is a placeholder: Pi won't start without one, and the proxy swaps
+in the real account's sign-in.
 
-### Check it works
+**4. Check it works.**
 
 ```sh
 codex-switch status
 ```
 
-This shows each account's allowance, whether it can take new work and why not,
-and recent tasks with the accounts that served them. The proxy's log is
-`~/Library/Application Support/codex-switch/proxy.log`. It records which
-account each task got and why, every move, every wait and every request OpenAI
-rejected. It never records prompts or responses.
+It shows each account's allowance, whether it can take new work (and why not),
+and which accounts recent tasks went to. The log at
+`~/Library/Application Support/codex-switch/proxy.log` records every assignment,
+move, wait and rejected request. It never records prompts or responses.
 
 ## How routing works
 
