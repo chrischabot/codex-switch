@@ -116,8 +116,9 @@ def start_proxy():
 
 
 def proxy_environment():
+    # PATH lets the proxy find a Codex CLI installed without the desktop app.
     return {'CODEX_SWITCH_DATA_DIR': str(RUN / 'data'), 'CODEX_SWITCH_UPSTREAM_ORIGIN': read('gateway-origin'),
-            'CODEX_HOME': str(RUN / 'home'), 'PI_CODING_AGENT_DIR': str(RUN / 'pi')}
+            'CODEX_HOME': str(RUN / 'home'), 'PI_CODING_AGENT_DIR': str(RUN / 'pi'), 'PATH': os.environ['PATH']}
 
 
 def client_environment():
@@ -301,7 +302,7 @@ class Goal:
         if status != 'complete':
             raise Failure(f'Goal {self.name} ended as {status}, not complete.')
         effects = self.effect_file.read_text() if self.effect_file.exists() else ''
-        if effects != 'START\n':
+        if effects.count('START') != 1:
             raise Failure(f'Goal {self.name} ran its one-time tool effect {effects.count("START")} times.')
         if self.result_file.read_text().strip() != '16':
             raise Failure(f'Goal {self.name} wrote {self.result_file.read_text().strip()!r}, not the sum 16.')

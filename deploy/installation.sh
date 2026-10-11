@@ -1,16 +1,17 @@
 # Where an installation of Codex Switch lives. Sourced by install.sh and
 # uninstall.sh.
 #
-# Everything is under $HOME except the launchd label and the menu app. To run
-# a second, isolated installation beside your own, set HOME to another
-# directory and set CODEX_SWITCH_LAUNCHD_LABEL and CODEX_SWITCH_MENU_APP.
+# Everything is under $HOME except the launchd label, the port and the menu
+# app. To run a second, isolated installation beside your own, set HOME to
+# another directory and set CODEX_SWITCH_LAUNCHD_LABEL, CODEX_SWITCH_LISTEN and
+# CODEX_SWITCH_MENU_APP.
 label=${CODEX_SWITCH_LAUNCHD_LABEL:-com.josh.codex-switch.proxy}
+new_install_listen=${CODEX_SWITCH_LISTEN:-127.0.0.1:2455}
 app=${CODEX_SWITCH_MENU_APP:-/Applications/CodexSwitchMenu.app}
 binary="$HOME/.local/lib/codex-switch/codex-switch"
 command_link="$HOME/.local/bin/codex-switch"
 data="$HOME/Library/Application Support/codex-switch"
 plist="$HOME/Library/LaunchAgents/$label.plist"
-default_listen=127.0.0.1:2455
 
 # Stops the menu app installed at $app, if it is running.
 quit_menu_app() {

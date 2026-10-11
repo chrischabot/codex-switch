@@ -19,6 +19,8 @@ write_launchd_job() {
   done
   /usr/bin/plutil -insert EnvironmentVariables -dictionary "$plist"
   /usr/bin/plutil -insert EnvironmentVariables.CODEX_SWITCH_DATA_DIR -string "$data" "$plist"
+  # The proxy runs the Codex CLI, which may be installed only on this PATH.
+  /usr/bin/plutil -insert EnvironmentVariables.PATH -string "$PATH" "$plist"
   /usr/bin/plutil -insert RunAtLoad -bool true "$plist"
   /usr/bin/plutil -insert KeepAlive -bool true "$plist"
   # launchd must never kill a stopping proxy before it finishes admitted work.
@@ -37,7 +39,7 @@ if [ -f "$plist" ]; then
   listen=$(/usr/bin/plutil -extract ProgramArguments.3 raw "$plist")
   "$repository/deploy/deploy.sh" new "$build/codex-switch" --stable "$binary" --data "$data" --listen "$listen"
 else
-  listen=$default_listen
+  listen=$new_install_listen
   /bin/cp "$build/codex-switch" "$binary"
   write_launchd_job
   /bin/launchctl bootstrap "gui/$(id -u)" "$plist"
