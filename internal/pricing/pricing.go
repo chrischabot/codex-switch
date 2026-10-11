@@ -7,12 +7,12 @@ import (
 
 // TokenUsage is the measured token classes of one model response.
 type TokenUsage struct {
-	InputTokens       int64 `json:"input_tokens"`
-	CachedInputTokens int64 `json:"cached_input_tokens"`
-	CacheWriteTokens  int64 `json:"cache_write_tokens"`
-	OutputTokens      int64 `json:"output_tokens"`
-	ReasoningTokens   int64 `json:"reasoning_tokens"`
-	TotalTokens       int64 `json:"total_tokens"`
+	InputTokens       int64
+	CachedInputTokens int64
+	CacheWriteTokens  int64
+	OutputTokens      int64
+	ReasoningTokens   int64
+	TotalTokens       int64
 }
 
 type Version string
@@ -53,23 +53,23 @@ const (
 )
 
 type Result struct {
-	Model          string        `json:"model"`
-	CanonicalModel string        `json:"canonical_model,omitempty"`
-	RateVersion    Version       `json:"rate_version"`
-	Basis          Basis         `json:"basis"`
-	Context        ContextClass  `json:"context,omitempty"`
-	HarnessMode    HarnessMode   `json:"harness_mode"`
-	Cost           *NanoUSD      `json:"nano_usd,omitempty"`
-	UnknownReason  UnknownReason `json:"unknown_reason,omitempty"`
+	Model          string
+	CanonicalModel string
+	RateVersion    Version
+	Basis          Basis
+	Context        ContextClass
+	HarnessMode    HarnessMode
+	Cost           *NanoUSD
+	UnknownReason  UnknownReason
 }
 
 func (r Result) Known() bool { return r.UnknownReason == "" && r.Cost != nil }
 
 type Item struct {
-	Model           string      `json:"model"`
-	Tokens          TokenUsage  `json:"tokens"`
-	CacheWriteKnown bool        `json:"cache_write_known"`
-	HarnessMode     HarnessMode `json:"harness_mode,omitempty"`
+	Model           string
+	Tokens          TokenUsage
+	CacheWriteKnown bool
+	HarnessMode     HarnessMode
 }
 
 type tokenRates struct {

@@ -27,11 +27,9 @@ func (router *TaskRouter) accountUnavailableReason(fact AccountRoutingFact, mode
 	}
 	now := router.currentTime().UTC()
 	for _, kind := range []accounts.AllowanceWindowKind{accounts.FiveHours, accounts.Weekly} {
-		allowance := accounts.AnalyseAllowance(accounts.AllowanceAnalysisInput{
-			Sample: fact.AllowanceSample, State: fact.AccountState, AsOf: now,
-		}, kind)
-		if allowance.Known() && allowance.Window.FreePercent <= 0 {
-			return fmt.Sprintf("%s allowance used up%s", kind, resetSuffix(allowance.Window.Period.ResetsAt)), nil
+		window, known := accounts.AnalyseAllowance(fact.AllowanceSample, fact.AccountState, now, kind)
+		if known && window.FreePercent <= 0 {
+			return fmt.Sprintf("%s allowance used up%s", kind, resetSuffix(window.ResetsAt)), nil
 		}
 	}
 	if fact.AccountState == accounts.AccountReady && fact.AllowanceSample.Allowed && !fact.AllowanceSample.LimitReached {
@@ -64,13 +62,8 @@ func (router *TaskRouter) accountUnavailableReason(fact AccountRoutingFact, mode
 // weeklyAllowanceLeft is the free share of the weekly allowance, which ranks
 // accounts for new work. An account that reports no weekly window ranks last.
 func (router *TaskRouter) weeklyAllowanceLeft(fact AccountRoutingFact) (float64, bool) {
-	weekly := accounts.AnalyseAllowance(accounts.AllowanceAnalysisInput{
-		Sample: fact.AllowanceSample, State: fact.AccountState, AsOf: router.currentTime().UTC(),
-	}, accounts.Weekly)
-	if !weekly.Known() {
-		return 0, false
-	}
-	return weekly.Window.FreePercent, true
+	weekly, known := accounts.AnalyseAllowance(fact.AllowanceSample, fact.AccountState, router.currentTime().UTC(), accounts.Weekly)
+	return weekly.FreePercent, known
 }
 
 func accountCredentialsUsable(credentials accounts.Credentials) bool {
