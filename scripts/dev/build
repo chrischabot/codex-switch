@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+repository_root=$(CDPATH='' cd -P "$(dirname "$0")/../.." && pwd)
+cd "$repository_root"
+unset SDKROOT DEVELOPER_DIR NIX_CFLAGS_COMPILE NIX_LDFLAGS
+export DEVELOPER_DIR=$(/usr/bin/xcode-select -p)
+export SDKROOT=$(/usr/bin/xcrun --sdk macosx --show-sdk-path)
+
+mkdir -p dist
+scripts/dev/build-proxy dist/codex-switch
+/usr/bin/swift build --package-path macos/CodexSwitchMenu
+
+echo "built dist/codex-switch and the Swift package"

@@ -1,0 +1,115 @@
+package routing
+
+import (
+	"fmt"
+	"log"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/josh/codex-switch/internal/accounts"
+	"github.com/josh/codex-switch/internal/store"
+)
+
+// accountUnavailableReason is the one rule for whether an account may take new
+// model work. It returns "" when the account can serve modelSlug, otherwise the
+// reason in the words the status command and the proxy log show.
+func (router *TaskRouter) accountUnavailableReason(fact AccountRoutingFact, modelSlug string) (string, error) {
+	switch {
+	case fact.AccountState == accounts.AccountSignInRequired:
+		return "signed out; run: codex-switch login " + string(fact.AccountName), nil
+	case !accountCredentialsUsable(fact.Credentials) || fact.AccountState == accounts.AccountCredentialsUnavailable:
+		return withCause("cannot read its saved login", fact.AccountStateCause), nil
+	case fact.AccountState == accounts.AccountLimited:
+		return "OpenAI reports its usage limit reached" + resetSuffix(latestReset(fact.AllowanceSample)), nil
+	case !fact.AccountState.Eligible():
+		return "account state " + string(fact.AccountState), nil
+	}
+	now := router.currentTime().UTC()
+	for _, kind := range []accounts.AllowanceWindowKind{accounts.FiveHours, accounts.Weekly} {
+		allowance := accounts.AnalyseAllowance(accounts.AllowanceAnalysisInput{
+			Sample: fact.AllowanceSample, State: fact.AccountState, AsOf: now,
+		}, kind)
+		if allowance.Known() && allowance.Window.FreePercent <= 0 {
+			return fmt.Sprintf("%s allowance used up%s", kind, resetSuffix(allowance.Window.Period.ResetsAt)), nil
+		}
+	}
+	if fact.AccountState == accounts.AccountReady && fact.AllowanceSample.Allowed && !fact.AllowanceSample.LimitReached {
+		// A provider read begun before exhaustion cannot supersede that exhaustion.
+		cleared, err := router.storeDatabase.ClearAccountExhaustionBefore(fact.AccountName, fact.RefreshedAt)
+		if err != nil {
+			return "", err
+		}
+		if cleared {
+			log.Printf("%s can take new work again: OpenAI's allowance reading at %s shows it is no longer limited",
+				fact.AccountName, fact.AllowanceSample.ObservedAt.Local().Format("15:04:05"))
+		}
+	}
+	resetsAt, exhausted, err := router.storeDatabase.ReadAccountReportedReset(fact.AccountName)
+	if err != nil {
+		return "", err
+	}
+	if exhausted {
+		return "hit its usage limit" + resetSuffix(resetsAt), nil
+	}
+	if modelSlug != "" && fact.SupportedModelSlugs == nil {
+		return "its model list has not been read yet", nil
+	}
+	if !accountSupportsModel(fact, modelSlug) {
+		return "does not offer " + modelSlug, nil
+	}
+	return "", nil
+}
+
+// weeklyAllowanceLeft is the free share of the weekly allowance, which ranks
+// accounts for new work. An account that reports no weekly window ranks last.
+func (router *TaskRouter) weeklyAllowanceLeft(fact AccountRoutingFact) (float64, bool) {
+	weekly := accounts.AnalyseAllowance(accounts.AllowanceAnalysisInput{
+		Sample: fact.AllowanceSample, State: fact.AccountState, AsOf: router.currentTime().UTC(),
+	}, accounts.Weekly)
+	if !weekly.Known() {
+		return 0, false
+	}
+	return weekly.Window.FreePercent, true
+}
+
+func accountCredentialsUsable(credentials accounts.Credentials) bool {
+	return strings.TrimSpace(credentials.AccessToken) != "" && strings.TrimSpace(credentials.AccountID) != ""
+}
+
+func accountSupportsModel(fact AccountRoutingFact, modelSlug string) bool {
+	return modelSlug == "" || slices.Contains(fact.SupportedModelSlugs, modelSlug)
+}
+
+func factForAccount(facts []AccountRoutingFact, accountName store.AccountName) (AccountRoutingFact, bool) {
+	for _, fact := range facts {
+		if fact.AccountName == accountName {
+			return fact, true
+		}
+	}
+	return AccountRoutingFact{}, false
+}
+
+func latestReset(sample accounts.AllowanceSample) time.Time {
+	var latest time.Time
+	for _, window := range sample.Windows {
+		if window.UsedPercent >= 100 && window.ResetsAt.After(latest) {
+			latest = window.ResetsAt
+		}
+	}
+	return latest
+}
+
+func resetSuffix(resetsAt time.Time) string {
+	if resetsAt.IsZero() {
+		return ""
+	}
+	return " until " + resetsAt.Local().Format("Mon 2 Jan 15:04")
+}
+
+func withCause(summary string, cause error) string {
+	if cause == nil {
+		return summary
+	}
+	return summary + ": " + cause.Error()
+}

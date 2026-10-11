@@ -1,0 +1,138 @@
+package store
+
+import (
+	"database/sql"
+	"fmt"
+
+	_ "modernc.org/sqlite"
+)
+
+// StoreDatabase is shared by old and new proxy generations during a live drain.
+type StoreDatabase struct {
+	sqlDatabase *sql.DB
+}
+
+// OpenStoreDatabase enables WAL before exposing the database to concurrent proxy generations.
+func OpenStoreDatabase(databasePath string) (*StoreDatabase, error) {
+	sqlDatabase, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		return nil, fmt.Errorf("open store database: %w", err)
+	}
+	// One long-lived connection makes connection-scoped SQLite pragmas apply to every operation.
+	sqlDatabase.SetMaxOpenConns(1)
+	if _, err := sqlDatabase.Exec(`PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL;`); err != nil {
+		sqlDatabase.Close()
+		return nil, fmt.Errorf("configure store database: %w", err)
+	}
+	if _, err := sqlDatabase.Exec(storeDatabaseSchema); err != nil {
+		sqlDatabase.Close()
+		return nil, fmt.Errorf("create store database schema: %w", err)
+	}
+	if err := addCacheWriteInputTokensColumn(sqlDatabase); err != nil {
+		sqlDatabase.Close()
+		return nil, fmt.Errorf("update completed response schema: %w", err)
+	}
+	if err := createAllowanceWindowIdentitySchema(sqlDatabase); err != nil {
+		sqlDatabase.Close()
+		return nil, fmt.Errorf("create allowance window identity schema: %w", err)
+	}
+	if err := createNativeUsageSchema(sqlDatabase); err != nil {
+		sqlDatabase.Close()
+		return nil, fmt.Errorf("create native usage schema: %w", err)
+	}
+	return &StoreDatabase{sqlDatabase: sqlDatabase}, nil
+}
+
+func addCacheWriteInputTokensColumn(sqlDatabase *sql.DB) error {
+	// Serialize the check and addition when proxy generations start together.
+	if _, err := sqlDatabase.Exec(`BEGIN IMMEDIATE`); err != nil {
+		return err
+	}
+	defer sqlDatabase.Exec(`ROLLBACK`)
+	var columnExists bool
+	if err := sqlDatabase.QueryRow(`SELECT EXISTS (
+    SELECT 1 FROM pragma_table_info('completed_responses')
+    WHERE name = 'cache_write_input_tokens'
+)`).Scan(&columnExists); err != nil {
+		return err
+	}
+	if !columnExists {
+		if _, err := sqlDatabase.Exec(`ALTER TABLE completed_responses ADD COLUMN cache_write_input_tokens INTEGER`); err != nil {
+			return err
+		}
+	}
+	_, err := sqlDatabase.Exec(`COMMIT`)
+	return err
+}
+
+// CloseStoreDatabase releases only this process's connection and never affects another generation.
+func (database *StoreDatabase) CloseStoreDatabase() error {
+	return database.sqlDatabase.Close()
+}
+
+const storeDatabaseSchema = `
+CREATE TABLE IF NOT EXISTS model_request_observation (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    started_at_unix_nano INTEGER NOT NULL
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS model_request_counts (
+    account_name TEXT NOT NULL,
+    admission_date TEXT NOT NULL,
+    requests INTEGER NOT NULL,
+    successful INTEGER NOT NULL,
+    failed INTEGER NOT NULL,
+    interrupted INTEGER NOT NULL,
+    PRIMARY KEY (account_name, admission_date)
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS provider_token_histories (
+    provider_account_id TEXT PRIMARY KEY,
+    read_started_at_unix_nano INTEGER NOT NULL,
+    reporting_date TEXT NOT NULL,
+    generated_at_unix_nano INTEGER NOT NULL,
+    lifetime_tokens INTEGER NOT NULL
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS provider_daily_token_buckets (
+    provider_account_id TEXT NOT NULL,
+    start_date TEXT NOT NULL,
+    tokens INTEGER NOT NULL,
+    PRIMARY KEY (provider_account_id, start_date)
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS account_identities (
+    account_name TEXT PRIMARY KEY,
+    provider_account_id TEXT NOT NULL,
+    email TEXT NOT NULL
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS task_account_pins (
+    codex_task_id TEXT PRIMARY KEY,
+    account_name TEXT NOT NULL,
+    pinned_at_unix_nano INTEGER NOT NULL
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS account_reported_resets (
+    account_name TEXT PRIMARY KEY,
+    resets_at_unix_nano INTEGER NOT NULL,
+    observed_at_unix_nano INTEGER NOT NULL
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS completed_responses (
+    completed_response_id TEXT PRIMARY KEY,
+    codex_task_id TEXT NOT NULL,
+    account_name TEXT NOT NULL,
+    model_slug TEXT NOT NULL,
+    harness_mode TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    cached_input_tokens INTEGER NOT NULL,
+    cache_write_input_tokens INTEGER,
+    output_tokens INTEGER NOT NULL,
+    reasoning_tokens INTEGER NOT NULL,
+    completed_at_unix_nano INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS completed_responses_completed_at
+ON completed_responses(completed_at_unix_nano);
+`

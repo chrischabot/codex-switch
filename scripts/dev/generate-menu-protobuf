@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+cd "$(dirname "$0")/../.."
+swift package --package-path macos/CodexSwitchMenu resolve
+swift build --package-path macos/CodexSwitchMenu/.build/checkouts/swift-protobuf --product protoc-gen-swift
+swift_generator_dir=$(swift build --package-path macos/CodexSwitchMenu/.build/checkouts/swift-protobuf --show-bin-path)
+protoc --plugin=protoc-gen-swift="$swift_generator_dir/protoc-gen-swift" -I proto --go_out=. --go_opt=module=github.com/josh/codex-switch \
+  --swift_out=macos/CodexSwitchMenu/Sources/CodexSwitchMenu \
+  proto/menu_snapshot.proto

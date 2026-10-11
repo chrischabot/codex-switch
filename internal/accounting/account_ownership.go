@@ -1,0 +1,82 @@
+package accounting
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/josh/codex-switch/internal/codexusage"
+	"github.com/josh/codex-switch/internal/store"
+)
+
+type AllowanceOwnerReader interface {
+	FindAccountForAllowanceWindow(int64, time.Time, time.Time) (store.ProviderAccountID, bool, error)
+}
+
+type nativeLocation struct {
+	path   string
+	offset int64
+}
+type allowanceIdentityKey struct{ seconds, reset int64 }
+
+// AttributeAccounts uses recorded serving identities or unique authenticated allowance windows.
+func AttributeAccounts(completions []Completion, native []codexusage.Observation, identities []store.AccountIdentity, windows AllowanceOwnerReader) error {
+	providerByName := make(map[store.AccountName]store.ProviderAccountID)
+	for _, identity := range identities {
+		providerByName[identity.AccountName] = store.ProviderAccountID(identity.ProviderAccountID)
+	}
+	responseAllowances := make(map[string]*codexusage.AllowanceObservation)
+	locationAllowances := make(map[nativeLocation]*codexusage.AllowanceObservation)
+	for _, observation := range native {
+		if observation.Allowance == nil {
+			continue
+		}
+		if observation.ResponseID != "" {
+			responseAllowances[observation.ResponseID] = observation.Allowance
+		}
+		if observation.Usage != nil {
+			locationAllowances[nativeLocation{observation.SourcePath, observation.SourceOffset}] = observation.Allowance
+		}
+	}
+	owners := make(map[allowanceIdentityKey]store.ProviderAccountID)
+	checked := make(map[allowanceIdentityKey]bool)
+	for index := range completions {
+		completion := &completions[index]
+		completion.ProviderAccountID = providerByName[completion.AccountName]
+		allowance := responseAllowances[string(completion.ResponseID)]
+		if source := completion.NativeSource; allowance == nil && source != nil {
+			allowance = locationAllowances[nativeLocation{source.SourcePath, source.SourceOffset}]
+		}
+		if allowance == nil || (allowance.LimitID != "" && allowance.LimitID != "codex") {
+			continue
+		}
+		for _, window := range []*codexusage.AllowanceWindow{allowance.Primary, allowance.Secondary} {
+			if window == nil || window.WindowMinutes <= 0 || window.ResetsAt.IsZero() {
+				continue
+			}
+			duration := window.WindowMinutes * 60
+			if completion.At.Before(window.ResetsAt.Add(-time.Duration(duration)*time.Second)) || !completion.At.Before(window.ResetsAt) {
+				continue
+			}
+			key := allowanceIdentityKey{duration, window.ResetsAt.Unix()}
+			if !checked[key] {
+				owner, found, err := windows.FindAccountForAllowanceWindow(duration, window.ResetsAt, completion.At)
+				if err != nil {
+					return err
+				}
+				checked[key] = true
+				if found {
+					owners[key] = owner
+				}
+			}
+			owner := owners[key]
+			if owner == "" {
+				continue
+			}
+			if completion.ProviderAccountID != "" && completion.ProviderAccountID != owner {
+				return fmt.Errorf("allowance ownership disagrees with recorded account for task %s at %s", completion.TaskID, completion.At)
+			}
+			completion.ProviderAccountID = owner
+		}
+	}
+	return nil
+}

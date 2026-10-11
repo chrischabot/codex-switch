@@ -1,0 +1,13 @@
+/codex-switch
+*.test
+**/.build/
+.DS_Store
+.project-private/
+/dist/
+.devenv/
+.env
+**/auth.json
+pins.json
+allowances.db
+response-usage*.db
+overview-v*.json

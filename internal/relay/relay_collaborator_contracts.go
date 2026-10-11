@@ -1,0 +1,27 @@
+package relay
+
+import (
+	"time"
+
+	"github.com/josh/codex-switch/internal/accounts"
+	"github.com/josh/codex-switch/internal/routing"
+	"github.com/josh/codex-switch/internal/store"
+)
+
+// TaskRouter keeps transport code independent of pin selection and movement.
+type TaskRouter interface {
+	RouteForModelCatalogue() (routing.RouteDecision, error)
+	RouteForTask(id store.CodexTaskID, kind store.WorkKind, modelSlug string) (routing.RouteDecision, error)
+	ReportUnsupportedModel(id store.CodexTaskID, served store.AccountName, modelSlug string) bool
+	ReportExhaustedTurn(id store.CodexTaskID, served store.AccountName, resetsAt time.Time) string
+	ReportUnauthorizedTurn(served store.AccountName, rejected accounts.Credentials)
+}
+
+// CompletionLedger is the only response fact the relay persists.
+type CompletionLedger interface {
+	RecordCompletedResponse(store.CompletedResponseRecord) error
+}
+
+type ModelRequestCounters interface {
+	RecordModelRequestOutcome(store.AccountName, time.Time, store.ModelRequestOutcome) error
+}

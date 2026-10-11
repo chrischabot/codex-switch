@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+repository_root=$(CDPATH='' cd -P "$(dirname "$0")/../.." && pwd)
+cd "$repository_root"
+revision=$(git rev-parse HEAD)
+modified=false
+[ -z "$(git status --porcelain)" ] || modified=true
+exec go build -ldflags "-X main.sourceRevision=$revision -X main.sourceModified=$modified" -o "${1:?output path required}" ./cmd/codex-switch

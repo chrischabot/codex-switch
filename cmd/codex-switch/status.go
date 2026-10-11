@@ -1,0 +1,219 @@
+package main
+
+import (
+	"flag"
+	"fmt"
+	"io"
+	"log"
+	"os"
+	"slices"
+	"strconv"
+	"strings"
+	"text/tabwriter"
+	"time"
+	"unicode"
+
+	"github.com/josh/codex-switch/internal/menupb"
+)
+
+func status(args []string) {
+	flags := flag.NewFlagSet("status", flag.ExitOnError)
+	address := flags.String("address", "", "Codex Switch loopback address (defaults to the effective Codex provider)")
+	_ = flags.Parse(args)
+	if flags.NArg() != 0 {
+		log.Fatal("usage: codex-switch [status] [--address 127.0.0.1:PORT]")
+	}
+	snapshot, err := readMenuSnapshot(dataDir(), *address)
+	if err != nil {
+		log.Fatalf("cannot read current Codex Switch status: %v", err)
+	}
+	writeCurrentStatus(os.Stdout, snapshot)
+	fmt.Printf("\nProxy log: %s\n", proxyLogPath(dataDir()))
+}
+
+func writeCurrentStatus(output io.Writer, snapshot *menupb.MenuSnapshot) {
+	available := 0
+	for _, account := range snapshot.Accounts {
+		if account.Usable {
+			available++
+		}
+	}
+	fmt.Fprintf(output, "%d of %d accounts can take new work for the configured model.\n", available, len(snapshot.Accounts))
+	if !snapshot.GetConnection().GetNewTasksConfigured() {
+		fmt.Fprintln(output, "Codex is not configured to send new work to this proxy.")
+	}
+	for _, account := range snapshot.Accounts {
+		state := "available"
+		if !account.Usable {
+			state = "unavailable: " + oneLine(account.UnavailableReason)
+		}
+		label := oneLine(account.Key)
+		for _, detail := range []string{account.Email, account.Plan} {
+			if detail != "" {
+				label += " · " + oneLine(detail)
+			}
+		}
+		fmt.Fprintf(output, "\n%s · %s\n", label, state)
+		for _, window := range account.GetAllowance().GetWindows() {
+			fmt.Fprintf(output, "  %-8s %g%% used · %g%% free", allowancePeriodLabel(window.PeriodSeconds), window.UsedPercent, 100-window.UsedPercent)
+			if window.ResetAt != nil {
+				fmt.Fprintf(output, " · resets %s", window.ResetAt.AsTime().Local().Format("Mon 2 Jan 15:04"))
+			}
+			fmt.Fprintln(output)
+		}
+	}
+	if activity := snapshot.ProxyActivity; activity != nil {
+		writeProxyActivity(output, activity)
+	}
+	if len(snapshot.ReportingPeriods) > 0 {
+		writeAccountTokenTable(output, snapshot)
+	}
+	tasks := snapshot.CompletedTasks
+	heading := "Recent tasks:"
+	if snapshot.ProxyActivity != nil {
+		tasks = nil
+	}
+	for _, period := range snapshot.ReportingPeriods {
+		if period.Kind == menupb.ReportingPeriodKind_REPORTING_PERIOD_TODAY && period.TaskUsage != nil {
+			tasks = slices.Clone(period.TaskUsage.Tasks)
+			slices.SortFunc(tasks, func(a, b *menupb.CompletedTask) int {
+				if a.GetTokens() > b.GetTokens() {
+					return -1
+				}
+				if a.GetTokens() < b.GetTokens() {
+					return 1
+				}
+				return 0
+			})
+			tasks = slices.DeleteFunc(tasks, func(task *menupb.CompletedTask) bool { return task.GetTitle() == "" })
+			if len(tasks) > 10 {
+				tasks = tasks[:10]
+			}
+			heading = "Top account-usage tasks today:"
+		}
+	}
+	if len(tasks) > 0 {
+		fmt.Fprintln(output, "\n"+heading)
+		for _, task := range tasks {
+			fmt.Fprintf(output, "  %s", taskLabel(task))
+			if task.Tokens != nil {
+				fmt.Fprintf(output, " · %s tokens", groupedTokens(task.GetTokens()))
+			}
+			if len(task.AccountKeys) > 0 {
+				fmt.Fprintf(output, " · %s", oneLine(strings.Join(task.AccountKeys, ", ")))
+			}
+			fmt.Fprintln(output)
+		}
+	}
+}
+
+func writeProxyActivity(output io.Writer, activity *menupb.ProxyActivity) {
+	if activity.RequestsStartedAt != nil {
+		fmt.Fprintf(output, "\nModel requests through this proxy · since %s\n", activity.RequestsStartedAt.AsTime().Local().Format("2 Jan 2006 15:04 MST"))
+		writer := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(writer, "Account\tRequests\tSuccessful\tFailed\tInterrupted")
+		for _, account := range activity.Accounts {
+			counts := account.GetRequestCounts()
+			fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\n", oneLine(account.AccountKey), groupedTokens(counts.GetRequests()), groupedTokens(counts.GetSuccessful()), groupedTokens(counts.GetFailed()), groupedTokens(counts.GetInterrupted()))
+		}
+		_ = writer.Flush()
+	}
+	fmt.Fprintf(output, "\nThrough this proxy · %s–%s\n", activity.GetStartedAt().AsTime().Local().Format("Mon 2 Jan 15:04"), activity.GetEndedAt().AsTime().Local().Format("15:04"))
+	writer := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(writer, "Account\tCompleted replies\tTokens")
+	var replies, tokens int64
+	for _, account := range activity.Accounts {
+		fmt.Fprintf(writer, "%s\t%s\t%s\n", oneLine(account.AccountKey), groupedTokens(account.CompletedResponses), groupedTokens(account.Tokens))
+		replies += account.CompletedResponses
+		tokens += account.Tokens
+	}
+	fmt.Fprintf(writer, "Total\t%s\t%s\n", groupedTokens(replies), groupedTokens(tokens))
+	_ = writer.Flush()
+	if len(activity.Tasks) > 0 {
+		fmt.Fprintln(output, "\nRecent routed tasks in this period:")
+		for _, task := range activity.Tasks {
+			fmt.Fprintf(output, "  %s · %s tokens · %s\n", taskLabel(task), groupedTokens(task.GetTokens()), oneLine(strings.Join(task.AccountKeys, ", ")))
+		}
+	}
+}
+
+func writeAccountTokenTable(output io.Writer, snapshot *menupb.MenuSnapshot) {
+	fmt.Fprintln(output, "\nAccount usage")
+	writer := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(writer, "\nTokens\tToday\t7 Days\t30 Days")
+	periods := []menupb.ReportingPeriodKind{menupb.ReportingPeriodKind_REPORTING_PERIOD_TODAY, menupb.ReportingPeriodKind_REPORTING_PERIOD_SEVEN_DAYS, menupb.ReportingPeriodKind_REPORTING_PERIOD_THIRTY_DAYS}
+	totals := make(map[menupb.ReportingPeriodKind]map[string]int64)
+	for _, period := range snapshot.ReportingPeriods {
+		values := make(map[string]int64)
+		for _, account := range period.Accounts {
+			values[account.AccountKey] = account.Tokens
+		}
+		totals[period.Kind] = values
+	}
+	for _, account := range snapshot.Accounts {
+		fmt.Fprint(writer, oneLine(account.Key))
+		for _, kind := range periods {
+			fmt.Fprintf(writer, "\t%s", groupedTokens(totals[kind][account.Key]))
+		}
+		fmt.Fprintln(writer)
+	}
+	fmt.Fprint(writer, "Total")
+	for _, kind := range periods {
+		var sum int64
+		for _, tokens := range totals[kind] {
+			sum += tokens
+		}
+		fmt.Fprintf(writer, "\t%s", groupedTokens(sum))
+	}
+	fmt.Fprintln(writer)
+	_ = writer.Flush()
+}
+
+func groupedTokens(value int64) string {
+	digits := strconv.FormatInt(value, 10)
+	for index := len(digits) - 3; index > 0; index -= 3 {
+		digits = digits[:index] + "," + digits[index:]
+	}
+	return digits
+}
+
+// taskLabel names a task by its title, shortened to one line, or by its ID.
+func taskLabel(task *menupb.CompletedTask) string {
+	if task.TaskId == "" {
+		return "Requests without a task ID"
+	}
+	label := []rune(oneLine(task.GetTitle()))
+	if len(label) == 0 {
+		return task.TaskId
+	}
+	if len(label) > 72 {
+		return string(label[:71]) + "…"
+	}
+	return string(label)
+}
+
+func allowancePeriodLabel(seconds int64) string {
+	switch seconds {
+	case 5 * 3600:
+		return "5-hour"
+	case 7 * 86400:
+		return "weekly"
+	}
+	if seconds >= 86400 && seconds%86400 == 0 {
+		return fmt.Sprintf("%d days", seconds/86400)
+	}
+	if seconds >= 3600 && seconds%3600 == 0 {
+		return fmt.Sprintf("%d hours", seconds/3600)
+	}
+	return (time.Duration(seconds) * time.Second).String()
+}
+
+func oneLine(value string) string {
+	value = strings.Map(func(char rune) rune {
+		if unicode.IsControl(char) {
+			return ' '
+		}
+		return char
+	}, value)
+	return strings.Join(strings.Fields(value), " ")
+}

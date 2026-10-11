@@ -1,0 +1,42 @@
+#!/bin/sh
+set -eu
+
+repository_root=$(CDPATH='' cd -P "$(dirname "$0")/../.." && pwd)
+cd "$repository_root"
+unset SDKROOT DEVELOPER_DIR NIX_CFLAGS_COMPILE NIX_LDFLAGS
+export DEVELOPER_DIR=$(/usr/bin/xcode-select -p)
+export SDKROOT=$(/usr/bin/xcrun --sdk macosx --show-sdk-path)
+
+staging_directory="$repository_root/dist/staged"
+staged_app="$staging_directory/CodexSwitchStage.app"
+mkdir -p "$staging_directory"
+
+running_staged_process() {
+  /bin/ps -axo pid=,comm= | /usr/bin/awk -v destination="$staged_app/" \
+    'index($2, destination) == 1 { print $1 " " $2; exit }'
+}
+
+candidate_directory=$(/usr/bin/mktemp -d "$staging_directory/.candidate.XXXXXX")
+candidate_app="$candidate_directory/CodexSwitchStage.app"
+cleanup() {
+  test ! -e "$candidate_directory" || /usr/bin/trash "$candidate_directory"
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+
+macos/CodexSwitchMenu/package_app.sh \
+  --stage --destination "$candidate_app"
+scripts/dev/inspect "$candidate_app"
+
+running_process=$(running_staged_process)
+test -z "$running_process" || {
+  echo "refusing to replace staged app used by process $running_process" >&2
+  exit 1
+}
+
+test ! -e "$staged_app" || /usr/bin/trash "$staged_app"
+/bin/mv "$candidate_app" "$staged_app"
+trap - EXIT HUP INT TERM
+/usr/bin/trash "$candidate_directory"
+
+echo "staged $staged_app"

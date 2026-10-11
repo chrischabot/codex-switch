@@ -1,0 +1,40 @@
+#!/bin/sh
+set -eu
+
+repository_root=$(CDPATH='' cd -P "$(dirname "$0")/../.." && pwd)
+if test "$#" -gt 1; then
+  echo "usage: $0 [APP_BUNDLE]" >&2
+  exit 2
+fi
+app_bundle=${1:-"$repository_root/dist/staged/CodexSwitchStage.app"}
+menu_binary="$app_bundle/Contents/MacOS/CodexSwitchMenu"
+helper_binary="$app_bundle/Contents/Helpers/codex-switch"
+
+for executable in "$menu_binary" "$helper_binary"; do
+  test -x "$executable" || {
+    echo "missing staged executable: $executable" >&2
+    exit 1
+  }
+done
+
+/usr/bin/plutil -lint "$app_bundle/Contents/Info.plist"
+bundle_identifier=$(/usr/bin/plutil -extract CFBundleIdentifier raw "$app_bundle/Contents/Info.plist")
+display_name=$(/usr/bin/plutil -extract CFBundleDisplayName raw "$app_bundle/Contents/Info.plist")
+expected_identifier=com.josh.codex-switch-menu.stage
+expected_name="Codex Switch Stage"
+stage_name=$(basename "$app_bundle" .app)
+if test "$stage_name" != CodexSwitchStage; then
+  expected_identifier="$expected_identifier.$(printf '%s' "$stage_name" | tr '[:upper:]' '[:lower:]')"
+  expected_name="Codex Switch $stage_name"
+fi
+test "$bundle_identifier" = "$expected_identifier" || {
+  echo "staged bundle identifier is not isolated: $bundle_identifier" >&2
+  exit 1
+}
+test "$display_name" = "$expected_name" || {
+  echo "staged app display name is not isolated: $display_name" >&2
+  exit 1
+}
+/usr/bin/codesign --verify --deep --strict "$app_bundle"
+/usr/bin/file "$menu_binary" "$helper_binary"
+/usr/bin/codesign --display --verbose=2 "$app_bundle" 2>&1

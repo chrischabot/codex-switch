@@ -1,0 +1,97 @@
+syntax = "proto3";
+package codex_switch.menu;
+option go_package = "github.com/josh/codex-switch/internal/menupb";
+option swift_prefix = "CSSwitch_";
+import "google/protobuf/timestamp.proto";
+
+message MenuSnapshot {
+  google.protobuf.Timestamp generated_at = 1;
+  repeated Account accounts = 2;
+  repeated CompletedTask completed_tasks = 3;
+  Connection connection = 4;
+  repeated ReportingPeriod reporting_periods = 5;
+  ProxyActivity proxy_activity = 6;
+}
+message ProxyActivity {
+  google.protobuf.Timestamp started_at = 1;
+  google.protobuf.Timestamp ended_at = 2;
+  repeated ProxyAccountActivity accounts = 3;
+  repeated CompletedTask tasks = 4;
+  google.protobuf.Timestamp requests_started_at = 5;
+}
+message ProxyAccountActivity {
+  string account_key = 1;
+  int64 completed_responses = 2;
+  int64 tokens = 3;
+  ModelRequestCounts request_counts = 4;
+}
+message ModelRequestCounts {
+  int64 requests = 1;
+  int64 successful = 2;
+  int64 failed = 3;
+  int64 interrupted = 4;
+}
+message Account {
+  string key = 1;
+  string email = 2;
+  string plan = 3;
+  AccountState state = 4;
+  AllowanceObservation allowance = 5;
+  uint32 account_number = 6;
+  bool usable = 7;
+  // Why the account cannot take new work for the configured model; empty when usable.
+  string unavailable_reason = 8;
+}
+enum AccountState {
+  ACCOUNT_STATE_UNSPECIFIED = 0;
+  ACCOUNT_STATE_READY = 1;
+  ACCOUNT_STATE_LIMITED = 2;
+  ACCOUNT_STATE_SIGN_IN_REQUIRED = 3;
+  ACCOUNT_STATE_CREDENTIALS_UNAVAILABLE = 4;
+  ACCOUNT_STATE_USAGE_CHECK_FAILED = 5;
+}
+message AllowanceObservation {
+  google.protobuf.Timestamp observed_at = 1;
+  bool allowed = 2;
+  bool limit_reached = 3;
+  repeated AllowanceWindow windows = 4;
+  optional uint32 available_reset_credits = 5;
+}
+message AllowanceWindow {
+  int64 period_seconds = 1;
+  double used_percent = 2;
+  google.protobuf.Timestamp reset_at = 3;
+}
+message CompletedTask {
+  string task_id = 1;
+  repeated string account_keys = 2;
+  optional string title = 3;
+  google.protobuf.Timestamp last_completed_at = 4;
+  optional int64 tokens = 5;
+  optional int64 cost_nano_usd = 6;
+}
+message Connection {
+  bool new_tasks_configured = 1;
+}
+
+enum ReportingPeriodKind {
+ REPORTING_PERIOD_UNSPECIFIED = 0;
+ REPORTING_PERIOD_TODAY = 1;
+ REPORTING_PERIOD_SEVEN_DAYS = 2;
+ REPORTING_PERIOD_THIRTY_DAYS = 3;
+}
+message ReportingPeriod {
+ ReportingPeriodKind kind = 1;
+ google.protobuf.Timestamp started_at = 2;
+ google.protobuf.Timestamp ended_at = 3;
+ repeated AccountTotal accounts = 4;
+ TaskUsageReport task_usage = 5;
+}
+message TaskUsageReport {
+ repeated CompletedTask tasks = 1;
+}
+message AccountTotal {
+ string account_key = 1;
+ int64 tokens = 2;
+ optional int64 cost_nano_usd = 3;
+}
