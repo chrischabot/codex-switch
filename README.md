@@ -80,6 +80,21 @@ session logs on your Mac.
 
 ## Install
 
+The easy way: paste this into Codex or Claude Code and let it do the work.
+
+```text
+Install Codex Switch from https://github.com/joshp123/codex-switch on this Mac.
+Read its README first. Clone it, run deploy/install.sh, then help me sign in
+each of my ChatGPT accounts with `codex-switch login` (I'll do the browser
+part). Add the line from `codex-switch print-codex-config` to the top of
+~/.codex/config.toml, and to Pi's models.json if I use Pi. Finish by running
+`codex-switch status` and show me that every account is available.
+```
+
+The only thing you do yourself is sign in to each account in the browser.
+
+### Doing it by hand
+
 You need:
 
 - macOS 14 or later
