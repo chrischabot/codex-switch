@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/josh/codex-switch/internal/store"
 )
 
 func TestOpenAIDailyTokenSourceReadsOnlyValidatedAccountBuckets(t *testing.T) {
@@ -58,7 +60,7 @@ func TestOpenAIDailyTokenSourceReadsOnlyValidatedAccountBuckets(t *testing.T) {
 	if history.LifetimeTokens != 12 {
 		t.Fatalf("lifetime tokens = %d", history.LifetimeTokens)
 	}
-	want := []OpenAIDailyTokenBucket{
+	want := []store.OpenAIDailyTokenBucket{
 		{StartDate: "2026-07-20", Tokens: 5},
 		{StartDate: "2026-07-22", Tokens: 7},
 	}

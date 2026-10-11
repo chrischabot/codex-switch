@@ -11,45 +11,14 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/josh/codex-switch/internal/store"
 )
 
 const (
 	openAIDailyTokenProfileURL       = "https://chatgpt.com/backend-api/wham/profiles/me"
-	openAIDailyTokenDateLayout       = "2006-01-02"
 	maximumOpenAIDailyTokenBodyBytes = 4 << 20
 )
-
-type OpenAIDailyTokenBucket struct {
-	StartDate string
-	Tokens    int64
-}
-
-// OpenAIDailyTokenHistory is an account-scoped OpenAI profile snapshot.
-// OpenAI supplies the reporting date independently of the local read time.
-type OpenAIDailyTokenHistory struct {
-	AccountID      string
-	ReadStartedAt  time.Time
-	ReportingDate  time.Time
-	GeneratedAt    time.Time
-	LifetimeTokens int64
-	Buckets        []OpenAIDailyTokenBucket
-}
-
-// TokensForReportedDays includes the provider's reporting date and the preceding calendar days.
-func (h OpenAIDailyTokenHistory) TokensForReportedDays(numberOfDays int) (int64, error) {
-	if numberOfDays < 1 || h.ReportingDate.IsZero() {
-		return 0, errors.New("OpenAI reporting day range is invalid")
-	}
-	firstDate := h.ReportingDate.AddDate(0, 0, 1-numberOfDays).Format(openAIDailyTokenDateLayout)
-	lastDate := h.ReportingDate.Format(openAIDailyTokenDateLayout)
-	var total int64
-	for _, bucket := range h.Buckets {
-		if bucket.StartDate >= firstDate && bucket.StartDate <= lastDate {
-			total += bucket.Tokens
-		}
-	}
-	return total, nil
-}
 
 type OpenAIDailyTokenSource struct {
 	credentials *CredentialStore
@@ -66,43 +35,43 @@ func NewOpenAIDailyTokenSource(home string, client *http.Client) *OpenAIDailyTok
 	return &OpenAIDailyTokenSource{credentials: credentials, client: &readOnlyClient, now: time.Now}
 }
 
-func (s *OpenAIDailyTokenSource) Read(ctx context.Context) (OpenAIDailyTokenHistory, error) {
+func (s *OpenAIDailyTokenSource) Read(ctx context.Context) (store.OpenAIDailyTokenHistory, error) {
 	if s == nil || s.credentials == nil {
-		return OpenAIDailyTokenHistory{}, errors.New("OpenAI daily token source is unavailable")
+		return store.OpenAIDailyTokenHistory{}, errors.New("OpenAI daily token source is unavailable")
 	}
 	readStarted := s.now().UTC()
 	credentials, err := s.credentials.CurrentCredentials()
 	if err != nil {
-		return OpenAIDailyTokenHistory{}, err
+		return store.OpenAIDailyTokenHistory{}, err
 	}
 	accountID := strings.TrimSpace(credentials.AccountID)
 	if accountID == "" {
-		return OpenAIDailyTokenHistory{}, errors.New("OpenAI daily token source has no account identity")
+		return store.OpenAIDailyTokenHistory{}, errors.New("OpenAI daily token source has no account identity")
 	}
 
 	response, err := s.fetch(ctx, credentials)
 	if err != nil {
-		return OpenAIDailyTokenHistory{}, err
+		return store.OpenAIDailyTokenHistory{}, err
 	}
 	if response.StatusCode == http.StatusUnauthorized {
 		discardOpenAIDailyTokenBody(response.Body)
-		return OpenAIDailyTokenHistory{}, signInRequired(errors.New("OpenAI rejected stored credentials"))
+		return store.OpenAIDailyTokenHistory{}, signInRequired(errors.New("OpenAI rejected stored credentials"))
 	}
 	defer response.Body.Close()
 	if response.StatusCode/100 != 2 {
 		discardOpenAIDailyTokenBody(response.Body)
-		return OpenAIDailyTokenHistory{}, fmt.Errorf("OpenAI daily tokens returned status %d", response.StatusCode)
+		return store.OpenAIDailyTokenHistory{}, fmt.Errorf("OpenAI daily tokens returned status %d", response.StatusCode)
 	}
 	encoded, err := io.ReadAll(io.LimitReader(response.Body, maximumOpenAIDailyTokenBodyBytes+1))
 	if err != nil {
-		return OpenAIDailyTokenHistory{}, fmt.Errorf("read OpenAI daily tokens: %w", err)
+		return store.OpenAIDailyTokenHistory{}, fmt.Errorf("read OpenAI daily tokens: %w", err)
 	}
 	if len(encoded) > maximumOpenAIDailyTokenBodyBytes {
-		return OpenAIDailyTokenHistory{}, errors.New("OpenAI daily tokens response is too large")
+		return store.OpenAIDailyTokenHistory{}, errors.New("OpenAI daily tokens response is too large")
 	}
 	history, err := decodeOpenAIDailyTokenHistory(accountID, readStarted, encoded)
 	if err != nil {
-		return OpenAIDailyTokenHistory{}, err
+		return store.OpenAIDailyTokenHistory{}, err
 	}
 	return history, nil
 }
@@ -147,67 +116,67 @@ type openAIDailyTokenBucketWire struct {
 	Tokens    *int64 `json:"tokens"`
 }
 
-func decodeOpenAIDailyTokenHistory(accountID string, readStarted time.Time, encoded []byte) (OpenAIDailyTokenHistory, error) {
+func decodeOpenAIDailyTokenHistory(accountID string, readStarted time.Time, encoded []byte) (store.OpenAIDailyTokenHistory, error) {
 	accountID = strings.TrimSpace(accountID)
 	if accountID == "" {
-		return OpenAIDailyTokenHistory{}, errors.New("OpenAI daily token history requires an account identity")
+		return store.OpenAIDailyTokenHistory{}, errors.New("OpenAI daily token history requires an account identity")
 	}
 	if readStarted.IsZero() {
-		return OpenAIDailyTokenHistory{}, errors.New("OpenAI daily token history requires a read start time")
+		return store.OpenAIDailyTokenHistory{}, errors.New("OpenAI daily token history requires a read start time")
 	}
 	readStarted = readStarted.UTC()
 	var wire openAIDailyTokenProfileResponse
 	if err := json.Unmarshal(encoded, &wire); err != nil {
-		return OpenAIDailyTokenHistory{}, fmt.Errorf("decode OpenAI daily tokens: %w", err)
+		return store.OpenAIDailyTokenHistory{}, fmt.Errorf("decode OpenAI daily tokens: %w", err)
 	}
 	if wire.Metadata == nil || wire.Metadata.GeneratedAt.IsZero() {
-		return OpenAIDailyTokenHistory{}, errors.New("OpenAI daily tokens response has no reporting metadata")
+		return store.OpenAIDailyTokenHistory{}, errors.New("OpenAI daily tokens response has no reporting metadata")
 	}
-	reportingDate, err := time.Parse(openAIDailyTokenDateLayout, wire.Metadata.StatsAsOf)
-	if err != nil || reportingDate.Format(openAIDailyTokenDateLayout) != wire.Metadata.StatsAsOf {
-		return OpenAIDailyTokenHistory{}, errors.New("OpenAI daily tokens reporting date is invalid")
+	reportingDate, err := time.Parse(time.DateOnly, wire.Metadata.StatsAsOf)
+	if err != nil || reportingDate.Format(time.DateOnly) != wire.Metadata.StatsAsOf {
+		return store.OpenAIDailyTokenHistory{}, errors.New("OpenAI daily tokens reporting date is invalid")
 	}
 	if statsError := strings.TrimSpace(string(wire.Metadata.StatsError)); statsError != "" && statsError != "null" {
-		return OpenAIDailyTokenHistory{}, errors.New("OpenAI daily tokens profile reported a statistics error")
+		return store.OpenAIDailyTokenHistory{}, errors.New("OpenAI daily tokens profile reported a statistics error")
 	}
 	if wire.Stats == nil || wire.Stats.LifetimeTokens == nil || wire.Stats.DailyUsageBuckets == nil {
-		return OpenAIDailyTokenHistory{}, errors.New("OpenAI daily tokens response is incomplete")
+		return store.OpenAIDailyTokenHistory{}, errors.New("OpenAI daily tokens response is incomplete")
 	}
 	if *wire.Stats.LifetimeTokens < 0 {
-		return OpenAIDailyTokenHistory{}, errors.New("OpenAI lifetime token total is invalid")
+		return store.OpenAIDailyTokenHistory{}, errors.New("OpenAI lifetime token total is invalid")
 	}
 
 	rawBuckets := *wire.Stats.DailyUsageBuckets
-	buckets := make([]OpenAIDailyTokenBucket, 0, len(rawBuckets))
+	buckets := make([]store.OpenAIDailyTokenBucket, 0, len(rawBuckets))
 	seen := make(map[string]struct{}, len(rawBuckets))
 	var bucketTotal int64
 	for index, raw := range rawBuckets {
 		startDate := raw.StartDate
-		date, err := time.Parse(openAIDailyTokenDateLayout, startDate)
-		if err != nil || date.Format(openAIDailyTokenDateLayout) != startDate {
-			return OpenAIDailyTokenHistory{}, fmt.Errorf("OpenAI daily token bucket %d has an invalid date", index)
+		date, err := time.Parse(time.DateOnly, startDate)
+		if err != nil || date.Format(time.DateOnly) != startDate {
+			return store.OpenAIDailyTokenHistory{}, fmt.Errorf("OpenAI daily token bucket %d has an invalid date", index)
 		}
 		if date.After(reportingDate) {
-			return OpenAIDailyTokenHistory{}, fmt.Errorf("OpenAI daily token bucket %d exceeds its reporting date", index)
+			return store.OpenAIDailyTokenHistory{}, fmt.Errorf("OpenAI daily token bucket %d exceeds its reporting date", index)
 		}
 		if _, duplicate := seen[startDate]; duplicate {
-			return OpenAIDailyTokenHistory{}, fmt.Errorf("OpenAI daily token bucket %d repeats a date", index)
+			return store.OpenAIDailyTokenHistory{}, fmt.Errorf("OpenAI daily token bucket %d repeats a date", index)
 		}
 		seen[startDate] = struct{}{}
 		if raw.Tokens == nil || *raw.Tokens < 0 {
-			return OpenAIDailyTokenHistory{}, fmt.Errorf("OpenAI daily token bucket %d has an invalid total", index)
+			return store.OpenAIDailyTokenHistory{}, fmt.Errorf("OpenAI daily token bucket %d has an invalid total", index)
 		}
 		if bucketTotal > math.MaxInt64-*raw.Tokens {
-			return OpenAIDailyTokenHistory{}, errors.New("OpenAI daily token bucket total overflows")
+			return store.OpenAIDailyTokenHistory{}, errors.New("OpenAI daily token bucket total overflows")
 		}
 		bucketTotal += *raw.Tokens
-		buckets = append(buckets, OpenAIDailyTokenBucket{StartDate: startDate, Tokens: *raw.Tokens})
+		buckets = append(buckets, store.OpenAIDailyTokenBucket{StartDate: startDate, Tokens: *raw.Tokens})
 	}
 	if bucketTotal != *wire.Stats.LifetimeTokens {
-		return OpenAIDailyTokenHistory{}, errors.New("OpenAI daily token buckets do not match lifetime total")
+		return store.OpenAIDailyTokenHistory{}, errors.New("OpenAI daily token buckets do not match lifetime total")
 	}
 	sort.Slice(buckets, func(i, j int) bool { return buckets[i].StartDate < buckets[j].StartDate })
-	return OpenAIDailyTokenHistory{
+	return store.OpenAIDailyTokenHistory{
 		AccountID: accountID, ReadStartedAt: readStarted,
 		ReportingDate: reportingDate, GeneratedAt: wire.Metadata.GeneratedAt.UTC(),
 		LifetimeTokens: *wire.Stats.LifetimeTokens, Buckets: buckets,

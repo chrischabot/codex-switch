@@ -5,10 +5,11 @@ import (
 
 	accountapi "github.com/josh/codex-switch/internal/accounts"
 	"github.com/josh/codex-switch/internal/menupb"
+	"github.com/josh/codex-switch/internal/store"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func providerReportingPeriods(pool []accountapi.PoolAccount, histories map[string]accountapi.OpenAIDailyTokenHistory) ([]*menupb.ReportingPeriod, error) {
+func providerReportingPeriods(pool []accountapi.PoolAccount, histories map[string]store.OpenAIDailyTokenHistory) ([]*menupb.ReportingPeriod, error) {
 	if len(pool) == 0 {
 		return nil, nil
 	}

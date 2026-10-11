@@ -4,13 +4,11 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
-
-	"github.com/josh/codex-switch/internal/accounts"
 )
 
 // RecordProviderTokenHistory replaces one validated provider report atomically.
 // A slower read from a draining proxy cannot replace a newer provider report.
-func (database *StoreDatabase) RecordProviderTokenHistory(history accounts.OpenAIDailyTokenHistory) (bool, error) {
+func (database *StoreDatabase) RecordProviderTokenHistory(history OpenAIDailyTokenHistory) (bool, error) {
 	transaction, err := database.sqlDatabase.Begin()
 	if err != nil {
 		return false, err
@@ -48,7 +46,7 @@ WHERE excluded.generated_at_unix_nano > provider_token_histories.generated_at_un
 }
 
 // ReadProviderTokenHistories reads report metadata and buckets in one SQLite snapshot.
-func (database *StoreDatabase) ReadProviderTokenHistories() (map[string]accounts.OpenAIDailyTokenHistory, error) {
+func (database *StoreDatabase) ReadProviderTokenHistories() (map[string]OpenAIDailyTokenHistory, error) {
 	rows, err := database.sqlDatabase.Query(`
 SELECT h.provider_account_id, h.read_started_at_unix_nano, h.reporting_date,
        h.generated_at_unix_nano, h.lifetime_tokens, b.start_date, b.tokens
@@ -59,7 +57,7 @@ ORDER BY h.provider_account_id, b.start_date`)
 		return nil, fmt.Errorf("read provider token histories: %w", err)
 	}
 	defer rows.Close()
-	histories := make(map[string]accounts.OpenAIDailyTokenHistory)
+	histories := make(map[string]OpenAIDailyTokenHistory)
 	for rows.Next() {
 		var accountID, reportingDate string
 		var readStartedAt, generatedAt, lifetimeTokens int64
@@ -74,13 +72,13 @@ ORDER BY h.provider_account_id, b.start_date`)
 			if err != nil {
 				return nil, fmt.Errorf("read provider reporting date: %w", err)
 			}
-			history = accounts.OpenAIDailyTokenHistory{
+			history = OpenAIDailyTokenHistory{
 				AccountID: accountID, ReadStartedAt: time.Unix(0, readStartedAt).UTC(),
 				ReportingDate: date, GeneratedAt: time.Unix(0, generatedAt).UTC(), LifetimeTokens: lifetimeTokens,
 			}
 		}
 		if bucketDate.Valid {
-			history.Buckets = append(history.Buckets, accounts.OpenAIDailyTokenBucket{StartDate: bucketDate.String, Tokens: bucketTokens.Int64})
+			history.Buckets = append(history.Buckets, OpenAIDailyTokenBucket{StartDate: bucketDate.String, Tokens: bucketTokens.Int64})
 		}
 		histories[accountID] = history
 	}
