@@ -39,8 +39,7 @@ publishable. Later, not now: Claude support and server-side use.
 | How does Codex itself behave? | The Codex source (`openai/codex`), and the installed client: `/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex`. |
 | Where does the menu get its numbers? | The serving proxy composes a snapshot once a minute and writes its private URL to `menu-snapshot-url` in the data directory; the menu and `codex-switch status` fetch it from there. |
 | Does the whole system work before a deploy? | `scripts/dev/system-test`; see `docs/system-test.md`. |
-| How do I update the live proxy? | `deploy/deploy.sh new <binary> ...`: new work goes to the new process, admitted work finishes on the old one. |
-| How do I update the menu app? | Quit it, then `macos/CodexSwitchMenu/package_app.sh --live --destination /Applications/CodexSwitchMenu.app`. |
+| How is it installed, updated and removed? | `deploy/install.sh` installs, or updates through `deploy/deploy.sh new` (new work goes to the new process, admitted work finishes on the old one) and then rebuilds the menu app; `deploy/uninstall.sh` removes it. `deploy/installation.sh` names every path. Running either against the live install needs the owner's approval. |
 
 ## The code
 
@@ -57,7 +56,7 @@ publishable. Later, not now: Claude support and server-side use.
 | `internal/taskidentity/` | The task ID a Pi session is routed and counted under. |
 | `proto/`, `internal/menupb/` | The typed snapshot the menu renders. Regenerate the Go and Swift code with `scripts/dev/generate-menu-protobuf`. |
 | `macos/CodexSwitchMenu/` | The menu bar app. |
-| `deploy/`, `scripts/dev/` | Blue-green updates; build, test, stage and system-test scripts (`devenv tasks run dev:build`, `dev:test`, `dev:stage`, `scripts/dev/system-test`). |
+| `deploy/`, `scripts/dev/` | Install, blue-green update and uninstall; build, test, stage and system-test scripts (`devenv tasks run dev:build`, `dev:test`, `dev:stage`, `scripts/dev/system-test`). |
 
 ## How the owner wants it proved
 

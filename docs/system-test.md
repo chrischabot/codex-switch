@@ -19,8 +19,8 @@ the whole system in isolation, and prints what the system did for each outcome:
 4. With every account out of allowance, a running goal continues by itself
    when one account comes back.
 5. A blue-green update during work completes by itself. Responses in flight
-   over WebSocket and HTTP finish on the old process, while new work runs on
-   the new one.
+   over WebSocket and HTTP finish on the old process, while new work starts
+   on the new one.
 6. Each completed response is recorded once, with its account, task and
    tokens.
 
@@ -30,10 +30,12 @@ The command exits 0 only if every outcome held and nothing is left running.
 
 - The proxy binary built from this tree, under its own launchd job, on a spare
   loopback port, with its own data directory.
-- The official Codex client bundled with the desktop app
-  (`/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex`): `codex
-  exec` tasks and `/goal` through `codex app-server`.
-- Pi (`~/.local/state/nix/profiles/ai/bin/pi`), in sessions.
+- The official Codex client: the one inside the desktop app
+  (`/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex`), or
+  `codex` on `PATH` without the app. It runs `codex exec` tasks and `/goal`
+  through `codex app-server`.
+- Pi in sessions, if `pi` is on `PATH`. Without it the test says so at the
+  start and runs everything else.
 - OpenAI, with your signed-in accounts, on `gpt-6-luna` at low effort. One run
   uses about 30 model requests and 0.5 million input tokens, mostly cached.
 - The update path: `deploy/deploy.sh new` against the private launchd job.

@@ -90,18 +90,19 @@ You need:
 - Codex, either the desktop app or the CLI
 - two or more ChatGPT subscriptions
 
-Build the proxy into `~/.local/lib/codex-switch` and put the `codex-switch`
-command on your path:
-
 ```sh
 git clone https://github.com/joshp123/codex-switch.git
 cd codex-switch
-mkdir -p ~/.local/lib/codex-switch ~/.local/bin
-scripts/dev/build-proxy ~/.local/lib/codex-switch/codex-switch
-ln -sf ~/.local/lib/codex-switch/codex-switch ~/.local/bin/codex-switch
+deploy/install.sh
 ```
 
-Make sure `~/.local/bin` is on your `PATH`.
+This builds the proxy and runs it under launchd on `127.0.0.1:2455`, so it
+starts at login and restarts if it stops. It builds the menu bar app, signs it
+for this Mac only, copies it to Applications and opens it. You do not need an
+Apple developer account. From then on the app opens at login.
+
+It also puts the `codex-switch` command in `~/.local/bin`. Make sure that is on
+your `PATH`.
 
 ### 1. Sign in to each account
 
@@ -121,43 +122,18 @@ account-1	you@example.com
 account-2	you+work@example.com
 ```
 
-### 2. Keep the proxy running
+### 2. Point Codex at it
 
-Create a launchd job so the proxy starts at login and restarts if it stops:
+`deploy/install.sh` ends by printing one line:
 
-```sh
-cat > ~/Library/LaunchAgents/local.codex-switch.plist <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>local.codex-switch</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>$HOME/.local/lib/codex-switch/codex-switch</string>
-    <string>serve</string>
-  </array>
-  <key>KeepAlive</key><true/>
-  <key>ExitTimeOut</key><integer>0</integer>
-</dict>
-</plist>
-EOF
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.codex-switch.plist
+```toml
+openai_base_url = "http://127.0.0.1:2455/client/<private key>/backend-api/codex"
 ```
 
-The proxy listens on `127.0.0.1:2455`. `ExitTimeOut` set to 0 lets a stopping
-proxy finish the work it has already accepted.
-
-### 3. Point Codex at it
-
-```sh
-codex-switch print-codex-config
-```
-
-Add the line it prints to the top of `~/.codex/config.toml`, above any
-`[section]`, then restart Codex. The URL contains a private key for your
-installation, so web pages and other apps that do not know it cannot use your
-accounts through the proxy.
+Add it to the top of `~/.codex/config.toml`, above any `[section]`, then
+restart Codex. `codex-switch print-codex-config` prints it again. The URL
+contains a private key for your installation, so web pages and other apps that
+do not know it cannot use your accounts through the proxy.
 
 To go back to OpenAI directly, delete that line and restart Codex.
 
@@ -176,17 +152,6 @@ For Pi, add the same URL to `~/.pi/agent/models.json`:
 
 The `apiKey` is a placeholder. Pi needs one to start, and the proxy replaces it
 with the real account's sign-in.
-
-### 4. Install the menu bar app
-
-```sh
-macos/CodexSwitchMenu/package_app.sh --live --destination /Applications/CodexSwitchMenu.app
-open /Applications/CodexSwitchMenu.app
-```
-
-This builds the app on your Mac, signs it for this Mac only and copies it to
-Applications. You do not need an Apple developer account. The app adds itself
-to your login items, so it opens at login from then on.
 
 ### Check it works
 
@@ -216,27 +181,42 @@ To add an account later, run `codex-switch login` again. To remove one, run
 
 ## How updates work
 
-Build the new version and hand over to it. The paths are the ones from
-Install.
+Run the install script again:
 
 ```sh
 git pull
-scripts/dev/build-proxy /tmp/codex-switch-new
-deploy/deploy.sh new /tmp/codex-switch-new \
+deploy/install.sh
+```
+
+A new proxy process starts on the same port and takes all new requests. The old
+process stops accepting work, finishes every request it already has, including
+streams and WebSockets, then exits, and launchd runs the new build from then
+on. Running agents carry on. The script then quits, rebuilds and reopens the
+menu app.
+
+To go back to the previous proxy:
+
+```sh
+deploy/deploy.sh back \
   --stable ~/.local/lib/codex-switch/codex-switch \
   --data ~/Library/Application\ Support/codex-switch \
   --listen 127.0.0.1:2455
 ```
 
-The new process starts on the same port and takes all new requests. The old
-process stops accepting work, finishes every request it already has, including
-streams and WebSockets, then exits. The script has already put the new binary
-at the installed path, so launchd starts it in the old one's place.
+## Uninstall
 
-To go back to the previous version, run the same command with `back` instead
-of `new /tmp/codex-switch-new`.
+First point Codex back at OpenAI: delete the `openai_base_url` line from
+`~/.codex/config.toml`, and the `openai-codex` provider from Pi's
+`models.json`, then restart them. Then:
 
-To update the menu app, quit it from **Options** and run step 4 again.
+```sh
+deploy/uninstall.sh
+```
+
+The proxy finishes the requests it has already accepted and stops. The script
+removes its launchd job, the `codex-switch` command and the menu app. Your
+sign-ins and usage history stay in `~/Library/Application Support/codex-switch`;
+move that folder to the Trash to remove them too.
 
 ## Compared with the alternatives
 

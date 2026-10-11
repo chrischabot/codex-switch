@@ -20,9 +20,11 @@ scripts/dev/system-test
 ```
 
 It builds the proxy from your working tree and runs the whole system in
-isolation, with the real Codex and Pi clients and your own signed-in accounts.
-It takes about four minutes and about 30 model requests. It never touches your
-installed proxy, menu app or Codex configuration. See
+isolation, against real OpenAI, with copies of the accounts you signed in to
+your installed Codex Switch. It drives the Codex client inside the desktop app,
+or `codex` on your `PATH` if you only have the CLI. If `pi` is on your `PATH`, it
+drives Pi too. It takes about four minutes and about 30 model requests. It never
+touches your installed proxy, menu app or Codex configuration. See
 [docs/system-test.md](docs/system-test.md) for what it proves and where to look
 when it fails.
 
@@ -32,9 +34,14 @@ state you changed.
 
 ## Your own installation
 
-Do not test against your installed proxy, menu app or account data. Do not
-restart or replace them while agents are running. To update them, use the steps
-in the README.
+Do not test against your installed proxy, menu app or account data. To update
+them, use the steps in the README: `deploy/install.sh` hands the proxy over
+without interrupting running agents.
+
+To try a change to the install scripts, install a second copy beside your own:
+set `HOME` to an empty directory, and set `CODEX_SWITCH_LAUNCHD_LABEL` and
+`CODEX_SWITCH_MENU_APP` to a label and an app path of your own. Its menu app
+reads only that copy's proxy.
 
 ## Changes
 
