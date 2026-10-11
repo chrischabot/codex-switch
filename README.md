@@ -45,16 +45,15 @@ It is macOS only, you build it from source, and so far it has one user: me.
 
 ## What it does
 
-- Works with the Codex desktop app and CLI, including sub-agents, and with
-  [Pi](https://github.com/badlogic/pi-mono). They all use one local URL.
-- Sends each new task to the account with the most weekly allowance left.
-- Keeps a task on its account, so its prompt cache stays warm.
-- Moves a task to another account on its next turn when its account runs out.
-  Nothing is replayed, and the agent carries on.
-- Updates without dropping work: new requests go to the new version while
-  requests already running finish on the old one.
-- Shows, in the menu bar, how much allowance each account has left, what each
-  account and task has used, and whether the pool is working.
+- Codex (the app, the CLI and sub-agents) and [Pi](https://github.com/badlogic/pi-mono)
+  all point at one local URL.
+- A new task goes to whichever account has the most weekly allowance left.
+- A task stays on its account, so its prompt cache stays warm.
+- When an account runs out, the task moves to another account on its next turn.
+  Nothing is replayed and the agent just carries on.
+- Updating the proxy never drops work in progress.
+- The menu bar shows what's left on each account, what each account and task
+  used, and that the pool is working.
 
 ## The menu
 
@@ -62,23 +61,22 @@ The menu bar shows the weekly allowance left on each account.
 
 <img src="docs/images/menu-bar-item.png" alt="Menu bar item: account 1 at 96% and account 2 at 96%" width="140">
 
-Click it to see:
+Click it for:
 
-- how many accounts are sharing the work, and whether the proxy is working
-- the API-equivalent cost or tokens for Today, 7 Days or 30 Days, split by account
-- each account's allowance, when it resets and its daily use
-- when an account will run out, if it is going to run out before it resets
+- whether the pool is working, and how many accounts are in it
+- cost at API prices, or tokens, for Today, 7 Days or 30 Days, split by account
+- each account's allowance, when it resets, and its usage over the last 30 days
+- when an account will run out, if it's going to run out before it resets
 - the tasks that used the most, and which accounts served them
 
-The eye button hides account emails, so you can share a screenshot. In the
-picture below, task names are also blurred. Account 3 is a free account that
-cannot run the model in use, so the work is balanced across the other two.
+The eye button hides emails so you can post screenshots. Account 3 below is a
+free account that can't run the model I use, so the work goes to the other two.
 
 <img src="docs/images/menu-panel.png" alt="The full menu for Today in API-equivalent cost, with emails hidden and task names blurred" width="344">
 
-Account totals come from OpenAI's own daily usage report for each account. Task
-totals come from the Codex and Pi session logs on your Mac. API-equivalent cost
-prices those tokens at OpenAI's API rates.
+Account totals come from OpenAI's own daily usage report for each account, so
+they include work done on other machines. Task totals come from the Codex and Pi
+session logs on your Mac.
 
 ## Install
 
@@ -167,17 +165,18 @@ rejected. It never records prompts or responses.
 
 ## How routing works
 
-- A new task goes to the account with the most weekly allowance left.
-- The task stays on that account. Each sub-agent is a task of its own.
-- When OpenAI says an account has run out, the task's next request goes to
-  another account. If OpenAI rejects a request before any work starts, Codex
-  retries it as it normally would, and the retry goes to another account. The
-  proxy itself never resends a request.
-- If no account can serve the model you asked for, the request waits until one
-  can, or until you cancel it. The proxy never swaps your model for another.
+- New tasks go to the account with the most weekly allowance left. Every
+  sub-agent counts as its own task.
+- A task stays on its account until OpenAI says that account has run out. Its
+  next request then goes to another account.
+- If OpenAI rejects a request before any work starts, Codex retries it like it
+  normally would, and the retry lands on another account. The proxy never
+  resends anything itself.
+- If no account can run the model you asked for, the request waits until one
+  can. The proxy never swaps your model for a different one.
 
-To add an account later, run `codex-switch login` again. To remove one, run
-`codex-switch remove account-2`. Neither needs a restart.
+Add an account any time with `codex-switch login`, and remove one with
+`codex-switch remove account-2`. No restart needed.
 
 ## How updates work
 
@@ -222,29 +221,26 @@ move that folder to the Trash to remove them too.
 
 | | What it is | Lines of code |
 | --- | --- | ---: |
-| **Codex Switch** | Account pool, menu bar app, per-task accounting, updates without dropping work | **about 8,500** (Go and Swift) |
+| **Codex Switch** | Account pool, menu bar app, per-task usage, updates that don't drop work | **about 8,500** (Go and Swift) |
 | [codex-lb](https://github.com/Soju06/codex-lb) | Account pool with a web dashboard; retries and replays requests inside the proxy | about 226,000 (Python and TypeScript) |
-| [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) | Gateway for many AI providers, with protocol translation | about 232,000 (Go) |
+| [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) | Gateway for lots of AI providers, translating between their APIs | about 232,000 (Go) |
 | [opencodex](https://github.com/lidge-jun/opencodex) | Proxy from Codex and Claude Code to any model provider | about 504,000 (TypeScript) |
 
-Small `auth.json` switchers are simpler still, but they change the account by
-restarting Codex, which stops every running agent.
+The small `auth.json` switchers are simpler, but they switch accounts by
+restarting Codex, which kills every running agent.
 
-Codex Switch is small because it does one job: it pools ChatGPT accounts for
-one person on one Mac, and leaves the agent work to Codex and Pi. It has six
-direct dependencies: five Go modules and Swift Protobuf.
+Codex Switch is small because it does one thing: pool ChatGPT accounts for one
+person on one Mac. Everything else is left to Codex and Pi. It has six direct
+dependencies.
 
-Counts are lines of code without tests, generated code, vendored code,
-comments or blank lines, measured with
-[scc](https://github.com/boyter/scc) on 11 October 2026.
+Line counts exclude tests, generated and vendored code, comments and blank
+lines, measured with [scc](https://github.com/boyter/scc) on 11 October 2026.
 
 ## Local data
 
-Codex Switch keeps its data in `~/Library/Application Support/codex-switch`:
-your account sign-ins, the private URL key, which task is on which account,
-daily request counts and token counts for completed responses. It does not
-store prompts, responses, reasoning or raw traffic. See
-[SECURITY.md](SECURITY.md).
+Everything lives in `~/Library/Application Support/codex-switch`: your account
+sign-ins, the private URL key, which task is on which account, and token counts.
+No prompts, responses or raw traffic are stored. See [SECURITY.md](SECURITY.md).
 
 ## Contributing
 
