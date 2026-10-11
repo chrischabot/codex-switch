@@ -1,41 +1,55 @@
 # Contributing
 
-Codex Switch is an unreleased macOS project. Keep changes focused on its one
-purpose: route Codex work across a user's ChatGPT accounts, show exact usage,
-and update without interrupting running agents.
+Codex Switch does one thing: it lets Codex use several ChatGPT accounts as one
+pool, shows exactly what each account and task used, and updates without
+interrupting running agents. Keep changes to that.
 
-## Development
+## Build and test
 
-Use the pinned `devenv` environment. Do not install dependencies globally.
+Use the pinned `devenv` environment, so you do not install anything globally:
 
 ```sh
 devenv tasks run dev:build
 devenv tasks run dev:test
 ```
 
-`dev:test` is the canonical Go and Swift test path. Add a test only when it
-protects a real user path, a hard external contract or a small critical rule.
+There is no CI. Before you open a pull request, run the system test:
 
-Run the [system test](docs/system-test.md), `scripts/dev/system-test`, to
-prove the whole system with the real clients before a live deploy.
-Build/signature checks are available through `dev:stage` and `dev:inspect`;
-they do not prove product behavior.
+```sh
+scripts/dev/system-test
+```
 
-Never use the installed proxy, menu, account data or port 2455 as a development
-test target. Do not install, restart or replace live components while agents
-are running.
+It builds the proxy from your working tree and runs the whole system in
+isolation, with the real Codex and Pi clients and your own signed-in accounts.
+It takes about four minutes and about 30 model requests. It never touches your
+installed proxy, menu app or Codex configuration. See
+[docs/system-test.md](docs/system-test.md) for what it proves and where to look
+when it fails.
+
+`devenv tasks run dev:stage` builds a signed menu app under `dist/staged/`
+without opening it. For a change to the menu, open the app and look at every
+state you changed.
+
+## Your own installation
+
+Do not test against your installed proxy, menu app or account data. Do not
+restart or replace them while agents are running. To update them, use the steps
+in the README.
 
 ## Changes
 
-- Use explicit, searchable names and keep one obvious implementation path.
-- Do not add compatibility code for unreleased designs.
-- Do not expose uncertainty as warnings, caveats, ranges or explanatory UI.
-  Establish the source of truth or remove the unsupported feature.
-- Preserve request bodies, responses and streaming behaviour when changing the
+- Keep one obvious way to do each thing, with clear, searchable names.
+- Do not add compatibility code for designs that never shipped.
+- Do not show uncertainty as warnings, caveats or ranges. Find the source of
+  truth, or remove the feature.
+- Preserve request bodies, responses and streaming exactly when changing the
   proxy.
-- Inspect the rendered app for UI changes. Include before-and-after screenshots
-  with the pull request.
+- Add a test only when it protects a real user path, a hard external contract
+  or a small critical rule.
 
-A pull request should explain the user outcome, the human path used to prove it
-and the exact commands that passed. Keep credentials, client capabilities,
-account identifiers and private Codex data out of commits, logs and screenshots.
+A pull request should say what changes for the user, how you proved it and the
+commands that passed. For menu changes, include before and after screenshots
+taken in privacy mode.
+
+Keep credentials, the private URL key, account emails and IDs, task names and
+anything else from your own Codex use out of commits, logs and screenshots.

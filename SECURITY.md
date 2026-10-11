@@ -1,7 +1,6 @@
 # Security
 
-Codex Switch is unreleased. No release version currently receives security
-support. Security fixes are developed on the current main branch.
+Codex Switch has no releases. Security fixes go to the main branch.
 
 ## Report a vulnerability privately
 
@@ -21,7 +20,7 @@ not include live credentials or private user data.
 Treat these as credentials:
 
 - ChatGPT access, refresh and identity tokens
-- the Codex Switch client capability and any URL containing it
+- the private URL key (`client-capability`) and any URL containing it
 - account IDs and email addresses
 - files under `~/Library/Application Support/codex-switch`
 - private Codex configuration, tasks, prompts and responses
