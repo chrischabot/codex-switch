@@ -103,7 +103,7 @@ func (monitor *Monitor) readAllowanceSample(ctx context.Context, account PoolAcc
 	if err := json.NewDecoder(response.Body).Decode(&usage); err != nil {
 		return AllowanceSample{}, err
 	}
-	sample, err := usage.Sample(account.Name, credentials.AccountID, time.Now())
+	sample, err := usage.Sample(credentials.AccountID, time.Now())
 	if err != nil {
 		return AllowanceSample{}, err
 	}

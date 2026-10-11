@@ -34,7 +34,7 @@ type usageWindow struct {
 // Sample takes the immutable subscription identity from the credentials used
 // for the request. The usage response's account_id currently duplicates its
 // user_id and is not the ChatGPT-Account-ID request header.
-func (u usageResponse) Sample(route, credentialAccountID string, observedAt time.Time) (AllowanceSample, error) {
+func (u usageResponse) Sample(credentialAccountID string, observedAt time.Time) (AllowanceSample, error) {
 	if u.RateLimit == nil || u.RateLimit.Allowed == nil || u.RateLimit.LimitReached == nil {
 		return AllowanceSample{}, errors.New("usage response has no complete rate-limit state")
 	}
@@ -44,7 +44,7 @@ func (u usageResponse) Sample(route, credentialAccountID string, observedAt time
 	}
 	observedAt = observedAt.UTC()
 	result := AllowanceSample{
-		Route: route, AccountID: credentialAccountID, Plan: u.PlanType,
+		AccountID: credentialAccountID, Plan: u.PlanType,
 		Allowed: *u.RateLimit.Allowed, LimitReached: *u.RateLimit.LimitReached, ObservedAt: observedAt,
 	}
 	if u.ResetCredits != nil {

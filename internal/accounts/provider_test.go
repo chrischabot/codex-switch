@@ -12,7 +12,7 @@ func TestRawUsageShape(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"user_id":"redacted","account_id":"redacted","email":"a@example.com","plan_type":"pro","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":54,"limit_window_seconds":18000,"reset_after_seconds":120,"reset_at":0}}}`), &raw); err != nil {
 		t.Fatal(err)
 	}
-	s, err := raw.Sample("account-1", "redacted", observed)
+	s, err := raw.Sample("redacted", observed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestUsageResponseRequiresExplicitRateLimitState(t *testing.T) {
 		if err := json.Unmarshal([]byte(data), &raw); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := raw.Sample("account-1", "account-id", time.Now()); err == nil {
+		if _, err := raw.Sample("account-id", time.Now()); err == nil {
 			t.Fatalf("%s was accepted", data)
 		}
 	}
@@ -43,7 +43,7 @@ func TestUsageResponseRejectsIncompleteWindows(t *testing.T) {
 		if err := json.Unmarshal([]byte(data), &raw); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := raw.Sample("account-1", "id-1", time.Now()); err == nil {
+		if _, err := raw.Sample("id-1", time.Now()); err == nil {
 			t.Fatalf("incomplete window was accepted: %s", data)
 		}
 	}
@@ -51,10 +51,10 @@ func TestUsageResponseRejectsIncompleteWindows(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"account_id":"provider-user-id","rate_limit":{"allowed":true,"limit_reached":false}}`), &raw); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := raw.Sample("account-1", "", time.Now()); err == nil {
+	if _, err := raw.Sample("", time.Now()); err == nil {
 		t.Fatal("missing authenticated subscription identity was accepted")
 	}
-	sample, err := raw.Sample("account-1", "subscription-id", time.Now())
+	sample, err := raw.Sample("subscription-id", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestUsageResponseAcceptsTheCurrentWeeklyOnlyShape(t *testing.T) {
 	}`), &raw); err != nil {
 		t.Fatal(err)
 	}
-	sample, err := raw.Sample("account-1", "subscription-a", time.Date(2026, 7, 13, 21, 34, 22, 0, time.UTC))
+	sample, err := raw.Sample("subscription-a", time.Date(2026, 7, 13, 21, 34, 22, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestResetCreditsUseAvailableCount(t *testing.T) {
 			if err := json.Unmarshal([]byte(body), &response); err != nil {
 				t.Fatal(err)
 			}
-			sample, err := response.Sample("account-1", "subscription", time.Unix(1899990000, 0))
+			sample, err := response.Sample("subscription", time.Unix(1899990000, 0))
 			if err != nil {
 				t.Fatal(err)
 			}

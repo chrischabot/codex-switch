@@ -24,7 +24,6 @@ type ReportedWindow struct {
 }
 
 type AllowanceSample struct {
-	Route                 string
 	AccountID             string
 	Plan                  string
 	Allowed               bool
