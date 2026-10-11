@@ -1,90 +1,96 @@
 # Codex Switch
 
-Codex Switch is a local macOS proxy that lets Codex use several ChatGPT
-subscription accounts without manual account switching. It keeps each task on
-one account and assigns new tasks to an eligible account.
+Use all your ChatGPT subscriptions as one pool in Codex.
 
-Codex Switch preserves prompts, tool calls and request bodies. It supplies the
-selected account's subscription credentials. When an account rejects a request
-before starting work, the proxy lets Codex retry against another eligible account;
-it never resubmits model work itself.
+Codex Switch is a small local proxy and a macOS menu bar app. You point Codex at
+one local URL and sign in to each ChatGPT account once. From then on, new tasks
+go to the account with the most weekly allowance left, and running agents are
+never interrupted.
 
-## Status
+<img src="docs/images/menu-demo.png" alt="The Codex Switch menu cycling through Today, 7 Days and 30 Days, in API-equivalent cost and then in tokens, with account emails hidden" width="344">
 
-Work in progress. It relies on undocumented ChatGPT subscription endpoints,
-which can change without notice.
+## Why it exists
+
+I run long Codex goals and several agents at once. One subscription's allowance
+runs out in a few hours, and the agents stop. Switching accounts by hand means
+signing out, signing in and restarting every running task. At API prices, my
+last 30 days of Codex work would have cost about $3,500.
+
+I already pay for the subscriptions, so I want Codex to use all of them, without
+me thinking about it.
+
+## Is this allowed?
+
+Uhh, you probably shouldn't do this. It uses ChatGPT endpoints that OpenAI
+doesn't document, and pooling accounts may break their terms. Please don't ban
+me, [Tibo](https://x.com/thsottiaux). Raise the rate limits instead lol.
+
+It is macOS only, you build it from source, and so far it has one user: me.
+
+## What it does
+
+- Works with the Codex desktop app and CLI, including sub-agents, and with
+  [Pi](https://github.com/badlogic/pi-mono). They all use one local URL.
+- Sends each new task to the account with the most weekly allowance left.
+- Keeps a task on its account, so its prompt cache stays warm.
+- Moves a task to another account on its next turn when its account runs out.
+  Nothing is replayed, and the agent carries on.
+- Updates without dropping work: new requests go to the new version while
+  requests already running finish on the old one.
+- Shows, in the menu bar, how much allowance each account has left, what each
+  account and task has used, and whether the pool is working.
 
 ## The menu
 
-The menu bar shows how much weekly allowance each account has left.
+The menu bar shows the weekly allowance left on each account.
 
 <img src="docs/images/menu-bar-item.png" alt="Menu bar item: account 1 at 96% and account 2 at 96%" width="140">
 
 Click it to see:
 
-- how many accounts share the work, and whether the proxy is working
+- how many accounts are sharing the work, and whether the proxy is working
 - the API-equivalent cost or tokens for Today, 7 Days or 30 Days, split by account
-- each account's allowance, when it resets, its stored resets and its daily use
-- when an account will run out before it resets, if it is on pace to
+- each account's allowance, when it resets and its daily use
+- when an account will run out, if it is going to run out before it resets
 - the tasks that used the most, and which accounts served them
 
-The eye button hides account emails, so you can share a screenshot.
+The eye button hides account emails, so you can share a screenshot. In the
+picture below, task names are also blurred. Account 3 is a free account that
+cannot run the model in use, so the work is balanced across the other two.
 
-<img src="docs/images/menu-panel.png" alt="The menu panel for Today, in API-equivalent cost" width="370">
+<img src="docs/images/menu-panel.png" alt="The full menu for Today in API-equivalent cost, with emails hidden and task names blurred" width="344">
 
-Install it with
-`macos/CodexSwitchMenu/package_app.sh --live --destination /Applications/CodexSwitchMenu.app`
-and open it once. It then opens at login.
+Account totals come from OpenAI's own daily usage report for each account. Task
+totals come from the Codex and Pi session logs on your Mac. API-equivalent cost
+prices those tokens at OpenAI's API rates.
 
-## How routing works
+## Install
 
-- A new task uses the eligible account with the most remaining weekly capacity.
-  Exact capacity ties use a stable task-ID-based ranking to spread new work across accounts.
-- Later work for that task uses the same account.
-- Each sub-agent has its own task ID and assignment.
-- A model request without a task ID uses the account a new task would get and
-  is never pinned. Metadata requests do not create assignments.
-- After OpenAI confirms exhaustion, the next client request uses another
-  eligible account. If none can serve the requested model, the request waits
-  for capacity or client cancellation. The proxy does not substitute models.
+You need:
 
-## Build and test
+- macOS 14 or later
+- Go 1.24 or later, for the proxy
+- Xcode 16 or later, for the menu bar app
+- Codex, either the desktop app or the CLI
+- two or more ChatGPT subscriptions
 
-Use the pinned devenv environment. These commands build and inspect repository
-artifacts only. They do not launch, install or replace the running proxy or
-menu app.
+Build the proxy into `~/.local/lib/codex-switch` and put the `codex-switch`
+command on your path:
 
 ```sh
-devenv tasks run dev:build
-devenv tasks run dev:test
-devenv tasks run dev:stage
-devenv tasks run dev:inspect
+git clone https://github.com/joshp123/codex-switch.git
+cd codex-switch
+mkdir -p ~/.local/lib/codex-switch ~/.local/bin
+scripts/dev/build-proxy ~/.local/lib/codex-switch/codex-switch
+ln -sf ~/.local/lib/codex-switch/codex-switch ~/.local/bin/codex-switch
 ```
 
-`dev:stage` creates a signed app under `dist/staged/`. `dev:inspect` verifies the
-bundle, menu executable and signature without opening the app.
+Make sure `~/.local/bin` is on your `PATH`.
 
-## Deployment
+### 1. Sign in to each account
 
-The [system test](docs/system-test.md) exercises an update during work. A
-private launchd job supervises a stable
-executable path. The deployment script starts a detached bridge on the same
-loopback port, confirms it accepts new connections, and lets admitted work
-finish on the old process. It retires the bridge only after confirming the
-supervised successor. Python 3 is included in the pinned development environment.
-
-Build proxy artifacts with `devenv shell -- scripts/dev/build-proxy <output>`;
-this is also the proxy build used by `dev:build` and the system test. It records source
-revision and modified state for deployment checks.
-
-Live proxy deployment, menu installation and main Codex configuration changes
-require separate explicit approval. No isolated command adopts the installed
-services or their writable data.
-
-## Add accounts
-
-Run `login` once for every account to add. The official Codex CLI performs each
-interactive sign-in.
+Run `login` once for each account. Each run opens the official Codex sign-in in
+your browser. Sign in with a different account each time.
 
 ```sh
 codex-switch login
@@ -92,80 +98,171 @@ codex-switch login
 codex-switch accounts
 ```
 
-Name an existing account only when it needs to sign in again:
+`accounts` lists what you added:
 
-```sh
-codex-switch login account-2
+```text
+account-1	you@example.com
+account-2	you+work@example.com
 ```
 
-Remove an account explicitly:
+### 2. Keep the proxy running
+
+Create a launchd job so the proxy starts at login and restarts if it stops:
 
 ```sh
-codex-switch remove account-2
+cat > ~/Library/LaunchAgents/local.codex-switch.plist <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>local.codex-switch</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$HOME/.local/lib/codex-switch/codex-switch</string>
+    <string>serve</string>
+  </array>
+  <key>KeepAlive</key><true/>
+  <key>ExitTimeOut</key><integer>0</integer>
+</dict>
+</plist>
+EOF
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.codex-switch.plist
 ```
 
-Account data is stored under `~/Library/Application Support/codex-switch`.
+The proxy listens on `127.0.0.1:2455`. `ExitTimeOut` set to 0 lets a stopping
+proxy finish the work it has already accepted.
 
-## Configure Codex
-
-Print the user-level setting for this installation:
+### 3. Point Codex at it
 
 ```sh
 codex-switch print-codex-config
 ```
 
-Copy its single `openai_base_url` line into `~/.codex/config.toml`. The private
-URL identifies this installation and prevents unrelated local applications
-from sending requests through your subscription accounts.
+Add the line it prints to the top of `~/.codex/config.toml`, above any
+`[section]`, then restart Codex. The URL contains a private key for your
+installation, so web pages and other apps that do not know it cannot use your
+accounts through the proxy.
 
-Remove that line to use OpenAI's standard endpoint again. Codex must reload its
-configuration before the change takes effect.
+To go back to OpenAI directly, delete that line and restart Codex.
 
-## Inspect current work
+For Pi, add the same URL to `~/.pi/agent/models.json`:
+
+```json
+{
+  "providers": {
+    "openai-codex": {
+      "baseUrl": "<the URL from print-codex-config>",
+      "apiKey": "eyJhbGciOiJub25lIn0.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiY29kZXgtc3dpdGNoIn19.codex-switch"
+    }
+  }
+}
+```
+
+The `apiKey` is a placeholder. Pi needs one to start, and the proxy replaces it
+with the real account's sign-in.
+
+### 4. Install the menu bar app
 
 ```sh
-codex-switch
+macos/CodexSwitchMenu/package_app.sh --live --destination /Applications/CodexSwitchMenu.app
+open /Applications/CodexSwitchMenu.app
+```
+
+This builds the app on your Mac, signs it for this Mac only and copies it to
+Applications. You do not need an Apple developer account. The app adds itself
+to your login items, so it opens at login from then on.
+
+### Check it works
+
+```sh
 codex-switch status
 ```
 
-Both commands read the snapshot the serving proxy composes once a minute. They
-show each account's allowance, whether it can take new work and why not, and
-recent tasks with the accounts that served them.
+This shows each account's allowance, whether it can take new work and why not,
+and recent tasks with the accounts that served them. The proxy's log is
+`~/Library/Application Support/codex-switch/proxy.log`. It records which
+account each task got and why, every move, every wait and every request OpenAI
+rejected. It never records prompts or responses.
 
-The serving proxy appends to `proxy.log` in its data directory; every process,
-including both sides of a blue-green update, writes to the same file. Each line
-has a timestamp and names the task, the client that sent it and the account
-that served it. The log records when a task is assigned or moves to an account
-and why, when work waits for an account, every request OpenAI rejects or fails
-with OpenAI's reason, and when an account's availability changes. It does not
-log routine successful requests, prompts or responses.
+## How routing works
 
-The model-request table counts attempts through this proxy from its displayed
-start time. Each HTTP model POST or WebSocket model request counts once;
-client retries count separately. Successful means the proxy observed a successful
-terminal response. Failed means the provider explicitly rejected or failed the
-request. Interrupted means the connection ended before a terminal response was
-observed, including client cancellation. These are request outcomes, not task
-outcomes. Warmups, connection setup, auxiliary calls and requests still waiting
-for an account do not count. Compaction requests do count.
+- A new task goes to the account with the most weekly allowance left.
+- The task stays on that account. Each sub-agent is a task of its own.
+- When OpenAI says an account has run out, the task's next request goes to
+  another account. If OpenAI rejects a request before any work starts, Codex
+  retries it as it normally would, and the retry goes to another account. The
+  proxy itself never resends a request.
+- If no account can serve the model you asked for, the request waits until one
+  can, or until you cancel it. The proxy never swaps your model for another.
 
-Counters are stored as daily account aggregates and survive normal proxy updates.
-They begin when request observation is first enabled; earlier completed replies
-are not used to invent earlier request or failure totals. The separate completed
-replies and tokens table shows today's recorded work. An active request has no
-outcome yet; a process crash or failed counter write does not manufacture one.
+To add an account later, run `codex-switch login` again. To remove one, run
+`codex-switch remove account-2`. Neither needs a restart.
 
-The menu app reads the same protobuf snapshot from the proxy's private URL.
+## How updates work
+
+Build the new version and hand over to it. The paths are the ones from
+Install.
+
+```sh
+git pull
+scripts/dev/build-proxy /tmp/codex-switch-new
+deploy/deploy.sh new /tmp/codex-switch-new \
+  --stable ~/.local/lib/codex-switch/codex-switch \
+  --data ~/Library/Application\ Support/codex-switch \
+  --listen 127.0.0.1:2455
+```
+
+The new process starts on the same port and takes all new requests. The old
+process stops accepting work, finishes every request it already has, including
+streams and WebSockets, then exits. The script has already put the new binary
+at the installed path, so launchd starts it in the old one's place.
+
+To go back to the previous version, run the same command with `back` instead
+of `new /tmp/codex-switch-new`.
+
+To update the menu app, quit it from **Options** and run step 4 again.
+
+## Compared with the alternatives
+
+| | What it is | Lines of code |
+| --- | --- | ---: |
+| **Codex Switch** | Account pool, menu bar app, per-task accounting, updates without dropping work | **about 8,500** (Go and Swift) |
+| [codex-lb](https://github.com/Soju06/codex-lb) | Account pool with a web dashboard; retries and replays requests inside the proxy | about 226,000 (Python and TypeScript) |
+| [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) | Gateway for many AI providers, with protocol translation | about 232,000 (Go) |
+| [opencodex](https://github.com/lidge-jun/opencodex) | Proxy from Codex and Claude Code to any model provider | about 504,000 (TypeScript) |
+
+Small `auth.json` switchers are simpler still, but they change the account by
+restarting Codex, which stops every running agent.
+
+Codex Switch is small because it does one job: it pools ChatGPT accounts for
+one person on one Mac, and leaves the agent work to Codex and Pi. It has six
+direct dependencies: five Go modules and Swift Protobuf.
+
+Counts are lines of code without tests, generated code, vendored code,
+comments or blank lines, measured with
+[scc](https://github.com/boyter/scc) on 11 October 2026.
 
 ## Local data
 
-Codex Switch stores credentials, a private client capability, task IDs,
-task-to-account assignments, daily request counts and completed-response token records. Current
-allowance observations are held in memory. It does not store prompts, model
-responses, reasoning text, authorisation headers or raw WebSocket messages.
+Codex Switch keeps its data in `~/Library/Application Support/codex-switch`:
+your account sign-ins, the private URL key, which task is on which account,
+daily request counts and token counts for completed responses. It does not
+store prompts, responses, reasoning or raw traffic. See
+[SECURITY.md](SECURITY.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Credits
+
+The OpenAI mark in the menu bar and much of the menu's design come from
+[OpenUsage](https://github.com/robinebers/openusage) by Robin Ebers, used under
+the MIT licence (copyright 2026 Robin Ebers).
+
+Codex Switch is not affiliated with OpenAI. OpenAI, ChatGPT and Codex are
+trademarks of OpenAI.
 
 ## Licence
 
-MIT. See `LICENSE`.
-
-Codex Switch is an independent project and is not affiliated with OpenAI.
+MIT. See [LICENSE](LICENSE).
