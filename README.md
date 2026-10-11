@@ -39,7 +39,7 @@ Use it at your own risk. You're probably not supposed to do this: it relies on
 ChatGPT endpoints that OpenAI doesn't document, and pooling accounts may go
 against their terms. Until OpenAI supports several accounts in the app natively,
 it's the only way I've found to make this work. Tibo, if you're reading this:
-please just add it.
+please add it, fix the limits, and ship a model better than Opus 5.5. lol
 
 It is macOS only, you build it from source, and so far it has one user: me.
 
@@ -248,7 +248,8 @@ store prompts, responses, reasoning or raw traffic. See
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+This is a personal project. Pull requests are switched off. Issues are open, but
+I'll probably ignore them.
 
 ## Credits
 

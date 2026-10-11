@@ -1,19 +1,6 @@
 # Security
 
-Codex Switch has no releases. Security fixes go to the main branch.
-
-## Report a vulnerability privately
-
-Do not disclose a suspected vulnerability in a public issue or pull request.
-Use **Report a vulnerability** in this repository's **Security** tab when that
-control is available.
-
-If private vulnerability reporting is not available, open a public issue asking
-the maintainer for a private contact route. Include no vulnerability details in
-that issue.
-
-Describe the affected code, the impact and the shortest safe reproduction. Do
-not include live credentials or private user data.
+This is a personal project with no security support. Use it at your own risk.
 
 ## Sensitive local data
 
