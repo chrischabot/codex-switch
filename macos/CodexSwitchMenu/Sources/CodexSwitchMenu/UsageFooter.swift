@@ -26,9 +26,10 @@ struct UsageFooter: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
         }
-        .font(.caption)
-        .padding(.horizontal, UsageTheme.outerInset)
-        .padding(.vertical, 9)
+        .font(UsageTheme.detailFont)
+        .padding(.leading, UsageTheme.outerInset + 4)
+        .padding(.trailing, UsageTheme.outerInset)
+        .padding(.vertical, 10)
         .background(UsageTheme.traySurface)
         .overlay(alignment: .top) { Divider() }
     }

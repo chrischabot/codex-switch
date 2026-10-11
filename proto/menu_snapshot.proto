@@ -11,6 +11,14 @@ message MenuSnapshot {
   Connection connection = 4;
   repeated ReportingPeriod reporting_periods = 5;
   ProxyActivity proxy_activity = 6;
+  // Each account's usage per UTC date for the last 30 days, oldest first.
+  repeated AccountDay account_days = 7;
+}
+message AccountDay {
+  string account_key = 1;
+  google.protobuf.Timestamp started_at = 2;
+  int64 tokens = 3;
+  optional int64 cost_nano_usd = 4;
 }
 message ProxyActivity {
   google.protobuf.Timestamp started_at = 1;

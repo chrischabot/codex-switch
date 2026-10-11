@@ -50,7 +50,12 @@ struct CodexSwitchPanel: View {
                                 )
                             }
                             ForEach(snapshot.accounts, id: \.key) { account in
-                                AccountSection(account: account, hideIdentity: privacyModeEnabled)
+                                AccountSection(
+                                    account: account,
+                                    hideIdentity: privacyModeEnabled,
+                                    now: snapshot.generatedAt.date,
+                                    dailyUsage: overview?.dailyUsage(account: account.key, metric: selectedMetric) ?? []
+                                )
                             }
                             RoutedTasksSection(
                                 snapshot: snapshot,
@@ -154,31 +159,56 @@ private struct PanelStatusHeader: View {
     let currentCheckSucceeded: Bool
     @Binding var privacyModeEnabled: Bool
 
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text("Balancing \(snapshot.accounts.count) accounts")
-                .font(.headline)
-            Spacer(minLength: 8)
-            if currentCheckSucceeded && snapshot.connection.newTasksConfigured {
-                let usable = snapshot.accounts.contains(where: \.usable)
-                Label(
-                    usable ? "Working" : "Waiting for capacity",
-                    systemImage: usable ? "checkmark.circle.fill" : "pause.circle.fill"
-                )
-                .font(.caption.weight(.medium))
-                .foregroundStyle(usable ? Color.green : Color.secondary)
+    private enum ProxyState {
+        case working, allLimited, notConnected
+
+        var title: String {
+            switch self {
+            case .working: "Working"
+            case .allLimited: "All accounts limited"
+            case .notConnected: "Not connected"
             }
+        }
+
+        var symbol: String {
+            switch self {
+            case .working: "checkmark.circle.fill"
+            case .allLimited: "pause.circle.fill"
+            case .notConnected: "xmark.circle.fill"
+            }
+        }
+    }
+
+    private var state: ProxyState {
+        guard currentCheckSucceeded && snapshot.connection.newTasksConfigured else { return .notConnected }
+        return snapshot.accounts.contains(where: \.usable) ? .working : .allLimited
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Text("Balancing \(snapshot.accounts.filter(\.offersConfiguredModel).count) accounts")
+                .font(UsageTheme.titleFont)
+            Spacer(minLength: 8)
+            HStack(spacing: 5) {
+                Image(systemName: state.symbol)
+                    .foregroundStyle(state == .working ? Color.green : Color.secondary)
+                Text(state.title)
+            }
+            .font(UsageTheme.detailEmphasisFont)
             Button {
                 privacyModeEnabled.toggle()
             } label: {
-                Image(systemName: privacyModeEnabled ? "lock.fill" : "lock.open")
-                    .imageScale(.small)
+                Image(systemName: privacyModeEnabled ? "eye.slash" : "eye")
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help(privacyModeEnabled ? "Show account emails" : "Hide account emails")
             .accessibilityLabel(privacyModeEnabled ? "Show account emails" : "Hide account emails")
         }
-        .padding(.horizontal, 4)
+        .padding(.leading, 4)
+        .padding(.trailing, 2)
     }
 }

@@ -150,6 +150,9 @@ nonisolated struct CSSwitch_MenuSnapshot: Sendable {
   /// Clears the value of `proxyActivity`. Subsequent reads from it will return its default value.
   mutating func clearProxyActivity() {self._proxyActivity = nil}
 
+  /// Each account's usage per UTC date for the last 30 days, oldest first.
+  var accountDays: [CSSwitch_AccountDay] = []
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -157,6 +160,41 @@ nonisolated struct CSSwitch_MenuSnapshot: Sendable {
   fileprivate var _generatedAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
   fileprivate var _connection: CSSwitch_Connection? = nil
   fileprivate var _proxyActivity: CSSwitch_ProxyActivity? = nil
+}
+
+nonisolated struct CSSwitch_AccountDay: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var accountKey: String = String()
+
+  var startedAt: SwiftProtobuf.Google_Protobuf_Timestamp {
+    get {_startedAt ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
+    set {_startedAt = newValue}
+  }
+  /// Returns true if `startedAt` has been explicitly set.
+  var hasStartedAt: Bool {self._startedAt != nil}
+  /// Clears the value of `startedAt`. Subsequent reads from it will return its default value.
+  mutating func clearStartedAt() {self._startedAt = nil}
+
+  var tokens: Int64 = 0
+
+  var costNanoUsd: Int64 {
+    get {_costNanoUsd ?? 0}
+    set {_costNanoUsd = newValue}
+  }
+  /// Returns true if `costNanoUsd` has been explicitly set.
+  var hasCostNanoUsd: Bool {self._costNanoUsd != nil}
+  /// Clears the value of `costNanoUsd`. Subsequent reads from it will return its default value.
+  mutating func clearCostNanoUsd() {self._costNanoUsd = nil}
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+
+  fileprivate var _startedAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
+  fileprivate var _costNanoUsd: Int64? = nil
 }
 
 nonisolated struct CSSwitch_ProxyActivity: Sendable {
@@ -277,6 +315,10 @@ nonisolated struct CSSwitch_Account: Sendable {
 
   /// Why the account cannot take new work for the configured model; empty when usable.
   var unavailableReason: String = String()
+
+  /// The account's plan offers the model Codex is configured to use, so it is
+  /// part of the pool for current work even while its allowance is used up.
+  var offersConfiguredModel: Bool = false
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -510,7 +552,7 @@ nonisolated extension CSSwitch_ReportingPeriodKind: SwiftProtobuf._ProtoNameProv
 
 nonisolated extension CSSwitch_MenuSnapshot: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".MenuSnapshot"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}generated_at\0\u{1}accounts\0\u{3}completed_tasks\0\u{1}connection\0\u{3}reporting_periods\0\u{3}proxy_activity\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}generated_at\0\u{1}accounts\0\u{3}completed_tasks\0\u{1}connection\0\u{3}reporting_periods\0\u{3}proxy_activity\0\u{3}account_days\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -524,6 +566,7 @@ nonisolated extension CSSwitch_MenuSnapshot: SwiftProtobuf.Message, SwiftProtobu
       case 4: try { try decoder.decodeSingularMessageField(value: &self._connection) }()
       case 5: try { try decoder.decodeRepeatedMessageField(value: &self.reportingPeriods) }()
       case 6: try { try decoder.decodeSingularMessageField(value: &self._proxyActivity) }()
+      case 7: try { try decoder.decodeRepeatedMessageField(value: &self.accountDays) }()
       default: break
       }
     }
@@ -552,6 +595,9 @@ nonisolated extension CSSwitch_MenuSnapshot: SwiftProtobuf.Message, SwiftProtobu
     try { if let v = self._proxyActivity {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
     } }()
+    if !self.accountDays.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.accountDays, fieldNumber: 7)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -562,6 +608,56 @@ nonisolated extension CSSwitch_MenuSnapshot: SwiftProtobuf.Message, SwiftProtobu
     if lhs._connection != rhs._connection {return false}
     if lhs.reportingPeriods != rhs.reportingPeriods {return false}
     if lhs._proxyActivity != rhs._proxyActivity {return false}
+    if lhs.accountDays != rhs.accountDays {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension CSSwitch_AccountDay: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".AccountDay"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}account_key\0\u{3}started_at\0\u{1}tokens\0\u{3}cost_nano_usd\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.accountKey) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._startedAt) }()
+      case 3: try { try decoder.decodeSingularInt64Field(value: &self.tokens) }()
+      case 4: try { try decoder.decodeSingularInt64Field(value: &self._costNanoUsd) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if !self.accountKey.isEmpty {
+      try visitor.visitSingularStringField(value: self.accountKey, fieldNumber: 1)
+    }
+    try { if let v = self._startedAt {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    if self.tokens != 0 {
+      try visitor.visitSingularInt64Field(value: self.tokens, fieldNumber: 3)
+    }
+    try { if let v = self._costNanoUsd {
+      try visitor.visitSingularInt64Field(value: v, fieldNumber: 4)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: CSSwitch_AccountDay, rhs: CSSwitch_AccountDay) -> Bool {
+    if lhs.accountKey != rhs.accountKey {return false}
+    if lhs._startedAt != rhs._startedAt {return false}
+    if lhs.tokens != rhs.tokens {return false}
+    if lhs._costNanoUsd != rhs._costNanoUsd {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -717,7 +813,7 @@ nonisolated extension CSSwitch_ModelRequestCounts: SwiftProtobuf.Message, SwiftP
 
 nonisolated extension CSSwitch_Account: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".Account"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}key\0\u{1}email\0\u{1}plan\0\u{1}state\0\u{1}allowance\0\u{3}account_number\0\u{1}usable\0\u{3}unavailable_reason\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}key\0\u{1}email\0\u{1}plan\0\u{1}state\0\u{1}allowance\0\u{3}account_number\0\u{1}usable\0\u{3}unavailable_reason\0\u{3}offers_configured_model\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -733,6 +829,7 @@ nonisolated extension CSSwitch_Account: SwiftProtobuf.Message, SwiftProtobuf._Me
       case 6: try { try decoder.decodeSingularUInt32Field(value: &self.accountNumber) }()
       case 7: try { try decoder.decodeSingularBoolField(value: &self.usable) }()
       case 8: try { try decoder.decodeSingularStringField(value: &self.unavailableReason) }()
+      case 9: try { try decoder.decodeSingularBoolField(value: &self.offersConfiguredModel) }()
       default: break
       }
     }
@@ -767,6 +864,9 @@ nonisolated extension CSSwitch_Account: SwiftProtobuf.Message, SwiftProtobuf._Me
     if !self.unavailableReason.isEmpty {
       try visitor.visitSingularStringField(value: self.unavailableReason, fieldNumber: 8)
     }
+    if self.offersConfiguredModel != false {
+      try visitor.visitSingularBoolField(value: self.offersConfiguredModel, fieldNumber: 9)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -779,6 +879,7 @@ nonisolated extension CSSwitch_Account: SwiftProtobuf.Message, SwiftProtobuf._Me
     if lhs.accountNumber != rhs.accountNumber {return false}
     if lhs.usable != rhs.usable {return false}
     if lhs.unavailableReason != rhs.unavailableReason {return false}
+    if lhs.offersConfiguredModel != rhs.offersConfiguredModel {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

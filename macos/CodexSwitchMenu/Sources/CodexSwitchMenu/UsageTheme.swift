@@ -5,22 +5,32 @@ enum UsageTheme {
     static let panelWidth: CGFloat = 344
     static let outerInset: CGFloat = 14
     static let sectionGap: CGFloat = 12
+    static let cardInset: CGFloat = 14
     static let cardRadius: CGFloat = 12
     static let traySurface = Color(nsColor: .textBackgroundColor)
-    /// Allowance is shared capacity, not an account identity. Reserve blue for
-    /// this scale and keep account identity in a distinct categorical palette.
-    static let capacityColour = Color.blue
 
+    /// OpenUsage's type scale: one title size, one label size, one detail size.
+    static let titleFont = Font.system(size: 14, weight: .semibold)
+    static let labelFont = Font.system(size: 13, weight: .semibold)
+    static let detailFont = Font.system(size: 12)
+    static let detailEmphasisFont = Font.system(size: 12, weight: .medium)
+
+    /// Allowance is capacity, not an account identity. Reserve blue for
+    /// this scale and keep account identity in a distinct categorical palette.
+    static let capacityColour = Color(nsColor: .systemBlue)
+    /// An allowance on pace to empty before it resets.
+    static let runOutColour = Color(nsColor: .systemRed)
+
+    /// Green is reserved for the working state, blue for capacity.
     private static let accountColours: [Color] = [
         .purple,
         .orange,
-        .green,
+        .teal,
         .pink,
         .brown,
-        .teal,
+        .indigo,
         .red,
         .yellow,
-        .indigo,
         .mint,
         .cyan,
         Color(red: 0.42, green: 0.13, blue: 0.48),
@@ -32,6 +42,7 @@ enum UsageTheme {
         Color(red: 0.16, green: 0.55, blue: 0.45),
         Color(red: 0.76, green: 0.61, blue: 0.12),
         Color(red: 0.50, green: 0.45, blue: 0.68),
+        Color(red: 0.30, green: 0.30, blue: 0.30),
     ]
 
     static func accountColour(_ number: Int) -> Color {
@@ -43,7 +54,20 @@ extension View {
     func cardSurface() -> some View {
         background {
             RoundedRectangle(cornerRadius: UsageTheme.cardRadius, style: .continuous)
-                .fill(Color.primary.opacity(0.052))
+                .fill(.fill.quaternary)
         }
+    }
+}
+
+/// The account's colour dot and number, used wherever an account is named.
+struct AccountMarker: View {
+    let number: Int
+    var size: CGFloat = 8
+
+    var body: some View {
+        Circle()
+            .fill(UsageTheme.accountColour(number))
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
     }
 }

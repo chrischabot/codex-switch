@@ -1,5 +1,8 @@
 import Foundation
 
+/// Numbers and dates follow the Mac's Language & Region settings, including a
+/// custom number format. `NumberFormatter` and `DateFormatter` honour those
+/// overrides; Foundation's `FormatStyle` ignores the custom number format.
 enum UsageFormatting {
     static func privateEmail(_ value: String) -> String {
         let parts = value.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
@@ -14,146 +17,81 @@ enum UsageFormatting {
         return "\(first)••••••••@••••••••\(suffix)"
     }
 
-    static func weekdayTime(
-        _ date: Date,
-        locale: Locale = Locale(identifier: "en_GB"),
-        timeZone: TimeZone = .current
-    ) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "EEE HH:mm"
-        return formatter.string(from: date)
-    }
-
+    /// "Resets Sun 07:52" within a week; "Resets 8 Nov 10:20" beyond it.
     static func resetLabel(
         _ date: Date,
-        now: Date = Date(),
-        locale: Locale = Locale(identifier: "en_GB"),
-        timeZone: TimeZone = .current
+        now: Date,
+        locale: Locale = .autoupdatingCurrent,
+        timeZone: TimeZone = .autoupdatingCurrent
     ) -> String {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
-        let sameWeekday = calendar.component(.weekday, from: date)
-            == calendar.component(.weekday, from: now)
-        let prefix = sameWeekday && date.timeIntervalSince(now) > 24 * 60 * 60
-            ? "Resets next "
-            : "Resets "
-        return prefix + weekdayTime(date, locale: locale, timeZone: timeZone)
+        "Resets " + dayAndTime(date, now: now, locale: locale, timeZone: timeZone)
     }
 
-    static func percent(_ value: Double, locale: Locale = Locale(identifier: "en_GB")) -> String {
-        decimal(
-            value,
-            minimumFractionDigits: value.rounded() == value ? 0 : 1,
-            maximumFractionDigits: value.rounded() == value ? 0 : 1,
-            locale: locale
-        ) + "%"
-    }
-
-    static func tokens(_ value: Int64, locale: Locale = Locale(identifier: "en_GB")) -> String {
-        compactTokens(value, locale: locale) + " tokens"
-    }
-
-    static func compactTokens(_ value: Int64, locale: Locale = Locale(identifier: "en_GB")) -> String {
-        let magnitude: (divisor: Double, suffix: String)
-        switch abs(value) {
-        case 1_000_000_000...:
-            magnitude = (1_000_000_000, "B")
-        case 1_000_000...:
-            magnitude = (1_000_000, "M")
-        case 1_000...:
-            magnitude = (1_000, "K")
-        default:
-            magnitude = (1, "")
-        }
-        let scaled = Double(value) / magnitude.divisor
-        let fractionDigits: Int
-        switch abs(scaled) {
-        case 100...:
-            fractionDigits = 0
-        case 10...:
-            fractionDigits = 1
-        default:
-            fractionDigits = magnitude.divisor == 1 ? 0 : 2
-        }
-        return decimal(
-            scaled,
-            minimumFractionDigits: 0,
-            maximumFractionDigits: fractionDigits,
-            locale: locale
-        ) + magnitude.suffix
-    }
-
-    static func ringTokens(_ value: Int64, locale: Locale = Locale(identifier: "en_GB")) -> String {
-        let magnitude: (divisor: Double, suffix: String)
-        switch abs(value) {
-        case 1_000_000_000...:
-            magnitude = (1_000_000_000, "B")
-        case 1_000_000...:
-            magnitude = (1_000_000, "M")
-        case 1_000...:
-            magnitude = (1_000, "K")
-        default:
-            magnitude = (1, "")
-        }
-        return decimal(
-            Double(value) / magnitude.divisor,
-            minimumFractionDigits: 0,
-            maximumFractionDigits: magnitude.divisor == 1 ? 0 : 1,
-            locale: locale
-        ) + magnitude.suffix
-    }
-
-    static func baseCost(
-        _ nanoUSD: Int64,
-        fractionDigits: Int? = nil,
-        locale: Locale = Locale(identifier: "en_GB")
+    /// "Runs out Tue 14:20", in the same form as the reset time beside it.
+    static func runOutLabel(
+        _ date: Date,
+        now: Date,
+        locale: Locale = .autoupdatingCurrent,
+        timeZone: TimeZone = .autoupdatingCurrent
     ) -> String {
-        let decimals = fractionDigits ?? costFractionDigits(nanoUSD)
-        return "$" + decimal(
-            Double(nanoUSD) / 1_000_000_000,
-            minimumFractionDigits: decimals,
-            maximumFractionDigits: decimals,
-            locale: locale
-        )
+        "Runs out " + dayAndTime(date, now: now, locale: locale, timeZone: timeZone)
     }
 
-    static func compactBaseCost(_ nanoUSD: Int64, locale: Locale = Locale(identifier: "en_GB")) -> String {
-        let dollars = Double(nanoUSD) / 1_000_000_000
-        let magnitude: (divisor: Double, suffix: String)
-        switch abs(dollars) {
-        case 1_000_000_000...: magnitude = (1_000_000_000, "B")
-        case 1_000_000...: magnitude = (1_000_000, "M")
-        case 1_000...: magnitude = (1_000, "K")
-        default: magnitude = (1, "")
+    static func percent(_ value: Double, locale: Locale = .autoupdatingCurrent) -> String {
+        decimal(value.rounded(), fractionDigits: 0, locale: locale) + "%"
+    }
+
+    /// Token counts to three significant figures: 946K, 34.1M, 6.88B.
+    static func tokens(_ value: Int64, locale: Locale = .autoupdatingCurrent) -> String {
+        let suffixes = ["", "K", "M", "B", "T"]
+        var scaled = abs(Double(value))
+        var power = 0
+        while power < suffixes.count - 1, scaled >= 999.5 {
+            scaled /= 1_000
+            power += 1
         }
-        return "$" + decimal(
-            dollars / magnitude.divisor,
-            minimumFractionDigits: 0,
-            maximumFractionDigits: magnitude.divisor == 1 ? 2 : 1,
-            locale: locale
-        ) + magnitude.suffix
+        let fractionDigits = switch scaled {
+        case _ where power == 0: 0
+        case ..<9.995: 2
+        case ..<99.95: 1
+        default: 0
+        }
+        return decimal(scaled, fractionDigits: fractionDigits, locale: locale) + suffixes[power]
     }
 
-    static func costFractionDigits(_ totalCostNanoUSD: Int64?) -> Int { 2 }
+    /// API-equivalent cost in US dollars, about three significant figures:
+    /// $4.99, $45.1, $648, $1,175. OpenAI prices in dollars, so the symbol is
+    /// fixed while the digits follow the Mac.
+    static func cost(_ nanoUSD: Int64, locale: Locale = .autoupdatingCurrent) -> String {
+        let dollars = abs(Double(nanoUSD)) / 1_000_000_000
+        let fractionDigits = switch dollars {
+        case 0: 0
+        case ..<9.995: 2
+        case ..<99.95: 1
+        default: 0
+        }
+        return "$" + decimal(dollars, fractionDigits: fractionDigits, locale: locale)
+    }
 
-    /// Foundation's modern `FormatStyle` currently ignores the user's custom
-    /// Number format in Language & Region. `NumberFormatter` honours the
-    /// underlying AppleICUNumberSymbols override, so keep that compatibility
-    /// at this single presentation boundary.
-    private static func decimal(
-        _ value: Double,
-        minimumFractionDigits: Int,
-        maximumFractionDigits: Int,
-        locale: Locale
-    ) -> String {
+    private static func dayAndTime(_ date: Date, now: Date, locale: Locale, timeZone: TimeZone) -> String {
+        let day = DateFormatter()
+        day.locale = locale
+        day.timeZone = timeZone
+        day.setLocalizedDateFormatFromTemplate(date.timeIntervalSince(now) < 7 * 24 * 60 * 60 ? "EEE" : "dMMM")
+        let time = DateFormatter()
+        time.locale = locale
+        time.timeZone = timeZone
+        time.setLocalizedDateFormatFromTemplate("jmm")
+        return day.string(from: date) + " " + time.string(from: date)
+    }
+
+    private static func decimal(_ value: Double, fractionDigits: Int, locale: Locale) -> String {
         let formatter = NumberFormatter()
         formatter.locale = locale
         formatter.numberStyle = .decimal
         formatter.usesGroupingSeparator = true
-        formatter.minimumFractionDigits = minimumFractionDigits
-        formatter.maximumFractionDigits = maximumFractionDigits
+        formatter.minimumFractionDigits = fractionDigits
+        formatter.maximumFractionDigits = fractionDigits
         return formatter.string(from: NSNumber(value: value)) ?? String(value)
     }
 }

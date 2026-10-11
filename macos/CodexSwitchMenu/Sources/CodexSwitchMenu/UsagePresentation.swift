@@ -14,7 +14,6 @@ enum UsageMetric: String, CaseIterable, Hashable, Identifiable, Sendable {
 struct UsagePresentation: Equatable, Sendable {
     let totalCostNanoUSD: Int64?
     let totalTokens: Int64
-    let costFractionDigits: Int
     let accountTokenShares: [Share]
     let accountCostShares: [Share]
 
@@ -23,7 +22,6 @@ struct UsagePresentation: Equatable, Sendable {
         let accounts = snapshot.menuSnapshot.accounts
         totalTokens = period.accounts.reduce(0) { $0 + $1.tokens }
         totalCostNanoUSD = period.accounts.allSatisfy(\.hasCostNanoUsd) ? period.accounts.reduce(0) { $0 + $1.costNanoUsd } : nil
-        costFractionDigits = totalCostNanoUSD.map(UsageFormatting.costFractionDigits) ?? 2
         func shares(metric: UsageMetric, total: Int64) -> [Share] {
             var cursor = 0.0
             return period.accounts.compactMap { item in

@@ -8,6 +8,13 @@ struct OverviewSnapshot: Equatable, Sendable {
         menuSnapshot.reportingPeriods.first { $0.kind == kind.protobufKind }
     }
 
+    /// The account's usage per day for the last 30 days, oldest first.
+    func dailyUsage(account key: String, metric: UsageMetric) -> [Int64] {
+        menuSnapshot.accountDays.filter { $0.accountKey == key }.map {
+            metric == .tokens ? $0.tokens : $0.costNanoUsd
+        }
+    }
+
     func supports(_ metric: UsageMetric, period: ReportingPeriodKind) -> Bool {
         guard let observed = reportingPeriod(period), !observed.accounts.isEmpty else { return false }
         return metric == .tokens || observed.accounts.allSatisfy(\.hasCostNanoUsd)

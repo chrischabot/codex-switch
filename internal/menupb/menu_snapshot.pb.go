@@ -140,8 +140,10 @@ type MenuSnapshot struct {
 	Connection       *Connection            `protobuf:"bytes,4,opt,name=connection,proto3" json:"connection,omitempty"`
 	ReportingPeriods []*ReportingPeriod     `protobuf:"bytes,5,rep,name=reporting_periods,json=reportingPeriods,proto3" json:"reporting_periods,omitempty"`
 	ProxyActivity    *ProxyActivity         `protobuf:"bytes,6,opt,name=proxy_activity,json=proxyActivity,proto3" json:"proxy_activity,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Each account's usage per UTC date for the last 30 days, oldest first.
+	AccountDays   []*AccountDay `protobuf:"bytes,7,rep,name=account_days,json=accountDays,proto3" json:"account_days,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *MenuSnapshot) Reset() {
@@ -216,6 +218,81 @@ func (x *MenuSnapshot) GetProxyActivity() *ProxyActivity {
 	return nil
 }
 
+func (x *MenuSnapshot) GetAccountDays() []*AccountDay {
+	if x != nil {
+		return x.AccountDays
+	}
+	return nil
+}
+
+type AccountDay struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AccountKey    string                 `protobuf:"bytes,1,opt,name=account_key,json=accountKey,proto3" json:"account_key,omitempty"`
+	StartedAt     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	Tokens        int64                  `protobuf:"varint,3,opt,name=tokens,proto3" json:"tokens,omitempty"`
+	CostNanoUsd   *int64                 `protobuf:"varint,4,opt,name=cost_nano_usd,json=costNanoUsd,proto3,oneof" json:"cost_nano_usd,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AccountDay) Reset() {
+	*x = AccountDay{}
+	mi := &file_menu_snapshot_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AccountDay) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountDay) ProtoMessage() {}
+
+func (x *AccountDay) ProtoReflect() protoreflect.Message {
+	mi := &file_menu_snapshot_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountDay.ProtoReflect.Descriptor instead.
+func (*AccountDay) Descriptor() ([]byte, []int) {
+	return file_menu_snapshot_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *AccountDay) GetAccountKey() string {
+	if x != nil {
+		return x.AccountKey
+	}
+	return ""
+}
+
+func (x *AccountDay) GetStartedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.StartedAt
+	}
+	return nil
+}
+
+func (x *AccountDay) GetTokens() int64 {
+	if x != nil {
+		return x.Tokens
+	}
+	return 0
+}
+
+func (x *AccountDay) GetCostNanoUsd() int64 {
+	if x != nil && x.CostNanoUsd != nil {
+		return *x.CostNanoUsd
+	}
+	return 0
+}
+
 type ProxyActivity struct {
 	state             protoimpl.MessageState  `protogen:"open.v1"`
 	StartedAt         *timestamppb.Timestamp  `protobuf:"bytes,1,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
@@ -229,7 +306,7 @@ type ProxyActivity struct {
 
 func (x *ProxyActivity) Reset() {
 	*x = ProxyActivity{}
-	mi := &file_menu_snapshot_proto_msgTypes[1]
+	mi := &file_menu_snapshot_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -241,7 +318,7 @@ func (x *ProxyActivity) String() string {
 func (*ProxyActivity) ProtoMessage() {}
 
 func (x *ProxyActivity) ProtoReflect() protoreflect.Message {
-	mi := &file_menu_snapshot_proto_msgTypes[1]
+	mi := &file_menu_snapshot_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -254,7 +331,7 @@ func (x *ProxyActivity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProxyActivity.ProtoReflect.Descriptor instead.
 func (*ProxyActivity) Descriptor() ([]byte, []int) {
-	return file_menu_snapshot_proto_rawDescGZIP(), []int{1}
+	return file_menu_snapshot_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ProxyActivity) GetStartedAt() *timestamppb.Timestamp {
@@ -304,7 +381,7 @@ type ProxyAccountActivity struct {
 
 func (x *ProxyAccountActivity) Reset() {
 	*x = ProxyAccountActivity{}
-	mi := &file_menu_snapshot_proto_msgTypes[2]
+	mi := &file_menu_snapshot_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -316,7 +393,7 @@ func (x *ProxyAccountActivity) String() string {
 func (*ProxyAccountActivity) ProtoMessage() {}
 
 func (x *ProxyAccountActivity) ProtoReflect() protoreflect.Message {
-	mi := &file_menu_snapshot_proto_msgTypes[2]
+	mi := &file_menu_snapshot_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -329,7 +406,7 @@ func (x *ProxyAccountActivity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProxyAccountActivity.ProtoReflect.Descriptor instead.
 func (*ProxyAccountActivity) Descriptor() ([]byte, []int) {
-	return file_menu_snapshot_proto_rawDescGZIP(), []int{2}
+	return file_menu_snapshot_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ProxyAccountActivity) GetAccountKey() string {
@@ -372,7 +449,7 @@ type ModelRequestCounts struct {
 
 func (x *ModelRequestCounts) Reset() {
 	*x = ModelRequestCounts{}
-	mi := &file_menu_snapshot_proto_msgTypes[3]
+	mi := &file_menu_snapshot_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -384,7 +461,7 @@ func (x *ModelRequestCounts) String() string {
 func (*ModelRequestCounts) ProtoMessage() {}
 
 func (x *ModelRequestCounts) ProtoReflect() protoreflect.Message {
-	mi := &file_menu_snapshot_proto_msgTypes[3]
+	mi := &file_menu_snapshot_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -397,7 +474,7 @@ func (x *ModelRequestCounts) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelRequestCounts.ProtoReflect.Descriptor instead.
 func (*ModelRequestCounts) Descriptor() ([]byte, []int) {
-	return file_menu_snapshot_proto_rawDescGZIP(), []int{3}
+	return file_menu_snapshot_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ModelRequestCounts) GetRequests() int64 {
@@ -448,7 +525,7 @@ type Account struct {
 
 func (x *Account) Reset() {
 	*x = Account{}
-	mi := &file_menu_snapshot_proto_msgTypes[4]
+	mi := &file_menu_snapshot_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -460,7 +537,7 @@ func (x *Account) String() string {
 func (*Account) ProtoMessage() {}
 
 func (x *Account) ProtoReflect() protoreflect.Message {
-	mi := &file_menu_snapshot_proto_msgTypes[4]
+	mi := &file_menu_snapshot_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -473,7 +550,7 @@ func (x *Account) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Account.ProtoReflect.Descriptor instead.
 func (*Account) Descriptor() ([]byte, []int) {
-	return file_menu_snapshot_proto_rawDescGZIP(), []int{4}
+	return file_menu_snapshot_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Account) GetKey() string {
@@ -552,7 +629,7 @@ type AllowanceObservation struct {
 
 func (x *AllowanceObservation) Reset() {
 	*x = AllowanceObservation{}
-	mi := &file_menu_snapshot_proto_msgTypes[5]
+	mi := &file_menu_snapshot_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -564,7 +641,7 @@ func (x *AllowanceObservation) String() string {
 func (*AllowanceObservation) ProtoMessage() {}
 
 func (x *AllowanceObservation) ProtoReflect() protoreflect.Message {
-	mi := &file_menu_snapshot_proto_msgTypes[5]
+	mi := &file_menu_snapshot_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -577,7 +654,7 @@ func (x *AllowanceObservation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AllowanceObservation.ProtoReflect.Descriptor instead.
 func (*AllowanceObservation) Descriptor() ([]byte, []int) {
-	return file_menu_snapshot_proto_rawDescGZIP(), []int{5}
+	return file_menu_snapshot_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *AllowanceObservation) GetObservedAt() *timestamppb.Timestamp {
@@ -626,7 +703,7 @@ type AllowanceWindow struct {
 
 func (x *AllowanceWindow) Reset() {
 	*x = AllowanceWindow{}
-	mi := &file_menu_snapshot_proto_msgTypes[6]
+	mi := &file_menu_snapshot_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -638,7 +715,7 @@ func (x *AllowanceWindow) String() string {
 func (*AllowanceWindow) ProtoMessage() {}
 
 func (x *AllowanceWindow) ProtoReflect() protoreflect.Message {
-	mi := &file_menu_snapshot_proto_msgTypes[6]
+	mi := &file_menu_snapshot_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -651,7 +728,7 @@ func (x *AllowanceWindow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AllowanceWindow.ProtoReflect.Descriptor instead.
 func (*AllowanceWindow) Descriptor() ([]byte, []int) {
-	return file_menu_snapshot_proto_rawDescGZIP(), []int{6}
+	return file_menu_snapshot_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *AllowanceWindow) GetPeriodSeconds() int64 {
@@ -689,7 +766,7 @@ type CompletedTask struct {
 
 func (x *CompletedTask) Reset() {
 	*x = CompletedTask{}
-	mi := &file_menu_snapshot_proto_msgTypes[7]
+	mi := &file_menu_snapshot_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -701,7 +778,7 @@ func (x *CompletedTask) String() string {
 func (*CompletedTask) ProtoMessage() {}
 
 func (x *CompletedTask) ProtoReflect() protoreflect.Message {
-	mi := &file_menu_snapshot_proto_msgTypes[7]
+	mi := &file_menu_snapshot_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -714,7 +791,7 @@ func (x *CompletedTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompletedTask.ProtoReflect.Descriptor instead.
 func (*CompletedTask) Descriptor() ([]byte, []int) {
-	return file_menu_snapshot_proto_rawDescGZIP(), []int{7}
+	return file_menu_snapshot_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *CompletedTask) GetTaskId() string {
@@ -768,7 +845,7 @@ type Connection struct {
 
 func (x *Connection) Reset() {
 	*x = Connection{}
-	mi := &file_menu_snapshot_proto_msgTypes[8]
+	mi := &file_menu_snapshot_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -780,7 +857,7 @@ func (x *Connection) String() string {
 func (*Connection) ProtoMessage() {}
 
 func (x *Connection) ProtoReflect() protoreflect.Message {
-	mi := &file_menu_snapshot_proto_msgTypes[8]
+	mi := &file_menu_snapshot_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -793,7 +870,7 @@ func (x *Connection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Connection.ProtoReflect.Descriptor instead.
 func (*Connection) Descriptor() ([]byte, []int) {
-	return file_menu_snapshot_proto_rawDescGZIP(), []int{8}
+	return file_menu_snapshot_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Connection) GetNewTasksConfigured() bool {
@@ -816,7 +893,7 @@ type ReportingPeriod struct {
 
 func (x *ReportingPeriod) Reset() {
 	*x = ReportingPeriod{}
-	mi := &file_menu_snapshot_proto_msgTypes[9]
+	mi := &file_menu_snapshot_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -828,7 +905,7 @@ func (x *ReportingPeriod) String() string {
 func (*ReportingPeriod) ProtoMessage() {}
 
 func (x *ReportingPeriod) ProtoReflect() protoreflect.Message {
-	mi := &file_menu_snapshot_proto_msgTypes[9]
+	mi := &file_menu_snapshot_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -841,7 +918,7 @@ func (x *ReportingPeriod) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportingPeriod.ProtoReflect.Descriptor instead.
 func (*ReportingPeriod) Descriptor() ([]byte, []int) {
-	return file_menu_snapshot_proto_rawDescGZIP(), []int{9}
+	return file_menu_snapshot_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ReportingPeriod) GetKind() ReportingPeriodKind {
@@ -888,7 +965,7 @@ type TaskUsageReport struct {
 
 func (x *TaskUsageReport) Reset() {
 	*x = TaskUsageReport{}
-	mi := &file_menu_snapshot_proto_msgTypes[10]
+	mi := &file_menu_snapshot_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -900,7 +977,7 @@ func (x *TaskUsageReport) String() string {
 func (*TaskUsageReport) ProtoMessage() {}
 
 func (x *TaskUsageReport) ProtoReflect() protoreflect.Message {
-	mi := &file_menu_snapshot_proto_msgTypes[10]
+	mi := &file_menu_snapshot_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -913,7 +990,7 @@ func (x *TaskUsageReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskUsageReport.ProtoReflect.Descriptor instead.
 func (*TaskUsageReport) Descriptor() ([]byte, []int) {
-	return file_menu_snapshot_proto_rawDescGZIP(), []int{10}
+	return file_menu_snapshot_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *TaskUsageReport) GetTasks() []*CompletedTask {
@@ -934,7 +1011,7 @@ type AccountTotal struct {
 
 func (x *AccountTotal) Reset() {
 	*x = AccountTotal{}
-	mi := &file_menu_snapshot_proto_msgTypes[11]
+	mi := &file_menu_snapshot_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -946,7 +1023,7 @@ func (x *AccountTotal) String() string {
 func (*AccountTotal) ProtoMessage() {}
 
 func (x *AccountTotal) ProtoReflect() protoreflect.Message {
-	mi := &file_menu_snapshot_proto_msgTypes[11]
+	mi := &file_menu_snapshot_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -959,7 +1036,7 @@ func (x *AccountTotal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccountTotal.ProtoReflect.Descriptor instead.
 func (*AccountTotal) Descriptor() ([]byte, []int) {
-	return file_menu_snapshot_proto_rawDescGZIP(), []int{11}
+	return file_menu_snapshot_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *AccountTotal) GetAccountKey() string {
@@ -987,7 +1064,7 @@ var File_menu_snapshot_proto protoreflect.FileDescriptor
 
 const file_menu_snapshot_proto_rawDesc = "" +
 	"\n" +
-	"\x13menu_snapshot.proto\x12\x11codex_switch.menu\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa9\x03\n" +
+	"\x13menu_snapshot.proto\x12\x11codex_switch.menu\x1a\x1fgoogle/protobuf/timestamp.proto\"\xeb\x03\n" +
 	"\fMenuSnapshot\x12=\n" +
 	"\fgenerated_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\vgeneratedAt\x126\n" +
 	"\baccounts\x18\x02 \x03(\v2\x1a.codex_switch.menu.AccountR\baccounts\x12I\n" +
@@ -996,7 +1073,17 @@ const file_menu_snapshot_proto_rawDesc = "" +
 	"connection\x18\x04 \x01(\v2\x1d.codex_switch.menu.ConnectionR\n" +
 	"connection\x12O\n" +
 	"\x11reporting_periods\x18\x05 \x03(\v2\".codex_switch.menu.ReportingPeriodR\x10reportingPeriods\x12G\n" +
-	"\x0eproxy_activity\x18\x06 \x01(\v2 .codex_switch.menu.ProxyActivityR\rproxyActivity\"\xca\x02\n" +
+	"\x0eproxy_activity\x18\x06 \x01(\v2 .codex_switch.menu.ProxyActivityR\rproxyActivity\x12@\n" +
+	"\faccount_days\x18\a \x03(\v2\x1d.codex_switch.menu.AccountDayR\vaccountDays\"\xbb\x01\n" +
+	"\n" +
+	"AccountDay\x12\x1f\n" +
+	"\vaccount_key\x18\x01 \x01(\tR\n" +
+	"accountKey\x129\n" +
+	"\n" +
+	"started_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12\x16\n" +
+	"\x06tokens\x18\x03 \x01(\x03R\x06tokens\x12'\n" +
+	"\rcost_nano_usd\x18\x04 \x01(\x03H\x00R\vcostNanoUsd\x88\x01\x01B\x10\n" +
+	"\x0e_cost_nano_usd\"\xca\x02\n" +
 	"\rProxyActivity\x129\n" +
 	"\n" +
 	"started_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x125\n" +
@@ -1094,54 +1181,57 @@ func file_menu_snapshot_proto_rawDescGZIP() []byte {
 }
 
 var file_menu_snapshot_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_menu_snapshot_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_menu_snapshot_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_menu_snapshot_proto_goTypes = []any{
 	(AccountState)(0),             // 0: codex_switch.menu.AccountState
 	(ReportingPeriodKind)(0),      // 1: codex_switch.menu.ReportingPeriodKind
 	(*MenuSnapshot)(nil),          // 2: codex_switch.menu.MenuSnapshot
-	(*ProxyActivity)(nil),         // 3: codex_switch.menu.ProxyActivity
-	(*ProxyAccountActivity)(nil),  // 4: codex_switch.menu.ProxyAccountActivity
-	(*ModelRequestCounts)(nil),    // 5: codex_switch.menu.ModelRequestCounts
-	(*Account)(nil),               // 6: codex_switch.menu.Account
-	(*AllowanceObservation)(nil),  // 7: codex_switch.menu.AllowanceObservation
-	(*AllowanceWindow)(nil),       // 8: codex_switch.menu.AllowanceWindow
-	(*CompletedTask)(nil),         // 9: codex_switch.menu.CompletedTask
-	(*Connection)(nil),            // 10: codex_switch.menu.Connection
-	(*ReportingPeriod)(nil),       // 11: codex_switch.menu.ReportingPeriod
-	(*TaskUsageReport)(nil),       // 12: codex_switch.menu.TaskUsageReport
-	(*AccountTotal)(nil),          // 13: codex_switch.menu.AccountTotal
-	(*timestamppb.Timestamp)(nil), // 14: google.protobuf.Timestamp
+	(*AccountDay)(nil),            // 3: codex_switch.menu.AccountDay
+	(*ProxyActivity)(nil),         // 4: codex_switch.menu.ProxyActivity
+	(*ProxyAccountActivity)(nil),  // 5: codex_switch.menu.ProxyAccountActivity
+	(*ModelRequestCounts)(nil),    // 6: codex_switch.menu.ModelRequestCounts
+	(*Account)(nil),               // 7: codex_switch.menu.Account
+	(*AllowanceObservation)(nil),  // 8: codex_switch.menu.AllowanceObservation
+	(*AllowanceWindow)(nil),       // 9: codex_switch.menu.AllowanceWindow
+	(*CompletedTask)(nil),         // 10: codex_switch.menu.CompletedTask
+	(*Connection)(nil),            // 11: codex_switch.menu.Connection
+	(*ReportingPeriod)(nil),       // 12: codex_switch.menu.ReportingPeriod
+	(*TaskUsageReport)(nil),       // 13: codex_switch.menu.TaskUsageReport
+	(*AccountTotal)(nil),          // 14: codex_switch.menu.AccountTotal
+	(*timestamppb.Timestamp)(nil), // 15: google.protobuf.Timestamp
 }
 var file_menu_snapshot_proto_depIdxs = []int32{
-	14, // 0: codex_switch.menu.MenuSnapshot.generated_at:type_name -> google.protobuf.Timestamp
-	6,  // 1: codex_switch.menu.MenuSnapshot.accounts:type_name -> codex_switch.menu.Account
-	9,  // 2: codex_switch.menu.MenuSnapshot.completed_tasks:type_name -> codex_switch.menu.CompletedTask
-	10, // 3: codex_switch.menu.MenuSnapshot.connection:type_name -> codex_switch.menu.Connection
-	11, // 4: codex_switch.menu.MenuSnapshot.reporting_periods:type_name -> codex_switch.menu.ReportingPeriod
-	3,  // 5: codex_switch.menu.MenuSnapshot.proxy_activity:type_name -> codex_switch.menu.ProxyActivity
-	14, // 6: codex_switch.menu.ProxyActivity.started_at:type_name -> google.protobuf.Timestamp
-	14, // 7: codex_switch.menu.ProxyActivity.ended_at:type_name -> google.protobuf.Timestamp
-	4,  // 8: codex_switch.menu.ProxyActivity.accounts:type_name -> codex_switch.menu.ProxyAccountActivity
-	9,  // 9: codex_switch.menu.ProxyActivity.tasks:type_name -> codex_switch.menu.CompletedTask
-	14, // 10: codex_switch.menu.ProxyActivity.requests_started_at:type_name -> google.protobuf.Timestamp
-	5,  // 11: codex_switch.menu.ProxyAccountActivity.request_counts:type_name -> codex_switch.menu.ModelRequestCounts
-	0,  // 12: codex_switch.menu.Account.state:type_name -> codex_switch.menu.AccountState
-	7,  // 13: codex_switch.menu.Account.allowance:type_name -> codex_switch.menu.AllowanceObservation
-	14, // 14: codex_switch.menu.AllowanceObservation.observed_at:type_name -> google.protobuf.Timestamp
-	8,  // 15: codex_switch.menu.AllowanceObservation.windows:type_name -> codex_switch.menu.AllowanceWindow
-	14, // 16: codex_switch.menu.AllowanceWindow.reset_at:type_name -> google.protobuf.Timestamp
-	14, // 17: codex_switch.menu.CompletedTask.last_completed_at:type_name -> google.protobuf.Timestamp
-	1,  // 18: codex_switch.menu.ReportingPeriod.kind:type_name -> codex_switch.menu.ReportingPeriodKind
-	14, // 19: codex_switch.menu.ReportingPeriod.started_at:type_name -> google.protobuf.Timestamp
-	14, // 20: codex_switch.menu.ReportingPeriod.ended_at:type_name -> google.protobuf.Timestamp
-	13, // 21: codex_switch.menu.ReportingPeriod.accounts:type_name -> codex_switch.menu.AccountTotal
-	12, // 22: codex_switch.menu.ReportingPeriod.task_usage:type_name -> codex_switch.menu.TaskUsageReport
-	9,  // 23: codex_switch.menu.TaskUsageReport.tasks:type_name -> codex_switch.menu.CompletedTask
-	24, // [24:24] is the sub-list for method output_type
-	24, // [24:24] is the sub-list for method input_type
-	24, // [24:24] is the sub-list for extension type_name
-	24, // [24:24] is the sub-list for extension extendee
-	0,  // [0:24] is the sub-list for field type_name
+	15, // 0: codex_switch.menu.MenuSnapshot.generated_at:type_name -> google.protobuf.Timestamp
+	7,  // 1: codex_switch.menu.MenuSnapshot.accounts:type_name -> codex_switch.menu.Account
+	10, // 2: codex_switch.menu.MenuSnapshot.completed_tasks:type_name -> codex_switch.menu.CompletedTask
+	11, // 3: codex_switch.menu.MenuSnapshot.connection:type_name -> codex_switch.menu.Connection
+	12, // 4: codex_switch.menu.MenuSnapshot.reporting_periods:type_name -> codex_switch.menu.ReportingPeriod
+	4,  // 5: codex_switch.menu.MenuSnapshot.proxy_activity:type_name -> codex_switch.menu.ProxyActivity
+	3,  // 6: codex_switch.menu.MenuSnapshot.account_days:type_name -> codex_switch.menu.AccountDay
+	15, // 7: codex_switch.menu.AccountDay.started_at:type_name -> google.protobuf.Timestamp
+	15, // 8: codex_switch.menu.ProxyActivity.started_at:type_name -> google.protobuf.Timestamp
+	15, // 9: codex_switch.menu.ProxyActivity.ended_at:type_name -> google.protobuf.Timestamp
+	5,  // 10: codex_switch.menu.ProxyActivity.accounts:type_name -> codex_switch.menu.ProxyAccountActivity
+	10, // 11: codex_switch.menu.ProxyActivity.tasks:type_name -> codex_switch.menu.CompletedTask
+	15, // 12: codex_switch.menu.ProxyActivity.requests_started_at:type_name -> google.protobuf.Timestamp
+	6,  // 13: codex_switch.menu.ProxyAccountActivity.request_counts:type_name -> codex_switch.menu.ModelRequestCounts
+	0,  // 14: codex_switch.menu.Account.state:type_name -> codex_switch.menu.AccountState
+	8,  // 15: codex_switch.menu.Account.allowance:type_name -> codex_switch.menu.AllowanceObservation
+	15, // 16: codex_switch.menu.AllowanceObservation.observed_at:type_name -> google.protobuf.Timestamp
+	9,  // 17: codex_switch.menu.AllowanceObservation.windows:type_name -> codex_switch.menu.AllowanceWindow
+	15, // 18: codex_switch.menu.AllowanceWindow.reset_at:type_name -> google.protobuf.Timestamp
+	15, // 19: codex_switch.menu.CompletedTask.last_completed_at:type_name -> google.protobuf.Timestamp
+	1,  // 20: codex_switch.menu.ReportingPeriod.kind:type_name -> codex_switch.menu.ReportingPeriodKind
+	15, // 21: codex_switch.menu.ReportingPeriod.started_at:type_name -> google.protobuf.Timestamp
+	15, // 22: codex_switch.menu.ReportingPeriod.ended_at:type_name -> google.protobuf.Timestamp
+	14, // 23: codex_switch.menu.ReportingPeriod.accounts:type_name -> codex_switch.menu.AccountTotal
+	13, // 24: codex_switch.menu.ReportingPeriod.task_usage:type_name -> codex_switch.menu.TaskUsageReport
+	10, // 25: codex_switch.menu.TaskUsageReport.tasks:type_name -> codex_switch.menu.CompletedTask
+	26, // [26:26] is the sub-list for method output_type
+	26, // [26:26] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_menu_snapshot_proto_init() }
@@ -1149,16 +1239,17 @@ func file_menu_snapshot_proto_init() {
 	if File_menu_snapshot_proto != nil {
 		return
 	}
-	file_menu_snapshot_proto_msgTypes[5].OneofWrappers = []any{}
-	file_menu_snapshot_proto_msgTypes[7].OneofWrappers = []any{}
-	file_menu_snapshot_proto_msgTypes[11].OneofWrappers = []any{}
+	file_menu_snapshot_proto_msgTypes[1].OneofWrappers = []any{}
+	file_menu_snapshot_proto_msgTypes[6].OneofWrappers = []any{}
+	file_menu_snapshot_proto_msgTypes[8].OneofWrappers = []any{}
+	file_menu_snapshot_proto_msgTypes[12].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_menu_snapshot_proto_rawDesc), len(file_menu_snapshot_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   12,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

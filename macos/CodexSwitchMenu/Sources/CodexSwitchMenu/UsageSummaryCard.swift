@@ -10,7 +10,7 @@ struct UsageSummaryCard: View {
     let selectMetric: (UsageMetric) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             MetricMenu(
                 selection: selectedMetric,
                 enabledMetrics: enabledMetrics,
@@ -29,8 +29,7 @@ struct UsageSummaryCard: View {
                 )
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(UsageTheme.cardInset)
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardSurface()
     }
@@ -42,18 +41,30 @@ private struct UsageBreakdown: View {
 
     var body: some View {
         if let total {
-            HStack(spacing: 14) {
+            HStack(spacing: 18) {
                 BreakdownRing(
                     shares: shares,
-                    primary: primaryText(total),
-                    secondary: selectedMetric == .tokens ? "tokens" : nil,
-                    accessibilityLabel: accessibilityLabel(total)
+                    primary: format(total),
+                    unit: selectedMetric == .tokens ? "tokens" : nil,
+                    accessibilityLabel: "\(selectedMetric.title) \(format(total))"
                 )
-                AccountUsageDetails(
-                    shares: shares,
-                    selectedMetric: selectedMetric,
-                    costFractionDigits: presentation.costFractionDigits
-                )
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(presentation.accountTokenShares) { share in
+                        HStack(spacing: 7) {
+                            AccountMarker(number: share.accountNumber)
+                            Text(share.label)
+                                .font(UsageTheme.detailFont)
+                                .lineLimit(1)
+                            Spacer(minLength: 8)
+                            Text(value(share))
+                                .font(UsageTheme.detailEmphasisFont)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                                .lineLimit(1)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -72,75 +83,17 @@ private struct UsageBreakdown: View {
         }
     }
 
-    private func primaryText(_ total: Int64) -> String {
+    private func format(_ amount: Int64) -> String {
         switch selectedMetric {
-        case .cost: UsageFormatting.compactBaseCost(total)
-        case .tokens: UsageFormatting.ringTokens(total)
+        case .cost: UsageFormatting.cost(amount)
+        case .tokens: UsageFormatting.tokens(amount)
         }
     }
 
-    private func accessibilityLabel(_ total: Int64) -> String {
+    private func value(_ share: UsagePresentation.Share) -> String {
         switch selectedMetric {
-        case .cost:
-            "API-equivalent cost \(UsageFormatting.baseCost(total, fractionDigits: presentation.costFractionDigits))"
-        case .tokens:
-            UsageFormatting.tokens(total)
-        }
-    }
-}
-
-private struct AccountUsageDetails: View {
-    let shares: [UsagePresentation.Share]
-    let selectedMetric: UsageMetric
-    let costFractionDigits: Int
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            ForEach(shares) { share in
-                AccountUsageRow(
-                    label: share.label,
-                    accountNumber: share.accountNumber,
-                    value: valueText(for: share)
-                )
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func valueText(for share: UsagePresentation.Share) -> String {
-        switch selectedMetric {
-        case .cost:
-            guard let costNanoUSD = share.costNanoUSD else { return "" }
-            return UsageFormatting.baseCost(
-                costNanoUSD,
-                fractionDigits: costFractionDigits
-            )
-        case .tokens:
-            return UsageFormatting.tokens(share.tokens)
-        }
-    }
-}
-
-private struct AccountUsageRow: View {
-    let label: String
-    let accountNumber: Int
-    let value: String
-
-    var body: some View {
-        HStack(spacing: 7) {
-            Circle()
-                .fill(UsageTheme.accountColour(accountNumber))
-                .frame(width: 8, height: 8)
-                .accessibilityHidden(true)
-            Text(label)
-                .font(.caption.weight(.medium))
-                .lineLimit(1)
-            Spacer(minLength: 4)
-            Text(value)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-                .lineLimit(1)
+        case .cost: share.costNanoUSD.map { UsageFormatting.cost($0) } ?? ""
+        case .tokens: UsageFormatting.tokens(share.tokens)
         }
     }
 }
@@ -151,43 +104,40 @@ private struct MetricMenu: View {
     let select: (UsageMetric) -> Void
 
     var body: some View {
-        if enabledMetrics.count == 1 {
-            Text(selection.title)
-                .font(.subheadline.weight(.semibold))
-        } else {
-            Menu {
-                ForEach(UsageMetric.allCases.filter { enabledMetrics.contains($0) }) { metric in
-                    Button {
-                        select(metric)
-                    } label: {
-                        if metric == selection {
-                            Label(metric.title, systemImage: "checkmark")
-                        } else {
-                            Text(metric.title)
-                        }
+        Menu {
+            ForEach(UsageMetric.allCases.filter { enabledMetrics.contains($0) }) { metric in
+                Button {
+                    select(metric)
+                } label: {
+                    if metric == selection {
+                        Label(metric.title, systemImage: "checkmark")
+                    } else {
+                        Text(metric.title)
                     }
                 }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(selection.title)
-                        .font(.subheadline.weight(.semibold))
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
             }
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .accessibilityLabel("Usage metric")
-            .accessibilityValue(Text(selection.title))
+        } label: {
+            HStack(spacing: 4) {
+                Text(selection.title)
+                    .font(UsageTheme.labelFont)
+                    .foregroundStyle(.primary)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
         }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .fixedSize()
+        .accessibilityLabel("Usage metric")
+        .accessibilityValue(Text(selection.title))
     }
 }
 
 private struct BreakdownRing: View {
     let shares: [UsagePresentation.Share]
     let primary: String
-    let secondary: LocalizedStringResource?
+    let unit: LocalizedStringResource?
     let accessibilityLabel: String
 
     var body: some View {
@@ -201,17 +151,17 @@ private struct BreakdownRing: View {
             }
             VStack(spacing: 1) {
                 Text(primary)
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                if let secondary {
-                    Text(secondary)
-                        .font(.system(size: 8.5, weight: .medium))
+                if let unit {
+                    Text(unit)
+                        .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(.tertiary)
                 }
             }
-            .frame(width: 70)
+            .frame(width: 60)
         }
         .frame(width: 104, height: 104)
         .accessibilityElement(children: .combine)
