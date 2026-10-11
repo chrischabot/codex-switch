@@ -104,8 +104,7 @@ def run_outcome(outcome, system):
 
 def new_work_goes_to_the_most_allowance_left(system):
     """New tasks and Pi sessions go to the account with the most weekly allowance left, and stay there"""
-    if len(rig.weekly_used_percent()) < 2:
-        raise Failure('Fewer than two accounts report a weekly allowance, so there is no choice to test.')
+    rig.wait_for(lambda: len(rig.weekly_used_percent()) >= 2, 'two accounts to report a weekly allowance', timeout=150, interval=5)
     leader = system.best_account()
     leader_left = 100 - system.weekly[leader]
     task = rig.CodexTask('routing-task', 'Use a shell command to read input.txt and write the sum of its numbers to routing.txt. '
