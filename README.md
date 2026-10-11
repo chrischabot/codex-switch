@@ -14,6 +14,28 @@ it never resubmits model work itself.
 Work in progress. It relies on undocumented ChatGPT subscription endpoints,
 which can change without notice.
 
+## The menu
+
+The menu bar shows how much weekly allowance each account has left.
+
+<img src="docs/images/menu-bar-item.png" alt="Menu bar item: account 1 at 96% and account 2 at 96%" width="140">
+
+Click it to see:
+
+- how many accounts share the work, and whether the proxy is working
+- the API-equivalent cost or tokens for Today, 7 Days or 30 Days, split by account
+- each account's allowance, when it resets, its stored resets and its daily use
+- when an account will run out before it resets, if it is on pace to
+- the tasks that used the most, and which accounts served them
+
+The eye button hides account emails, so you can share a screenshot.
+
+<img src="docs/images/menu-panel.png" alt="The menu panel for Today, in API-equivalent cost" width="370">
+
+Install it with
+`macos/CodexSwitchMenu/package_app.sh --live --destination /Applications/CodexSwitchMenu.app`
+and open it once. It then opens at login.
+
 ## How routing works
 
 - A new task uses the eligible account with the most remaining weekly capacity.
