@@ -123,7 +123,7 @@ func (handler *CodexTrafficRelayHandler) serveAuthenticatedCodexTraffic(response
 	codexTaskID := taskIdentityForRequest(request)
 	workKind := workKindForRequest(request)
 	client := clientNameForRequest(request)
-	var modelSlug string
+	var modelSlug, serviceTier string
 	var responseStreamRequested bool
 	var warmup bool
 	if workKind == store.ModelTurnWorkKind && request.Body != nil {
@@ -149,12 +149,14 @@ func (handler *CodexTrafficRelayHandler) serveAuthenticatedCodexTraffic(response
 			}
 		}
 		var modelRequest struct {
-			Model    string `json:"model"`
-			Stream   bool   `json:"stream"`
-			Generate *bool  `json:"generate"`
+			Model       string `json:"model"`
+			ServiceTier string `json:"service_tier"`
+			Stream      bool   `json:"stream"`
+			Generate    *bool  `json:"generate"`
 		}
 		if json.Unmarshal(inspectedBody, &modelRequest) == nil {
 			modelSlug = modelRequest.Model
+			serviceTier = modelRequest.ServiceTier
 			responseStreamRequested = modelRequest.Stream
 			warmup = modelRequest.Generate != nil && !*modelRequest.Generate
 		}
@@ -202,6 +204,7 @@ func (handler *CodexTrafficRelayHandler) serveAuthenticatedCodexTraffic(response
 	if workKind == store.ModelTurnWorkKind {
 		observer := newTerminalResponseObserver(codexTaskID, client, routeDecision.AccountName, handler.taskRouter, handler.completionLedger)
 		observer.modelSlug = modelSlug
+		observer.serviceTier = serviceTier
 		observer.requestCounters = handler.requestCounters
 		routedRequest.responseObserver = observer
 		if request.Method == http.MethodPost {

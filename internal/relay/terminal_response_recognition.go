@@ -24,9 +24,12 @@ type terminalResponseObserver struct {
 	activeResponses  int
 	admittedRequests int
 	modelSlug        string
-	admissionMutex   sync.Mutex
-	requestCounters  ModelRequestCounters
-	requests         []*observedModelRequest
+	// serviceTier is the speed the client requested. OpenAI's completed
+	// response reports "default" even for Fast work it bills as Fast.
+	serviceTier     string
+	admissionMutex  sync.Mutex
+	requestCounters ModelRequestCounters
+	requests        []*observedModelRequest
 
 	// A WebSocket's state during an update; see in_flight_request_drain.go.
 	closeWebSocket       func()
@@ -37,12 +40,11 @@ type terminalResponseObserver struct {
 }
 
 type completedResponseWire struct {
-	Status      string             `json:"status"`
-	Generate    *bool              `json:"generate"`
-	ID          string             `json:"id"`
-	Model       string             `json:"model"`
-	ServiceTier string             `json:"service_tier"`
-	Error       *providerErrorWire `json:"error"`
+	Status   string             `json:"status"`
+	Generate *bool              `json:"generate"`
+	ID       string             `json:"id"`
+	Model    string             `json:"model"`
+	Error    *providerErrorWire `json:"error"`
 	// IncompleteDetails says why OpenAI ended a response incomplete, for example
 	// "max_output_tokens".
 	IncompleteDetails *struct {
@@ -249,7 +251,7 @@ func (observer *terminalResponseObserver) recordCompletedResponse(response compl
 		CodexTaskID:           observer.codexTaskID,
 		AccountName:           observer.accountName,
 		ModelSlug:             response.Model,
-		HarnessMode:           harnessModeForServiceTier(response.ServiceTier),
+		HarnessMode:           harnessModeForServiceTier(observer.serviceTier),
 		InputTokens:           *response.Usage.InputTokens,
 		CachedInputTokens:     response.Usage.InputTokenDetails.CachedTokens,
 		CacheWriteInputTokens: response.Usage.InputTokenDetails.CacheWriteTokens,
@@ -262,22 +264,21 @@ func (observer *terminalResponseObserver) recordCompletedResponse(response compl
 	}
 }
 
+// harnessModeForServiceTier maps the requested service tier to the Codex
+// speed: Codex requests Fast as "priority".
 func harnessModeForServiceTier(serviceTier string) string {
-	switch serviceTier {
-	case "default":
-		return "standard"
-	case "priority":
+	if serviceTier == "priority" || serviceTier == "fast" {
 		return "fast"
-	default:
-		return serviceTier
 	}
+	return "standard"
 }
 
 func (observer *terminalResponseObserver) routeClientMessage(message []byte) bool {
 	var request struct {
-		Type     string `json:"type"`
-		Model    string `json:"model"`
-		Generate *bool  `json:"generate"`
+		Type        string `json:"type"`
+		Model       string `json:"model"`
+		ServiceTier string `json:"service_tier"`
+		Generate    *bool  `json:"generate"`
 	}
 	if json.Unmarshal(message, &request) != nil || request.Type != "response.create" {
 		return false
@@ -315,6 +316,7 @@ func (observer *terminalResponseObserver) routeClientMessage(message []byte) boo
 		}
 	}
 	observer.modelSlug = request.Model
+	observer.serviceTier = request.ServiceTier
 	observer.startModelRequest(request.Generate != nil && !*request.Generate)
 	observer.admittedRequests++
 	return false
