@@ -3,9 +3,9 @@
 
 Builds the proxy from this working tree and runs it under a private launchd job
 on a spare port, with its own data directory and copies of the account logins.
-Drives the official Codex client and Pi on Luna at low effort against real
-OpenAI. A gateway between the proxy and OpenAI simulates exhausted accounts;
-the model work itself is real. Prints what the system did for each outcome and
+Drives the official Codex client and, if installed, Pi on Luna at low effort
+against real OpenAI. A gateway between the proxy and OpenAI simulates exhausted
+accounts; the model work itself is real. Prints what the system did for each outcome and
 leaves nothing running. Evidence stays in .project-private/system-test.
 """
 import os
@@ -61,7 +61,8 @@ def main():
     signal.signal(signal.SIGTERM, stop)
     try:
         accounts = rig.prepare()
-        print(f'Codex Switch system test: {len(accounts)} accounts, {rig.MODEL} at low effort.', flush=True)
+        print(f'Codex Switch system test: {len(accounts)} accounts, {rig.MODEL} at low effort.')
+        print(f'Codex: {rig.CODEX}. ' + (f'Pi: {rig.PI}.' if rig.PI else 'Pi is not on PATH, so Pi is not tested.'), flush=True)
         rig.build()
         system = System(accounts)
         system.apply()  # before the proxy's first allowance read
@@ -109,31 +110,35 @@ def new_work_goes_to_the_most_allowance_left(system):
     leader_left = 100 - system.weekly[leader]
     task = rig.CodexTask('routing-task', 'Use a shell command to read input.txt and write the sum of its numbers to routing.txt. '
                                          'Reply with the sum only.').finish()
-    session = str(uuid.uuid4())
-    rig.run_pi('routing-pi-first', 'Reply with the word one.', session)
-    pi_task = rig.pi_task_id(session)
-    started = {'Codex task': rig.pinned_account(task.thread), 'Pi session': rig.pinned_account(pi_task)}
+    tasks = {'Codex task': task.thread}
+    if rig.PI:
+        session = str(uuid.uuid4())
+        rig.run_pi('routing-pi-first', 'Reply with the word one.', session)
+        tasks['Pi session'] = rig.pi_task_id(session)
+    started = {name: rig.pinned_account(task_id) for name, task_id in tasks.items()}
     if set(started.values()) != {leader}:
-        raise Failure(f'{leader} had the most weekly allowance left ({leader_left}%), but the Codex task went to '
-                      f'{started["Codex task"]} and the Pi session to {started["Pi session"]}.')
+        raise Failure(f'{leader} had the most weekly allowance left ({leader_left}%), but '
+                      + ' and '.join(f'the {name} went to {account}' for name, account in started.items()) + '.')
 
     runner_up = system.best_account(excluding={leader})
     system.weekly[leader], system.weekly[runner_up] = 95, 20
     system.apply()
     rig.wait_for(lambda: rig.weekly_used_percent().get(leader) == 95, 'the proxy to read the new allowance levels', timeout=150, interval=5)
     rig.CodexTask('routing-task-again', 'Use a shell command to read routing.txt. Reply with its content only.', thread=task.thread).finish()
-    rig.run_pi('routing-pi-second', 'Reply with the word two.', session)
+    if rig.PI:
+        rig.run_pi('routing-pi-second', 'Reply with the word two.', session)
+        system.record_pi_session('routing Pi session', session)
     new_task = rig.CodexTask('routing-new-task', 'Reply with the word fresh.').finish()
 
     system.record_codex_task('routing Codex task', task.thread)
     system.record_codex_task('second routing Codex task', new_task.thread)
-    system.record_pi_session('routing Pi session', session)
-    served = {'Codex task': {row[0] for row in rig.database_rows(task.thread)}, 'Pi session': {row[0] for row in rig.database_rows(pi_task)}}
+    served = {name: {row[0] for row in rig.database_rows(task_id)} for name, task_id in tasks.items()}
     if any(accounts != {leader} for accounts in served.values()) or rig.pinned_account(new_task.thread) != runner_up:
-        raise Failure(f'After {runner_up} took the lead, the Codex task was served by {sorted(served["Codex task"])}, the Pi session by '
-                      f'{sorted(served["Pi session"])}, and a new task went to {rig.pinned_account(new_task.thread)}.')
-    return (f'A Codex task and a Pi session both started on {leader}, which had the most weekly allowance left ({leader_left}%).\n'
-            f'Then {runner_up} took the lead with 80% left. Both took their second turn on {leader} again, and a new Codex task went to {runner_up}.')
+        raise Failure(f'After {runner_up} took the lead, '
+                      + ', '.join(f'the {name} was served by {sorted(accounts)}' for name, accounts in served.items())
+                      + f', and a new task went to {rig.pinned_account(new_task.thread)}.')
+    return (f'A {" and a ".join(tasks)} started on {leader}, which had the most weekly allowance left ({leader_left}%).\n'
+            f'Then {runner_up} took the lead with 80% left. Each took its second turn on {leader} again, and a new Codex task went to {runner_up}.')
 
 
 def request_without_task_id_is_served(system):
@@ -225,7 +230,7 @@ def update_during_work_finishes_on_the_old_process(system):
     system.apply()
     http_task = rig.CodexTask('update-http-task', 'Reply with the word stream.')
     rig.wait_for(lambda: len(rig.gateway_events('response-held', client='codex_exec')) == 2, 'an HTTP response to start', timeout=180)
-    system.extra = ['hold-responses codex_exec', 'hold-responses pi']
+    system.extra = ['hold-responses codex_exec']
     system.apply()
     old = rig.deploy_status()['pid']
     held = rig.gateway_events('response-held', client='codex_exec')
@@ -239,41 +244,37 @@ def update_during_work_finishes_on_the_old_process(system):
     if goal.result_file.exists():
         raise Failure('The goal finished its tool call before the update began, so it did not run across the update.')
     new = rig.deploy_status()['pid']
-    # New work during the drain, from Pi: held too, so the process holding it can be seen.
-    session = str(uuid.uuid4())
-    pi = rig.start_pi('update-pi', 'Reply with the word new.', session)
-    pi_held = rig.wait_for(lambda: rig.gateway_events('response-held', client='pi'), 'new Pi work to start', timeout=180)
-    new_work_on_new_process = new != old and pi_held[0]['remote'] in rig.gateway_connections(new)
-    system.extra = ['hold-responses codex_exec']
-    system.apply()
-    pi_reply = rig.finish_pi('update-pi', pi)
+    # New work during the drain: held too, so the process holding it can be seen.
+    new_task = rig.CodexTask('update-new-task', 'Reply with the word new.')
+    rig.wait_for(lambda: len(rig.gateway_events('response-held', client='codex_exec')) >= 3, 'new work to start', timeout=180)
+    held_on_new = {event['remote'] for event in rig.gateway_events('response-held', client='codex_exec')} - held_on_old
+    new_work_on_new_process = new != old and held_on_new and held_on_new <= rig.gateway_connections(new)
     old_was_draining = held_on_old <= rig.gateway_connections(old)
     system.extra = []
     system.apply()
-    for task in (websocket_task, http_task):
+    for task in (websocket_task, http_task, new_task):
         task.finish()
         system.record_codex_task(task.name, task.thread)
     if update.wait(timeout=300):
         raise Failure(f'The update command failed: {rig.read("logs/update.err")[-400:]}')
     final = rig.deploy_status()['pid']
-    errors = goal.finish() + websocket_task.errors + http_task.errors
+    errors = goal.finish() + websocket_task.errors + http_task.errors + new_task.errors
     system.record_codex_task('goal across the update', goal.thread)
-    system.record_pi_session('Pi work during the update', session)
 
-    if not new_work_on_new_process or not old_was_draining or 'new' not in pi_reply.lower():
-        raise Failure(f'New Pi work did not run on new process {new} while old process {old} still held its two responses.')
+    if not new_work_on_new_process or not old_was_draining:
+        raise Failure(f'New work did not start on new process {new} while old process {old} still held its two responses.')
     canceled = rig.gateway_events('response-canceled')
-    replies = (websocket_task.reply.lower(), http_task.reply.lower())
-    if canceled or f'process {old} stopped after' not in rig.proxy_log() or 'socket' not in replies[0] or 'stream' not in replies[1]:
+    replies = (websocket_task.reply.lower(), http_task.reply.lower(), new_task.reply.lower())
+    if canceled or f'process {old} stopped after' not in rig.proxy_log() or 'socket' not in replies[0] or 'stream' not in replies[1] or 'new' not in replies[2]:
         raise Failure(f'{len(canceled)} held responses were cancelled; Codex replied {replies}; see process {old} in data/proxy.log.')
     if final in (old, new) or rig.process_alive(old) or rig.process_alive(new):
         raise Failure(f'After the update, process {final} serves; old {old} and interim {new} should both have exited.')
-    for label, thread in (('A held task', websocket_task.thread), ('A held task', http_task.thread), ('The goal', goal.thread)):
+    for label, thread in (('A held task', websocket_task.thread), ('A held task', http_task.thread), ('The new task', new_task.thread), ('The goal', goal.thread)):
         require_no_replay(label, rig.forwarded_requests(thread=thread))
     if errors:
         raise Failure(f'The update completed, but Codex showed {describe_errors(errors)}.')
     return ('Two Codex responses, one over WebSocket and one over HTTP, were mid-stream when the update began. The old process\n'
-            'stopped taking new work, and new Pi work ran on the new build meanwhile. Both responses then finished on the old\n'
+            'stopped taking new work, and a new Codex task started on the new build meanwhile. Both responses then finished on the old\n'
             'process before it exited, and launchd now runs the new build. The update command finished by itself. A goal sleeping\n'
             'in a tool across the update finished with its tool effect run once. Nothing was replayed and Codex showed no error.')
 

@@ -21,8 +21,10 @@ import urllib.request
 REPO = Path(__file__).resolve().parents[2]
 RUN = REPO / '.project-private/system-test'
 LIVE_DATA = Path.home() / 'Library/Application Support/codex-switch'
-CODEX = '/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex'
-PI = str(Path.home() / '.local/state/nix/profiles/ai/bin/pi')
+# The Codex client the proxy itself reads: the one inside the desktop app, else `codex` on PATH.
+DESKTOP_CODEX = Path('/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex')
+CODEX = str(DESKTOP_CODEX) if DESKTOP_CODEX.exists() else shutil.which('codex')
+PI = shutil.which('pi')  # None when Pi is not installed; the test then runs without it
 MODEL = 'gpt-6-luna'
 LABEL = 'dev.codex-switch.system-test'
 # Pi has no ChatGPT login of its own here: it needs a JWT-shaped key with a
@@ -42,6 +44,8 @@ class Failure(Exception):
 def prepare():
     """Creates a fresh run directory with copies of the account logins."""
     os.umask(0o077)  # logins, logs and the proxy's data stay private to this user
+    if not CODEX:
+        raise Failure('Codex is not installed: neither the desktop app nor `codex` on PATH.')
     if RUN.exists():
         subprocess.run(['trash', str(RUN)], check=True)
     for part in ('home', 'work', 'data', 'logs', 'pi'):

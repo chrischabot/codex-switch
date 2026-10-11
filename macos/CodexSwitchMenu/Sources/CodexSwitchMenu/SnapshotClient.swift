@@ -18,24 +18,25 @@ enum LaunchConfigurationError: Error, Equatable {
     case relativeDataDirectory
 }
 
-/// Production reads the proxy in `~/Library/Application Support/codex-switch`.
-/// A staged app is launched with `--data-dir ABSOLUTE_PATH` to read an isolated proxy.
+/// The app reads the proxy in `~/Library/Application Support/codex-switch`, or
+/// the one named by `--data-dir ABSOLUTE_PATH`. Only the app reading that
+/// production proxy is the menu that opens at login.
 struct LaunchConfiguration: Equatable, Sendable {
     let dataDirectory: URL
     let isProduction: Bool
 
     init(arguments: [String]) throws {
+        let productionDataDirectory = URL.applicationSupportDirectory.appending(path: "codex-switch", directoryHint: .isDirectory)
         if arguments.isEmpty {
-            dataDirectory = URL.applicationSupportDirectory.appending(path: "codex-switch", directoryHint: .isDirectory)
-            isProduction = true
-            return
+            dataDirectory = productionDataDirectory
+        } else {
+            guard arguments.count == 2, arguments[0] == "--data-dir" else {
+                throw LaunchConfigurationError.unexpectedArguments
+            }
+            guard arguments[1].hasPrefix("/") else { throw LaunchConfigurationError.relativeDataDirectory }
+            dataDirectory = URL(filePath: arguments[1], directoryHint: .isDirectory)
         }
-        guard arguments.count == 2, arguments[0] == "--data-dir" else {
-            throw LaunchConfigurationError.unexpectedArguments
-        }
-        guard arguments[1].hasPrefix("/") else { throw LaunchConfigurationError.relativeDataDirectory }
-        dataDirectory = URL(filePath: arguments[1], directoryHint: .isDirectory)
-        isProduction = false
+        isProduction = dataDirectory.standardizedFileURL == productionDataDirectory.standardizedFileURL
     }
 }
 
