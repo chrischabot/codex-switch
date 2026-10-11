@@ -1,5 +1,6 @@
 import AppKit
 import OSLog
+import ServiceManagement
 import SwiftUI
 
 private let launchLogger = Logger(
@@ -11,20 +12,18 @@ private let launchLogger = Logger(
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBarController: StatusBarController?
-    private let launchConfiguration: SnapshotLaunchConfiguration
+    private let launchConfiguration: LaunchConfiguration
 
-    init(launchConfiguration: SnapshotLaunchConfiguration) {
+    init(launchConfiguration: LaunchConfiguration) {
         self.launchConfiguration = launchConfiguration
     }
 
     static func main() {
-        let launchConfiguration: SnapshotLaunchConfiguration
+        let launchConfiguration: LaunchConfiguration
         do {
-            launchConfiguration = try SnapshotLaunchConfiguration(
-                arguments: Array(CommandLine.arguments.dropFirst())
-            )
+            launchConfiguration = try LaunchConfiguration(arguments: Array(CommandLine.arguments.dropFirst()))
         } catch {
-            launchLogger.error("Invalid staged launch configuration")
+            launchLogger.error("Invalid launch arguments: \(String(describing: error), privacy: .public)")
             return
         }
         let application = NSApplication.shared
@@ -34,12 +33,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let cacheFile = URL.cachesDirectory
+            .appending(path: Bundle.main.bundleIdentifier ?? "CodexSwitchMenu", directoryHint: .isDirectory)
+            .appending(path: "menu-snapshot.pb")
         let store = OverviewStore(
-            client: CodexSwitchClient(configuration: launchConfiguration)
+            client: SnapshotClient(dataDirectory: launchConfiguration.dataDirectory),
+            cacheFile: cacheFile
         )
-        application.setActivationPolicy(.accessory)
-        let controller = StatusBarController(store: store)
-        statusBarController = controller
+        NSApplication.shared.setActivationPolicy(.accessory)
+        statusBarController = StatusBarController(store: store)
+        if launchConfiguration.isProduction {
+            registerLoginItem()
+        }
+    }
+
+    /// Leaves any state other than `.notRegistered` alone so the login item can be turned off in System Settings.
+    private func registerLoginItem() {
+        let service = SMAppService.mainApp
+        guard service.status == .notRegistered else { return }
+        do {
+            try service.register()
+        } catch {
+            launchLogger.error("Login item registration failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     func applicationShouldHandleReopen(
@@ -53,6 +69,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         statusBarController?.stop()
     }
-
-    private var application: NSApplication { .shared }
 }

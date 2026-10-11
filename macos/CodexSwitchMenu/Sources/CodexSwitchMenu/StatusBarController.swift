@@ -33,14 +33,7 @@ final class StatusBarController: NSObject {
             while let self, !Task.isCancelled {
                 await self.store.refresh()
                 self.updateStatusItem()
-                do {
-                    try await Task.sleep(
-                        for: .seconds(self.store.secondsUntilNextRefresh())
-                    )
-                } catch {
-                    return
-                }
-                self.updateStatusItem()
+                try? await Task.sleep(for: OverviewStore.refreshInterval)
             }
         }
     }

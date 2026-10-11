@@ -14,11 +14,13 @@ final class PanelRenderTests: XCTestCase {
             throw XCTSkip("Run scripts/dev/render-menu with a real menu snapshot")
         }
         let foregroundBefore = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        let snapshot = try CSSwitch_MenuSnapshot(serializedBytes: Data(contentsOf: URL(filePath: snapshotPath)))
-        let store = OverviewStore(client: SavedSnapshot(snapshot: snapshot))
-        await store.refresh()
+        let bytes = try Data(contentsOf: URL(filePath: snapshotPath))
+        let snapshot = try MenuSnapshotDecoding.decode(bytes)
         let output = URL(filePath: outputPath, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let cacheFile = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString)/menu-snapshot.pb")
+        let store = OverviewStore(client: SavedSnapshot(bytes: bytes), cacheFile: cacheFile)
+        await store.refresh()
 
         let periods: [(String, OverviewSnapshot.ReportingPeriodKind)] = [
             ("today", .today), ("7-days", .sevenDays), ("30-days", .thirtyDays),
@@ -106,7 +108,6 @@ final class PanelRenderTests: XCTestCase {
 }
 
 private struct SavedSnapshot: SnapshotLoading {
-    let snapshot: CSSwitch_MenuSnapshot
-    func loadCachedSnapshot() async throws -> CSSwitch_MenuSnapshot { snapshot }
-    func loadSnapshot() async throws -> CSSwitch_MenuSnapshot { snapshot }
+    let bytes: Data
+    func loadSnapshot() async throws -> Data { bytes }
 }

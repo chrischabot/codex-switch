@@ -8,14 +8,11 @@ if test "$#" -gt 1; then
 fi
 app_bundle=${1:-"$repository_root/dist/staged/CodexSwitchStage.app"}
 menu_binary="$app_bundle/Contents/MacOS/CodexSwitchMenu"
-helper_binary="$app_bundle/Contents/Helpers/codex-switch"
 
-for executable in "$menu_binary" "$helper_binary"; do
-  test -x "$executable" || {
-    echo "missing staged executable: $executable" >&2
-    exit 1
-  }
-done
+test -x "$menu_binary" || {
+  echo "missing staged executable: $menu_binary" >&2
+  exit 1
+}
 
 /usr/bin/plutil -lint "$app_bundle/Contents/Info.plist"
 bundle_identifier=$(/usr/bin/plutil -extract CFBundleIdentifier raw "$app_bundle/Contents/Info.plist")
@@ -36,5 +33,5 @@ test "$display_name" = "$expected_name" || {
   exit 1
 }
 /usr/bin/codesign --verify --deep --strict "$app_bundle"
-/usr/bin/file "$menu_binary" "$helper_binary"
+/usr/bin/file "$menu_binary"
 /usr/bin/codesign --display --verbose=2 "$app_bundle" 2>&1

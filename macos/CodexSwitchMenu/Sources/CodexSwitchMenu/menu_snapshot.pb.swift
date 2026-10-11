@@ -128,8 +128,6 @@ nonisolated struct CSSwitch_MenuSnapshot: Sendable {
 
   var accounts: [CSSwitch_Account] = []
 
-  var completedTasks: [CSSwitch_CompletedTask] = []
-
   var connection: CSSwitch_Connection {
     get {_connection ?? CSSwitch_Connection()}
     set {_connection = newValue}
@@ -552,7 +550,7 @@ nonisolated extension CSSwitch_ReportingPeriodKind: SwiftProtobuf._ProtoNameProv
 
 nonisolated extension CSSwitch_MenuSnapshot: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".MenuSnapshot"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}generated_at\0\u{1}accounts\0\u{3}completed_tasks\0\u{1}connection\0\u{3}reporting_periods\0\u{3}proxy_activity\0\u{3}account_days\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}generated_at\0\u{1}accounts\0\u{2}\u{2}connection\0\u{3}reporting_periods\0\u{3}proxy_activity\0\u{3}account_days\0\u{c}\u{3}\u{1}")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -562,7 +560,6 @@ nonisolated extension CSSwitch_MenuSnapshot: SwiftProtobuf.Message, SwiftProtobu
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularMessageField(value: &self._generatedAt) }()
       case 2: try { try decoder.decodeRepeatedMessageField(value: &self.accounts) }()
-      case 3: try { try decoder.decodeRepeatedMessageField(value: &self.completedTasks) }()
       case 4: try { try decoder.decodeSingularMessageField(value: &self._connection) }()
       case 5: try { try decoder.decodeRepeatedMessageField(value: &self.reportingPeriods) }()
       case 6: try { try decoder.decodeSingularMessageField(value: &self._proxyActivity) }()
@@ -583,9 +580,6 @@ nonisolated extension CSSwitch_MenuSnapshot: SwiftProtobuf.Message, SwiftProtobu
     if !self.accounts.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.accounts, fieldNumber: 2)
     }
-    if !self.completedTasks.isEmpty {
-      try visitor.visitRepeatedMessageField(value: self.completedTasks, fieldNumber: 3)
-    }
     try { if let v = self._connection {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
     } }()
@@ -604,7 +598,6 @@ nonisolated extension CSSwitch_MenuSnapshot: SwiftProtobuf.Message, SwiftProtobu
   static func ==(lhs: CSSwitch_MenuSnapshot, rhs: CSSwitch_MenuSnapshot) -> Bool {
     if lhs._generatedAt != rhs._generatedAt {return false}
     if lhs.accounts != rhs.accounts {return false}
-    if lhs.completedTasks != rhs.completedTasks {return false}
     if lhs._connection != rhs._connection {return false}
     if lhs.reportingPeriods != rhs.reportingPeriods {return false}
     if lhs._proxyActivity != rhs._proxyActivity {return false}

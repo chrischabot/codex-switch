@@ -1,32 +1,35 @@
 import Foundation
 import Observation
 import OSLog
-import SwiftProtobuf
 
 private let snapshotLogger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "CodexSwitchMenu",
     category: "Snapshot"
 )
 
+/// Holds the latest menu snapshot. The last good snapshot is kept in the app's
+/// caches directory so the menu renders at launch before the first fetch.
 @MainActor
 @Observable
 final class OverviewStore {
-    private static let normalRefreshInterval: TimeInterval = 5
-    private static let emptySnapshotRetryInterval: TimeInterval = 5
+    static let refreshInterval: Duration = .seconds(30)
 
     private(set) var latestOverview: OverviewSnapshot?
     var latestSnapshot: CSSwitch_MenuSnapshot? { latestOverview?.menuSnapshot }
-    var freshReportingOverview: OverviewSnapshot? { latestOverview }
-    private(set) var lastUpdatedAt: Date?
+    var lastUpdatedAt: Date? { latestSnapshot?.generatedAt.date }
     private(set) var isRefreshing = false
     private(set) var currentCheckSucceeded = false
 
     private var activeRefreshTask: Task<Void, Never>?
-
     private let client: any SnapshotLoading
+    private let cacheFile: URL
 
-    init(client: any SnapshotLoading) {
+    init(client: any SnapshotLoading, cacheFile: URL) {
         self.client = client
+        self.cacheFile = cacheFile
+        if let cached = try? MenuSnapshotDecoding.decode(Data(contentsOf: cacheFile)) {
+            latestOverview = OverviewSnapshot(menuSnapshot: cached)
+        }
     }
 
     func refresh() async {
@@ -36,12 +39,8 @@ final class OverviewStore {
         }
 
         isRefreshing = true
-        let refreshTask = Task { [weak self] in
-            guard let self else { return }
-            await self.loadCachedThenCurrentSnapshot()
-        }
+        let refreshTask = Task { await self.fetch() }
         activeRefreshTask = refreshTask
-
         await refreshTask.value
         activeRefreshTask = nil
         isRefreshing = false
@@ -51,48 +50,30 @@ final class OverviewStore {
         activeRefreshTask?.cancel()
     }
 
-    private func loadCachedThenCurrentSnapshot() async {
-        if latestSnapshot == nil {
-            do {
-                let cached = try await client.loadCachedSnapshot()
-                accept(cached)
-            } catch is CancellationError {
-                return
-            } catch {
-                snapshotLogger.error(
-                    "Cached menu snapshot load failed: \(self.sanitizedSnapshotFailure(error), privacy: .public)"
-                )
-            }
-        }
-
+    private func fetch() async {
+        let data: Data
+        let snapshot: CSSwitch_MenuSnapshot
         do {
-            let next = try await client.loadSnapshot()
-            accept(next)
-            currentCheckSucceeded = true
+            data = try await client.loadSnapshot()
+            snapshot = try MenuSnapshotDecoding.decode(data)
         } catch is CancellationError {
-            currentCheckSucceeded = false
             return
         } catch {
             currentCheckSucceeded = false
-            snapshotLogger.error(
-                "Menu snapshot refresh failed: \(self.sanitizedSnapshotFailure(error), privacy: .public)"
+            snapshotLogger.error("Menu snapshot fetch failed: \(String(describing: error), privacy: .public)")
+            return
+        }
+
+        latestOverview = OverviewSnapshot(menuSnapshot: snapshot)
+        currentCheckSucceeded = true
+        do {
+            try FileManager.default.createDirectory(
+                at: cacheFile.deletingLastPathComponent(),
+                withIntermediateDirectories: true
             )
+            try data.write(to: cacheFile, options: .atomic)
+        } catch {
+            snapshotLogger.error("Menu snapshot cache write failed: \(error.localizedDescription, privacy: .public)")
         }
-    }
-
-    func secondsUntilNextRefresh() -> TimeInterval {
-        latestSnapshot == nil ? Self.emptySnapshotRetryInterval : Self.normalRefreshInterval
-    }
-
-    private func accept(_ next: CSSwitch_MenuSnapshot) {
-        latestOverview = OverviewSnapshot(menuSnapshot: next)
-        lastUpdatedAt = next.hasGeneratedAt ? next.generatedAt.date : nil
-    }
-
-    private func sanitizedSnapshotFailure(_ error: Error) -> String {
-        guard let error = error as? SnapshotClientError else {
-            return "unexpected helper failure"
-        }
-        return error.sanitizedLogDescription
     }
 }

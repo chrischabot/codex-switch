@@ -37,8 +37,8 @@ if (( $# > 0 )); then
     fi
 fi
 
-if [[ $result == staged && $destination != "$repo_dir/dist/staged/CodexSwitchStage.app" ]]; then
-    stage_name=${${destination:t}%.app}
+stage_name=${${destination:t}%.app}
+if [[ $result == staged && $stage_name != CodexSwitchStage ]]; then
     display_name="Codex Switch $stage_name"
     bundle_identifier="com.josh.codex-switch-menu.stage.${(L)stage_name}"
 fi
@@ -68,16 +68,9 @@ resource_bundle="$bin_dir/CodexSwitchMenu_CodexSwitchMenu.bundle"
 [[ -x $executable ]] || { print -u2 "missing executable: $executable"; exit 1; }
 [[ -d $resource_bundle ]] || { print -u2 "missing resource bundle: $resource_bundle"; exit 1; }
 
-/bin/mkdir -p "$staged_app/Contents/MacOS" "$staged_app/Contents/Resources" "$staged_app/Contents/Helpers"
+/bin/mkdir -p "$staged_app/Contents/MacOS" "$staged_app/Contents/Resources"
 /bin/cp "$executable" "$staged_app/Contents/MacOS/CodexSwitchMenu"
 /bin/cp -R "$resource_bundle" "$staged_app/Contents/Resources/"
-command -v go >/dev/null || {
-    print -u2 "Go is required; run this through the pinned devenv environment"
-    exit 1
-}
-(cd "$repo_dir" && go build -o "$staged_app/Contents/Helpers/codex-switch" ./cmd/codex-switch)
-helper="$staged_app/Contents/Helpers/codex-switch"
-[[ -x $helper ]] || { print -u2 "missing executable: $helper"; exit 1; }
 
 plist="$staged_app/Contents/Info.plist"
 /usr/bin/plutil -create xml1 "$plist"
@@ -92,8 +85,6 @@ plist="$staged_app/Contents/Info.plist"
 /usr/bin/plutil -insert LSUIElement -bool true "$plist"
 /usr/bin/plutil -insert NSPrincipalClass -string NSApplication "$plist"
 
-/usr/bin/codesign --force --sign - "$helper"
-/usr/bin/codesign --verify --strict "$helper"
 /usr/bin/codesign --force --sign - "$staged_app"
 /usr/bin/codesign --verify --deep --strict "$staged_app"
 
