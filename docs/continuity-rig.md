@@ -195,8 +195,6 @@ Repeat the overlap for rollback, starting with an empty control file so the new 
 scripts/dev/continuity-rig stop
 ```
 
-`scripts/dev/deploy-readiness-proof` is a separate **simulated control-plane proof**. It invokes the actual deployment script with disposable processes and simulated status responses, including empty and wrong-revision successors. It does not exercise launchd, network handover or model traffic. The supervised procedure above supplies those operating observations; neither substitutes for the other. Live proxy adoption still needs its own explicit approval.
-
 ### Failed startup and successor
 
 A candidate that exits unsuccessfully from `print-revision` must leave the stable executable and `.previous` unchanged. A candidate that reports a revision but exits from `serve` must fail bridge readiness, restore the stable executable and retain `.previous`. Check both file hashes and the old serving PID after each failure, then run official client work. These are executable-startup simulations against the real supervised proxy.
