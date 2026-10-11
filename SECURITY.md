@@ -1,7 +1,5 @@
 # Security
 
-This is a personal project with no security support. Use it at your own risk.
-
 ## Sensitive local data
 
 Treat these as credentials:
