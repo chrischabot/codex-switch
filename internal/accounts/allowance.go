@@ -26,7 +26,6 @@ type ReportedWindow struct {
 type AllowanceSample struct {
 	Route                 string
 	AccountID             string
-	Email                 string
 	Plan                  string
 	Allowed               bool
 	LimitReached          bool
