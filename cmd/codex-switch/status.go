@@ -89,7 +89,7 @@ func writeCurrentStatus(output io.Writer, snapshot *menupb.MenuSnapshot) {
 			if len(tasks) > 10 {
 				tasks = tasks[:10]
 			}
-			heading = "Top account-usage tasks today:"
+			heading = "Top tasks on this Mac today:"
 		}
 	}
 	if len(tasks) > 0 {
@@ -98,6 +98,9 @@ func writeCurrentStatus(output io.Writer, snapshot *menupb.MenuSnapshot) {
 			fmt.Fprintf(output, "  %s", taskLabel(task))
 			if task.Tokens != nil {
 				fmt.Fprintf(output, " · %s tokens", groupedTokens(task.GetTokens()))
+			}
+			if task.CostNanoUsd != nil {
+				fmt.Fprintf(output, " · %s", dollars(task.GetCostNanoUsd()))
 			}
 			if len(task.AccountKeys) > 0 {
 				fmt.Fprintf(output, " · %s", oneLine(strings.Join(task.AccountKeys, ", ")))
@@ -138,35 +141,47 @@ func writeProxyActivity(output io.Writer, activity *menupb.ProxyActivity) {
 }
 
 func writeAccountTokenTable(output io.Writer, snapshot *menupb.MenuSnapshot) {
-	fmt.Fprintln(output, "\nAccount usage")
-	writer := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(writer, "\nTokens\tToday\t7 Days\t30 Days")
+	fmt.Fprintln(output, "\nAccount usage · UTC days")
 	periods := []menupb.ReportingPeriodKind{menupb.ReportingPeriodKind_REPORTING_PERIOD_TODAY, menupb.ReportingPeriodKind_REPORTING_PERIOD_SEVEN_DAYS, menupb.ReportingPeriodKind_REPORTING_PERIOD_THIRTY_DAYS}
-	totals := make(map[menupb.ReportingPeriodKind]map[string]int64)
+	byPeriod := make(map[menupb.ReportingPeriodKind]map[string]*menupb.AccountTotal)
 	for _, period := range snapshot.ReportingPeriods {
-		values := make(map[string]int64)
+		byPeriod[period.Kind] = make(map[string]*menupb.AccountTotal)
 		for _, account := range period.Accounts {
-			values[account.AccountKey] = account.Tokens
+			byPeriod[period.Kind][account.AccountKey] = account
 		}
-		totals[period.Kind] = values
 	}
-	for _, account := range snapshot.Accounts {
-		fmt.Fprint(writer, oneLine(account.Key))
+	for _, table := range []struct {
+		heading string
+		value   func(*menupb.AccountTotal) int64
+		format  func(int64) string
+	}{
+		{"Tokens", (*menupb.AccountTotal).GetTokens, groupedTokens},
+		{"API-equivalent cost", (*menupb.AccountTotal).GetCostNanoUsd, dollars},
+	} {
+		writer := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
+		fmt.Fprintf(writer, "\n%s\tToday\t7 Days\t30 Days\n", table.heading)
+		totals := make(map[menupb.ReportingPeriodKind]int64)
+		for _, account := range snapshot.Accounts {
+			fmt.Fprint(writer, oneLine(account.Key))
+			for _, kind := range periods {
+				value := table.value(byPeriod[kind][account.Key])
+				totals[kind] += value
+				fmt.Fprintf(writer, "\t%s", table.format(value))
+			}
+			fmt.Fprintln(writer)
+		}
+		fmt.Fprint(writer, "Total")
 		for _, kind := range periods {
-			fmt.Fprintf(writer, "\t%s", groupedTokens(totals[kind][account.Key]))
+			fmt.Fprintf(writer, "\t%s", table.format(totals[kind]))
 		}
 		fmt.Fprintln(writer)
+		_ = writer.Flush()
 	}
-	fmt.Fprint(writer, "Total")
-	for _, kind := range periods {
-		var sum int64
-		for _, tokens := range totals[kind] {
-			sum += tokens
-		}
-		fmt.Fprintf(writer, "\t%s", groupedTokens(sum))
-	}
-	fmt.Fprintln(writer)
-	_ = writer.Flush()
+}
+
+func dollars(nanoUSD int64) string {
+	cents := (nanoUSD + 5_000_000) / 10_000_000
+	return "$" + groupedTokens(cents/100) + fmt.Sprintf(".%02d", cents%100)
 }
 
 func groupedTokens(value int64) string {

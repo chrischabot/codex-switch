@@ -41,6 +41,9 @@ message Account {
   bool usable = 7;
   // Why the account cannot take new work for the configured model; empty when usable.
   string unavailable_reason = 8;
+  // The account's plan offers the model Codex is configured to use, so it is
+  // part of the pool for current work even while its allowance is used up.
+  bool offers_configured_model = 9;
 }
 enum AccountState {
   ACCOUNT_STATE_UNSPECIFIED = 0;

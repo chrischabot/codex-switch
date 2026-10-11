@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"slices"
 
 	accountapi "github.com/josh/codex-switch/internal/accounts"
 	"github.com/josh/codex-switch/internal/clientcapability"
@@ -44,12 +45,7 @@ func menuSnapshotOrRelay(capability, dataDirectory string, router *routing.TaskR
 			http.Error(w, "snapshot unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		snapshot.ReportingPeriods, err = usageLedger.ReadReportingPeriods()
-		if err != nil {
-			log.Printf("could not read account usage for the status snapshot: %v", err)
-			http.Error(w, "snapshot unavailable", http.StatusServiceUnavailable)
-			return
-		}
+		snapshot.ReportingPeriods = usageLedger.ReadReportingPeriods()
 		body, err := proto.Marshal(snapshot)
 		if err != nil {
 			http.Error(w, "snapshot unavailable", http.StatusInternalServerError)
@@ -81,7 +77,7 @@ func readServingMenuSnapshot(dataDirectory string, router *routing.TaskRouter, m
 	for _, fact := range facts {
 		identity := identities[fact.AccountName]
 		sample := fact.AllowanceSample
-		account := &menupb.Account{Key: string(fact.AccountName), AccountNumber: uint32(identity.Index), Email: identity.Email, Plan: sample.Plan, State: menuAccountState(fact.AccountState), Usable: unavailableReasons[fact.AccountName] == "", UnavailableReason: unavailableReasons[fact.AccountName]}
+		account := &menupb.Account{Key: string(fact.AccountName), AccountNumber: uint32(identity.Index), Email: identity.Email, Plan: sample.Plan, State: menuAccountState(fact.AccountState), Usable: unavailableReasons[fact.AccountName] == "", UnavailableReason: unavailableReasons[fact.AccountName], OffersConfiguredModel: modelSlug == "" || slices.Contains(fact.SupportedModelSlugs, modelSlug)}
 		if !sample.ObservedAt.IsZero() {
 			observation := &menupb.AllowanceObservation{ObservedAt: timestamppb.New(sample.ObservedAt), Allowed: sample.Allowed, LimitReached: sample.LimitReached, AvailableResetCredits: sample.AvailableResetCredits}
 			for _, window := range sample.Windows {

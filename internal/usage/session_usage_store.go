@@ -192,7 +192,7 @@ func (ledger *UsageLedger) readSessionUsageObservations(ctx context.Context, sta
 	return observations, rows.Err()
 }
 func (ledger *UsageLedger) readTaskMetadata(ctx context.Context) ([]taskMetadata, error) {
-	rows, err := ledger.sqlDatabase.QueryContext(ctx, `SELECT s.task_id,s.parent_task_id,s.forked_from_task_id,s.created,s.source_kind,
+	rows, err := ledger.sqlDatabase.QueryContext(ctx, `SELECT s.task_id,s.path,s.parent_task_id,s.forked_from_task_id,s.created,s.source_kind,
  COALESCE(c.parent_task_id,''),COALESCE(c.parent_count,0)
  FROM native_usage_sources s LEFT JOIN (
   SELECT child_task_id,MIN(source_task_id) AS parent_task_id,COUNT(DISTINCT source_task_id) AS parent_count
@@ -208,7 +208,7 @@ func (ledger *UsageLedger) readTaskMetadata(ctx context.Context) ([]taskMetadata
 		var created int64
 		var recordedParent string
 		var parentCount int
-		if err = rows.Scan(&item.TaskID, &item.ParentTaskID, &item.ForkedFromTaskID, &created, &item.SourceKind, &recordedParent, &parentCount); err != nil {
+		if err = rows.Scan(&item.TaskID, &item.SourcePath, &item.ParentTaskID, &item.ForkedFromTaskID, &created, &item.SourceKind, &recordedParent, &parentCount); err != nil {
 			return nil, err
 		}
 		if item.ParentTaskID == "" {

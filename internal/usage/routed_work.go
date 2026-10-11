@@ -36,14 +36,8 @@ func (ledger *UsageLedger) ReadRoutedWork(accountKeys []string) ([]*menupb.Compl
 		if len(recentTasks) == 10 {
 			break
 		}
-		task := &menupb.CompletedTask{TaskId: total.TaskID, LastCompletedAt: timestamppb.New(total.LastCompletedAt)}
-		if total.System {
-			title := "System"
-			task.Title = &title
-		}
-		for _, account := range total.Accounts {
-			task.AccountKeys = append(task.AccountKeys, string(account))
-		}
+		task := completedTask(total)
+		task.Tokens = nil
 		recentTasks = append(recentTasks, task)
 	}
 	localNow := now.Local()
@@ -90,15 +84,7 @@ func (ledger *UsageLedger) ReadRoutedWork(accountKeys []string) ([]*menupb.Compl
 		if len(activity.Tasks) == 10 {
 			break
 		}
-		task := &menupb.CompletedTask{TaskId: total.TaskID, LastCompletedAt: timestamppb.New(total.LastCompletedAt), Tokens: &total.Tokens}
-		if total.System {
-			title := "System"
-			task.Title = &title
-		}
-		for _, account := range total.Accounts {
-			task.AccountKeys = append(task.AccountKeys, string(account))
-		}
-		activity.Tasks = append(activity.Tasks, task)
+		activity.Tasks = append(activity.Tasks, completedTask(total))
 	}
 	return recentTasks, activity, nil
 }

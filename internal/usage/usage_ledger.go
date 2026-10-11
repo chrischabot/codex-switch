@@ -1,8 +1,9 @@
 // Package usage answers how many tokens each account and each task used, and
 // what that work would cost at OpenAI's API prices.
 //
-// It reads OpenAI's daily token history for every pool account, scans local
-// Codex and Pi session history, and joins both with the responses the relay
+// Account totals come from OpenAI's own per-account report, which counts every
+// machine and ChatGPT Work on the web. Task totals come from what this Mac
+// saw: local Codex and Pi session history joined with the responses the relay
 // recorded. It keeps its own tables in the store's database.
 package usage
 
@@ -26,11 +27,11 @@ type UsageLedger struct {
 	dataDirectory string
 	httpClient    *http.Client
 
-	problemMutex      sync.Mutex
-	lastLoggedProblem map[string]string
+	logMutex      sync.Mutex
+	lastLoggedFor map[string]string
 
-	taskUsageMutex    sync.Mutex
-	taskUsageByPeriod map[taskUsagePeriod]taskUsageTotals
+	periodsMutex sync.Mutex
+	periods      []*menupb.ReportingPeriod
 }
 
 // OpenUsageLedger creates the usage tables when absent. httpClient reads
@@ -38,7 +39,7 @@ type UsageLedger struct {
 func OpenUsageLedger(database *store.StoreDatabase, dataDirectory string, httpClient *http.Client) (*UsageLedger, error) {
 	ledger := &UsageLedger{
 		database: database, sqlDatabase: database.SQLDatabase(), dataDirectory: dataDirectory, httpClient: httpClient,
-		lastLoggedProblem: map[string]string{}, taskUsageByPeriod: map[taskUsagePeriod]taskUsageTotals{},
+		lastLoggedFor: map[string]string{},
 	}
 	if err := createOpenAIDailyTokenHistorySchema(ledger.sqlDatabase); err != nil {
 		return nil, fmt.Errorf("create OpenAI daily token history schema: %w", err)
@@ -49,11 +50,11 @@ func OpenUsageLedger(database *store.StoreDatabase, dataDirectory string, httpCl
 	return ledger, nil
 }
 
-// Run refreshes OpenAI's daily token history and the local session totals once a
+// Run refreshes OpenAI's per-account report and the reporting periods once a
 // minute until ctx ends. A slow OpenAI read never delays the local totals.
 func (ledger *UsageLedger) Run(ctx context.Context) {
 	var refreshes sync.WaitGroup
-	for _, refresh := range []func(context.Context){ledger.refreshOpenAIDailyTokenHistories, ledger.refreshTaskUsage} {
+	for _, refresh := range []func(context.Context){ledger.refreshOpenAIDailyTokenHistories, ledger.refreshReportingPeriods} {
 		refreshes.Add(1)
 		go func() {
 			defer refreshes.Done()
@@ -72,15 +73,11 @@ func (ledger *UsageLedger) Run(ctx context.Context) {
 	refreshes.Wait()
 }
 
-// ReadReportingPeriods returns Today, 7 Days and 30 Days with each account's
-// OpenAI token total. When the local totals reconcile with those, each period
-// also carries account costs and per-task tokens and costs. It never starts a
-// network request.
-func (ledger *UsageLedger) ReadReportingPeriods() ([]*menupb.ReportingPeriod, error) {
-	periods, err := ledger.readProviderReportingPeriods()
-	if err != nil {
-		return nil, err
-	}
-	ledger.addTaskUsage(periods)
-	return periods, nil
+// ReadReportingPeriods returns Today, 7 Days and 30 Days as of the last
+// refresh: each account's tokens and API-equivalent cost, and each task's
+// tokens and cost on this Mac. It never starts a network request.
+func (ledger *UsageLedger) ReadReportingPeriods() []*menupb.ReportingPeriod {
+	ledger.periodsMutex.Lock()
+	defer ledger.periodsMutex.Unlock()
+	return ledger.periods
 }

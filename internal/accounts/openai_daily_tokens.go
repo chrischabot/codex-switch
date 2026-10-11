@@ -50,59 +50,56 @@ func NewOpenAIDailyTokenSource(home string, client *http.Client) *OpenAIDailyTok
 }
 
 func (s *OpenAIDailyTokenSource) Read(ctx context.Context) (OpenAIDailyTokenHistory, error) {
-	if s == nil || s.credentials == nil {
-		return OpenAIDailyTokenHistory{}, errors.New("OpenAI daily token source is unavailable")
-	}
 	readStarted := s.now().UTC()
-	credentials, err := s.credentials.CurrentCredentials()
+	accountID, encoded, err := s.get(ctx, openAIDailyTokenProfileURL)
 	if err != nil {
 		return OpenAIDailyTokenHistory{}, err
+	}
+	return decodeOpenAIDailyTokenHistory(accountID, readStarted, encoded)
+}
+
+// get reads one account-scoped OpenAI report with the saved login, never
+// refreshing or rewriting it, and returns the account it belongs to.
+func (s *OpenAIDailyTokenSource) get(ctx context.Context, url string) (string, []byte, error) {
+	if s == nil || s.credentials == nil {
+		return "", nil, errors.New("OpenAI usage source is unavailable")
+	}
+	credentials, err := s.credentials.CurrentCredentials()
+	if err != nil {
+		return "", nil, err
 	}
 	accountID := strings.TrimSpace(credentials.AccountID)
 	if accountID == "" {
-		return OpenAIDailyTokenHistory{}, errors.New("OpenAI daily token source has no account identity")
+		return "", nil, errors.New("saved login has no account identity")
 	}
-
-	response, err := s.fetch(ctx, credentials)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return OpenAIDailyTokenHistory{}, err
-	}
-	if response.StatusCode == http.StatusUnauthorized {
-		discardOpenAIDailyTokenBody(response.Body)
-		return OpenAIDailyTokenHistory{}, signInRequired(errors.New("OpenAI rejected stored credentials"))
-	}
-	defer response.Body.Close()
-	if response.StatusCode/100 != 2 {
-		discardOpenAIDailyTokenBody(response.Body)
-		return OpenAIDailyTokenHistory{}, fmt.Errorf("OpenAI daily tokens returned status %d", response.StatusCode)
-	}
-	encoded, err := io.ReadAll(io.LimitReader(response.Body, maximumOpenAIDailyTokenBodyBytes+1))
-	if err != nil {
-		return OpenAIDailyTokenHistory{}, fmt.Errorf("read OpenAI daily tokens: %w", err)
-	}
-	if len(encoded) > maximumOpenAIDailyTokenBodyBytes {
-		return OpenAIDailyTokenHistory{}, errors.New("OpenAI daily tokens response is too large")
-	}
-	history, err := decodeOpenAIDailyTokenHistory(accountID, readStarted, encoded)
-	if err != nil {
-		return OpenAIDailyTokenHistory{}, err
-	}
-	return history, nil
-}
-
-func (s *OpenAIDailyTokenSource) fetch(ctx context.Context, credentials Credentials) (*http.Response, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, openAIDailyTokenProfileURL, nil)
-	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	request.Header.Set("Authorization", "Bearer "+credentials.AccessToken)
 	request.Header.Set("ChatGPT-Account-ID", credentials.AccountID)
 	request.Header.Set("User-Agent", "codex-cli")
 	response, err := s.client.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("read OpenAI daily tokens: %w", err)
+		return "", nil, fmt.Errorf("read OpenAI usage: %w", err)
 	}
-	return response, nil
+	if response.StatusCode == http.StatusUnauthorized {
+		discardOpenAIDailyTokenBody(response.Body)
+		return "", nil, signInRequired(errors.New("OpenAI rejected stored credentials"))
+	}
+	defer response.Body.Close()
+	if response.StatusCode/100 != 2 {
+		discardOpenAIDailyTokenBody(response.Body)
+		return "", nil, fmt.Errorf("OpenAI usage returned status %d", response.StatusCode)
+	}
+	encoded, err := io.ReadAll(io.LimitReader(response.Body, maximumOpenAIDailyTokenBodyBytes+1))
+	if err != nil {
+		return "", nil, fmt.Errorf("read OpenAI usage: %w", err)
+	}
+	if len(encoded) > maximumOpenAIDailyTokenBodyBytes {
+		return "", nil, errors.New("OpenAI usage response is too large")
+	}
+	return accountID, encoded, nil
 }
 
 func discardOpenAIDailyTokenBody(body io.ReadCloser) {

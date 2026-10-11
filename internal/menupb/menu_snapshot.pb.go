@@ -439,8 +439,11 @@ type Account struct {
 	Usable        bool                   `protobuf:"varint,7,opt,name=usable,proto3" json:"usable,omitempty"`
 	// Why the account cannot take new work for the configured model; empty when usable.
 	UnavailableReason string `protobuf:"bytes,8,opt,name=unavailable_reason,json=unavailableReason,proto3" json:"unavailable_reason,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// The account's plan offers the model Codex is configured to use, so it is
+	// part of the pool for current work even while its allowance is used up.
+	OffersConfiguredModel bool `protobuf:"varint,9,opt,name=offers_configured_model,json=offersConfiguredModel,proto3" json:"offers_configured_model,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *Account) Reset() {
@@ -527,6 +530,13 @@ func (x *Account) GetUnavailableReason() string {
 		return x.UnavailableReason
 	}
 	return ""
+}
+
+func (x *Account) GetOffersConfiguredModel() bool {
+	if x != nil {
+		return x.OffersConfiguredModel
+	}
+	return false
 }
 
 type AllowanceObservation struct {
@@ -1006,7 +1016,7 @@ const file_menu_snapshot_proto_rawDesc = "" +
 	"successful\x18\x02 \x01(\x03R\n" +
 	"successful\x12\x16\n" +
 	"\x06failed\x18\x03 \x01(\x03R\x06failed\x12 \n" +
-	"\vinterrupted\x18\x04 \x01(\x03R\vinterrupted\"\xb1\x02\n" +
+	"\vinterrupted\x18\x04 \x01(\x03R\vinterrupted\"\xe9\x02\n" +
 	"\aAccount\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12\x12\n" +
@@ -1015,7 +1025,8 @@ const file_menu_snapshot_proto_rawDesc = "" +
 	"\tallowance\x18\x05 \x01(\v2'.codex_switch.menu.AllowanceObservationR\tallowance\x12%\n" +
 	"\x0eaccount_number\x18\x06 \x01(\rR\raccountNumber\x12\x16\n" +
 	"\x06usable\x18\a \x01(\bR\x06usable\x12-\n" +
-	"\x12unavailable_reason\x18\b \x01(\tR\x11unavailableReason\"\xa9\x02\n" +
+	"\x12unavailable_reason\x18\b \x01(\tR\x11unavailableReason\x126\n" +
+	"\x17offers_configured_model\x18\t \x01(\bR\x15offersConfiguredModel\"\xa9\x02\n" +
 	"\x14AllowanceObservation\x12;\n" +
 	"\vobserved_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"observedAt\x12\x18\n" +

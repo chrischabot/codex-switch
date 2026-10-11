@@ -1,43 +1,17 @@
 package usage
 
-import (
-	"testing"
-)
+import "testing"
 
-// Expected costs come from the per-1M-token GPT-6.1 Sol rates published at
-// https://developers.openai.com/api/docs/pricing (read 11 October 2026).
-func TestGPT61SolMatchesPublishedPricing(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		mode   harnessMode
-		tokens tokenUsage
-		want   nanoUSD
-	}{
-		{
-			// Standard, short context: $2 input, $0.10 cached, $2.50 cache writes, $10 output.
-			name: "standard short context", mode: harnessStandard,
-			tokens: tokensWithCacheWrites(200_000, 100_000, 50_000, 10_000),
-			want:   50_000*2_000 + 100_000*100 + 50_000*2_500 + 10_000*10_000,
-		},
-		{
-			// Fast, long context: $8 input, $0.40 cached, $10 cache writes, $30 output.
-			name: "fast long context", mode: harnessFast,
-			tokens: tokensWithCacheWrites(300_000, 100_000, 100_000, 10_000),
-			want:   100_000*8_000 + 100_000*400 + 100_000*10_000 + 10_000*30_000,
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			cost := apiEquivalentPrice("gpt-6.1-sol", test.mode, test.tokens)
-			if cost == nil || *cost != test.want {
-				t.Fatalf("price = %v, want %d nano-USD", cost, test.want)
-			}
-		})
-	}
-}
-
-func tokensWithCacheWrites(input, cached, cacheWrite, output int64) tokenUsage {
-	return tokenUsage{
-		InputTokens: input, CachedInputTokens: cached, CacheWriteInputTokens: &cacheWrite,
-		OutputTokens: output, TotalTokens: input + output,
+// Expected costs come from the GPT-6 Astra credit rates published at
+// https://learn.chatgpt.com/docs/pricing (read 11 October 2026): 250 credits
+// per million input tokens, 25 cached and 1,250 output, at 25 credits per US
+// dollar. Those equal the API's $10, $1 and $50 per million.
+func TestAstraMatchesPublishedRates(t *testing.T) {
+	usage := tokenUsage{InputTokens: 400_000, CachedInputTokens: 300_000, OutputTokens: 10_000}
+	standard := nanoUSD(100_000*10_000 + 300_000*1_000 + 10_000*50_000)
+	for mode, want := range map[harnessMode]nanoUSD{harnessStandard: standard, harnessFast: 2 * standard} {
+		if cost := apiEquivalentPrice("gpt-6-astra", mode, usage); cost == nil || *cost != want {
+			t.Errorf("%s price = %v, want %d nano-USD", mode, cost, want)
+		}
 	}
 }

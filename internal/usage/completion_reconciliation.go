@@ -16,6 +16,7 @@ type reconciledCompletion struct {
 	Model             string
 	Tokens            int64
 	Cost              *nanoUSD
+	Fast              bool
 	NativeSource      *sessionUsageObservation
 	ResponseID        store.CompletedResponseID
 }
@@ -53,18 +54,8 @@ func reconcileCompletions(native []sessionUsageObservation, responses []store.Co
 		usage := *observation.Usage
 		completion := reconciledCompletion{TaskID: observation.TaskID, At: observation.At, Model: observation.Model, Tokens: usage.InputTokens + usage.OutputTokens, NativeSource: observation, ResponseID: responseID}
 		mode := harnessStandard
-		if observation.SourceKind == piSessionSourceKind {
-			mode = ""
-		}
-		if observation.ServiceTier != nil {
-			switch *observation.ServiceTier {
-			case "default", "":
-				mode = harnessStandard
-			case "priority", "fast":
-				mode = harnessFast
-			default:
-				mode = harnessMode("unsupported")
-			}
+		if observation.ServiceTier != nil && (*observation.ServiceTier == "priority" || *observation.ServiceTier == "fast") {
+			mode = harnessFast
 		}
 		if response, found := byResponseID[responseID]; found {
 			if usage.InputTokens != response.InputTokens || usage.CachedInputTokens != response.CachedInputTokens || usage.OutputTokens != response.OutputTokens || usage.ReasoningOutputTokens != response.ReasoningTokens {
@@ -72,16 +63,14 @@ func reconcileCompletions(native []sessionUsageObservation, responses []store.Co
 			}
 			completion.AccountName = response.AccountName
 			completion.Model = response.ModelSlug
-			if response.HarnessMode == "standard" || response.HarnessMode == "fast" {
-				mode = harnessMode(response.HarnessMode)
-			}
-			if response.CacheWriteInputTokens != nil {
-				if usage.CacheWriteInputTokens != nil && *usage.CacheWriteInputTokens != *response.CacheWriteInputTokens {
-					return nil, fmt.Errorf("cache-write counts disagree for response %s", response.CompletedResponseID)
-				}
-				usage.CacheWriteInputTokens = response.CacheWriteInputTokens
+			// Either record saying Codex requested Fast means Fast. Proxies
+			// before October 2026 took the speed from OpenAI's response,
+			// which reports "default" for Fast work OpenAI bills as Fast.
+			if response.HarnessMode == string(harnessFast) {
+				mode = harnessFast
 			}
 		}
+		completion.Fast = mode == harnessFast
 		completion.Cost = apiEquivalentPrice(completion.Model, mode, usage)
 		completions = append(completions, completion)
 	}
@@ -89,8 +78,9 @@ func reconcileCompletions(native []sessionUsageObservation, responses []store.Co
 		if matched[response.CompletedResponseID] {
 			continue
 		}
-		usage := tokenUsage{InputTokens: response.InputTokens, CachedInputTokens: response.CachedInputTokens, CacheWriteInputTokens: response.CacheWriteInputTokens, OutputTokens: response.OutputTokens, ReasoningOutputTokens: response.ReasoningTokens}
-		completions = append(completions, reconciledCompletion{TaskID: string(response.CodexTaskID), At: response.CompletedAt, AccountName: response.AccountName, Model: response.ModelSlug, Tokens: response.InputTokens + response.OutputTokens, Cost: apiEquivalentPrice(response.ModelSlug, harnessMode(response.HarnessMode), usage), ResponseID: response.CompletedResponseID})
+		usage := tokenUsage{InputTokens: response.InputTokens, CachedInputTokens: response.CachedInputTokens, OutputTokens: response.OutputTokens, ReasoningOutputTokens: response.ReasoningTokens}
+		mode := harnessMode(response.HarnessMode)
+		completions = append(completions, reconciledCompletion{TaskID: string(response.CodexTaskID), At: response.CompletedAt, AccountName: response.AccountName, Model: response.ModelSlug, Tokens: response.InputTokens + response.OutputTokens, Cost: apiEquivalentPrice(response.ModelSlug, mode, usage), Fast: mode == harnessFast, ResponseID: response.CompletedResponseID})
 	}
 	return completions, nil
 }

@@ -1,76 +1,122 @@
 package usage
 
 import (
+	"fmt"
+	"math"
 	"time"
 
 	"github.com/josh/codex-switch/internal/accounts"
-	"github.com/josh/codex-switch/internal/menupb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// readProviderReportingPeriods uses current pool membership and never starts a network request.
-func (ledger *UsageLedger) readProviderReportingPeriods() ([]*menupb.ReportingPeriod, error) {
-	pool, err := accounts.ReadPool(ledger.dataDirectory)
-	if err != nil {
-		return nil, err
-	}
-	histories, err := ledger.readOpenAIDailyTokenHistories()
-	if err != nil {
-		return nil, err
-	}
-	return providerReportingPeriods(pool, histories)
+// reportingPeriodDays is the longest reporting period, 30 Days.
+const reportingPeriodDays = 30
+
+// Included Fast usage draws 2.5 times the Standard allowance
+// (https://learn.chatgpt.com/docs/pricing); its API-equivalent cost is twice
+// the Standard cost.
+const fastAllowanceMultiplier = 2.5
+
+// usageAmount is tokens (input plus output) and their API-equivalent cost.
+type usageAmount struct {
+	tokens int64
+	cost   nanoUSD
 }
 
-// providerReportingPeriods totals each account's OpenAI daily tokens for Today, 7 Days and 30 Days,
-// ending on the reporting date every account shares.
-func providerReportingPeriods(pool []accounts.PoolAccount, histories map[string]accounts.OpenAIDailyTokenHistory) ([]*menupb.ReportingPeriod, error) {
-	if len(pool) == 0 {
-		return nil, nil
-	}
-	var reportingDate time.Time
-	for _, account := range pool {
-		history, available := histories[account.AccountID]
-		if !available || history.AccountID != account.AccountID || history.ReportingDate.IsZero() {
-			return nil, nil
-		}
-		if reportingDate.IsZero() {
-			reportingDate = history.ReportingDate
-		} else if !reportingDate.Equal(history.ReportingDate) {
-			return nil, nil
-		}
-	}
-	periods := make([]*menupb.ReportingPeriod, 0, 3)
-	for _, definition := range []struct {
-		kind menupb.ReportingPeriodKind
-		days int
-	}{
-		{menupb.ReportingPeriodKind_REPORTING_PERIOD_TODAY, 1},
-		{menupb.ReportingPeriodKind_REPORTING_PERIOD_SEVEN_DAYS, 7},
-		{menupb.ReportingPeriodKind_REPORTING_PERIOD_THIRTY_DAYS, 30},
-	} {
-		period := &menupb.ReportingPeriod{
-			Kind:      definition.kind,
-			StartedAt: timestamppb.New(reportingDate.AddDate(0, 0, 1-definition.days)),
-			EndedAt:   timestamppb.New(reportingDate.AddDate(0, 0, 1)),
-		}
-		for _, account := range pool {
-			total := tokensForReportedDays(histories[account.AccountID], definition.days)
-			period.Accounts = append(period.Accounts, &menupb.AccountTotal{AccountKey: account.Name, Tokens: total})
-		}
-		periods = append(periods, period)
-	}
-	return periods, nil
+// accountDay is one account's usage on one UTC date.
+type accountDay struct {
+	account string
+	date    string
 }
 
-// tokensForReportedDays includes OpenAI's reporting date and the preceding calendar days.
-func tokensForReportedDays(history accounts.OpenAIDailyTokenHistory, numberOfDays int) int64 {
-	firstDate := history.ReportingDate.AddDate(0, 0, 1-numberOfDays).Format(time.DateOnly)
-	lastDate := history.ReportingDate.Format(time.DateOnly)
-	var total int64
-	for _, bucket := range history.Buckets {
-		if bucket.StartDate >= firstDate && bucket.StartDate <= lastDate {
-			total += bucket.Tokens
+// modelDay is one model at one speed on one UTC date.
+type modelDay struct {
+	date  string
+	model string
+	fast  bool
+}
+
+// openAIAccountUsage is what OpenAI reports for one account: tokens per UTC
+// date, and each model's share of the allowance per UTC date.
+type openAIAccountUsage struct {
+	tokensByDate map[string]int64
+	shares       []accounts.OpenAIAllowanceShare
+}
+
+// allowanceValuePerPercent is what one percent of an account's allowance is
+// worth at API-equivalent prices. OpenAI reports each model's daily use only
+// as a share of the allowance. On a day when all of one model's Standard use
+// on the account went through this Mac, this Mac's exact cost divided by that
+// share is the value, and the same value repeats on every such day; days with
+// use elsewhere give less. The value is the one most model-days agree on, to
+// seven significant figures, and at least two must agree.
+func allowanceValuePerPercent(shares []accounts.OpenAIAllowanceShare, localStandardCost map[modelDay]nanoUSD) (float64, int) {
+	agreeing := make(map[string][]float64)
+	for _, share := range shares {
+		cost := localStandardCost[modelDay{share.Date, share.Model, false}]
+		if share.Fast || cost <= 0 {
+			continue
+		}
+		value := float64(cost) / share.Percent
+		key := fmt.Sprintf("%.6e", value)
+		agreeing[key] = append(agreeing[key], value)
+	}
+	var best []float64
+	for _, values := range agreeing {
+		if len(values) > len(best) || (len(values) == len(best) && len(best) > 0 && values[0] > best[0]) {
+			best = values
 		}
 	}
-	return total
+	if len(best) < 2 {
+		return 0, len(best)
+	}
+	return best[0], len(best)
+}
+
+// openAIDailyCost values each UTC date's allowance shares at valuePerPercent.
+func openAIDailyCost(shares []accounts.OpenAIAllowanceShare, valuePerPercent float64) map[string]nanoUSD {
+	costs := make(map[string]nanoUSD)
+	for _, share := range shares {
+		value := share.Percent * valuePerPercent
+		if share.Fast {
+			value = value / fastAllowanceMultiplier * fastCostMultiplier
+		}
+		costs[share.Date] += nanoUSD(math.Round(value))
+	}
+	return costs
+}
+
+// accountDailyUsage merges OpenAI's report with this Mac's record for each
+// UTC date. Each counts only part of a day that is still in progress: OpenAI
+// counts every machine but reports tokens about 12 hours late and model
+// shares one to two days late, and this Mac counts only its own work. Neither
+// can exceed the account's real use, so each date takes the larger, which is
+// OpenAI's once it has caught up.
+func accountDailyUsage(openAITokens map[string]int64, openAICost map[string]nanoUSD, local map[string]usageAmount) map[string]usageAmount {
+	merged := make(map[string]usageAmount)
+	for date, tokens := range openAITokens {
+		merged[date] = usageAmount{tokens: tokens}
+	}
+	for date, cost := range openAICost {
+		amount := merged[date]
+		amount.cost = cost
+		merged[date] = amount
+	}
+	for date, amount := range local {
+		merged[date] = usageAmount{tokens: max(merged[date].tokens, amount.tokens), cost: max(merged[date].cost, amount.cost)}
+	}
+	return merged
+}
+
+// periodDates lists the UTC dates of a period of the given length ending today.
+func periodDates(today time.Time, days int) []string {
+	dates := make([]string, 0, days)
+	for offset := days - 1; offset >= 0; offset-- {
+		dates = append(dates, today.AddDate(0, 0, -offset).Format(time.DateOnly))
+	}
+	return dates
+}
+
+func dateOnly(at time.Time) time.Time {
+	at = at.UTC()
+	return time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, time.UTC)
 }

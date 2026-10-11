@@ -149,9 +149,16 @@ func readMenuSnapshot(directory, address string) (*menupb.MenuSnapshot, error) {
 		log.Printf("read Codex task titles: %v", err)
 	}
 	for _, task := range tasks {
-		if title := titles[task.TaskId]; title != "" {
-			task.Title = &title
+		if task.Title != nil || task.TaskId == "" {
+			continue
 		}
+		title := titles[task.TaskId]
+		if title == "" {
+			// Codex keeps no record of this task on this Mac: its history was
+			// removed, or the run never saved one.
+			title = "Codex task"
+		}
+		task.Title = &title
 	}
 
 	snapshot.Connection.NewTasksConfigured = problem == "" && config.Provider == "openai" && config.OpenAIBaseURL != nil && strings.TrimRight(*config.OpenAIBaseURL, "/") == base+"/backend-api/codex"

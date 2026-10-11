@@ -11,7 +11,7 @@ import (
 
 type taskTotal struct {
 	TaskID          string
-	System          bool
+	Title           string
 	Tokens          int64
 	Cost            *nanoUSD
 	Accounts        []store.AccountName
@@ -67,7 +67,7 @@ func totalTasks(completions []reconciledCompletion, metadata []taskMetadata, sta
 		total := totals[owner]
 		if total == nil {
 			zero := nanoUSD(0)
-			total = &taskTotal{TaskID: owner, System: system, Cost: &zero}
+			total = &taskTotal{TaskID: owner, Title: localTaskTitle(owner, system, byTask[owner]), Cost: &zero}
 			totals[owner] = total
 		}
 		total.Tokens += completion.Tokens

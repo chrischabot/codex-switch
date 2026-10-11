@@ -5,14 +5,18 @@ import (
 	"database/sql"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
 	_ "modernc.org/sqlite"
 )
 
-// TaskTitles reads only requested titles from the current Codex home, without
-// importing rollouts or reading Codex Switch's accounting database.
+// TaskTitles names the requested tasks from the current Codex home. A task
+// takes the name Codex gave it. A task Codex did not name, such as a codex exec
+// run, is named by how it was started and its project, for example
+// "codex exec · codex-switch". Codex's stored title is the prompt's first line
+// for those runs, so it is never shown.
 func (r LocalReader) TaskTitles(ctx context.Context, taskIDs []string) (map[string]string, error) {
 	result := map[string]string{}
 	if len(taskIDs) == 0 {
@@ -47,19 +51,35 @@ func (r LocalReader) TaskTitles(ctx context.Context, taskIDs []string) (map[stri
 	for index, id := range taskIDs {
 		parameters[index] = id
 	}
-	rows, err := database.QueryContext(ctx, "SELECT id,COALESCE(NULLIF(TRIM(name),''),title) FROM threads WHERE id IN ("+strings.TrimSuffix(strings.Repeat("?,", len(taskIDs)), ",")+")", parameters...)
+	rows, err := database.QueryContext(ctx, "SELECT id,COALESCE(name,''),source,cwd,COALESCE(git_origin_url,'') FROM threads WHERE id IN ("+strings.TrimSuffix(strings.Repeat("?,", len(taskIDs)), ",")+")", parameters...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var id, title string
-		if err := rows.Scan(&id, &title); err != nil {
+		var id, name, source, directory, origin string
+		if err := rows.Scan(&id, &name, &source, &directory, &origin); err != nil {
 			return nil, err
 		}
-		if strings.TrimSpace(title) != "" {
-			result[id] = title
-		}
+		result[id] = taskTitle(name, source, directory, origin)
 	}
 	return result, rows.Err()
+}
+
+func taskTitle(name, source, directory, origin string) string {
+	if name = strings.TrimSpace(name); name != "" {
+		return name
+	}
+	launcher := map[string]string{"exec": "codex exec", "cli": "codex"}[source]
+	if launcher == "" {
+		launcher = "Codex"
+	}
+	project := strings.TrimSuffix(path.Base(strings.TrimRight(origin, "/")), ".git")
+	if origin == "" || project == "." || project == "/" {
+		project = filepath.Base(filepath.Clean(directory))
+	}
+	if directory == "" || project == "." || project == string(filepath.Separator) {
+		return launcher
+	}
+	return launcher + " · " + project
 }

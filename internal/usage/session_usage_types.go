@@ -5,6 +5,7 @@ import "time"
 // taskMetadata is the lineage a session file declares for its task.
 type taskMetadata struct {
 	SourceKind       string
+	SourcePath       string
 	TaskID           string
 	ParentTaskID     string
 	ForkedFromTaskID string
