@@ -1,5 +1,4 @@
-// Package piusage reads OpenAI Codex response usage from native Pi sessions.
-package piusage
+package usage
 
 import (
 	"bufio"
@@ -18,23 +17,22 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/josh/codex-switch/internal/codexusage"
 	"github.com/josh/codex-switch/internal/taskidentity"
 )
 
 var errNotPiSession = errors.New("not a Pi session")
 
-var standardSessionFilename = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{3}Z_([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)\.jsonl$`)
+var standardPiSessionFilename = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{3}Z_([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)\.jsonl$`)
 
-type sessionHeader struct {
+type piSessionHeader struct {
 	Type          string    `json:"type"`
 	ID            string    `json:"id"`
 	Timestamp     time.Time `json:"timestamp"`
 	ParentSession string    `json:"parentSession"`
 }
 
-func readHeader(path string) (sessionHeader, error) {
-	var header sessionHeader
+func readPiSessionHeader(path string) (piSessionHeader, error) {
+	var header piSessionHeader
 	file, err := os.Open(path)
 	if err != nil {
 		return header, err
@@ -62,8 +60,8 @@ func readHeader(path string) (sessionHeader, error) {
 	return header, nil
 }
 
-func Discover(sessionDirectory string, since time.Time) ([]codexusage.SourceFile, error) {
-	var sources []codexusage.SourceFile
+func discoverPiSessions(sessionDirectory string, since time.Time) ([]sessionFile, error) {
+	var sources []sessionFile
 	err := filepath.WalkDir(sessionDirectory, func(path string, entry fs.DirEntry, err error) error {
 		if os.IsNotExist(err) {
 			return nil
@@ -81,7 +79,7 @@ func Discover(sessionDirectory string, since time.Time) ([]codexusage.SourceFile
 		if info.ModTime().Before(since) {
 			return nil
 		}
-		header, err := readHeader(path)
+		header, err := readPiSessionHeader(path)
 		if err == io.EOF || errors.Is(err, errNotPiSession) {
 			return nil
 		}
@@ -92,14 +90,14 @@ func Discover(sessionDirectory string, since time.Time) ([]codexusage.SourceFile
 		if stat, ok := info.Sys().(*syscall.Stat_t); ok {
 			identity = fmt.Sprintf("%d:%d", stat.Dev, stat.Ino)
 		}
-		sources = append(sources, codexusage.SourceFile{Path: path, TaskID: taskidentity.PiSession(header.ID), Size: info.Size(), ModifiedAt: info.ModTime(), Identity: identity})
+		sources = append(sources, sessionFile{Path: path, TaskID: taskidentity.PiSession(header.ID), Size: info.Size(), ModifiedAt: info.ModTime(), Identity: identity})
 		return nil
 	})
 	sort.Slice(sources, func(i, j int) bool { return sources[i].Path < sources[j].Path })
 	return sources, err
 }
 
-type sessionRecord struct {
+type piSessionLine struct {
 	Type       string    `json:"type"`
 	Timestamp  time.Time `json:"timestamp"`
 	CustomType string    `json:"customType"`
@@ -122,21 +120,21 @@ type sessionRecord struct {
 	} `json:"message"`
 }
 
-func Read(ctx context.Context, source codexusage.SourceFile, cursor codexusage.Cursor) (codexusage.ReadResult, error) {
-	result := codexusage.ReadResult{Cursor: cursor}
-	header, err := readHeader(source.Path)
+func readPiSession(ctx context.Context, source sessionFile, cursor sessionReadCursor) (sessionReadResult, error) {
+	result := sessionReadResult{Cursor: cursor}
+	header, err := readPiSessionHeader(source.Path)
 	if err != nil {
 		return result, err
 	}
 	if taskidentity.PiSession(header.ID) != source.TaskID {
 		return result, fmt.Errorf("Pi session identity changed: %s", source.Path)
 	}
-	result.Metadata = codexusage.TaskMetadata{TaskID: source.TaskID, CreatedAt: header.Timestamp, SourceKind: codexusage.PiSessionSource}
+	result.Metadata = taskMetadata{TaskID: source.TaskID, CreatedAt: header.Timestamp, SourceKind: piSessionSourceKind}
 	if header.ParentSession != "" {
-		parent, err := readHeader(header.ParentSession)
+		parent, err := readPiSessionHeader(header.ParentSession)
 		if os.IsNotExist(err) && cursor.KnownParentTaskID != "" {
 			result.Metadata.ParentTaskID = cursor.KnownParentTaskID
-		} else if filename := standardSessionFilename.FindStringSubmatch(filepath.Base(header.ParentSession)); os.IsNotExist(err) && filename != nil {
+		} else if filename := standardPiSessionFilename.FindStringSubmatch(filepath.Base(header.ParentSession)); os.IsNotExist(err) && filename != nil {
 			result.Metadata.ParentTaskID = taskidentity.PiSession(filename[1])
 		} else if err != nil {
 			return result, fmt.Errorf("read Pi parent session: %w", err)
@@ -171,7 +169,7 @@ func Read(ctx context.Context, source codexusage.SourceFile, cursor codexusage.C
 		if !bytes.Contains(line, []byte(`"usage"`)) && !bytes.Contains(line, []byte(`subagent-record`)) {
 			continue
 		}
-		var record sessionRecord
+		var record piSessionLine
 		if err = json.Unmarshal(line, &record); err != nil {
 			return result, fmt.Errorf("parse Pi usage %s at %d: %w", source.Path, offset, err)
 		}
@@ -179,13 +177,13 @@ func Read(ctx context.Context, source codexusage.SourceFile, cursor codexusage.C
 			continue
 		}
 		if record.Type == "custom" && (record.CustomType == "subagent-record" || record.CustomType == "luna:subagent-record") && record.Data.SessionFile != "" {
-			child, err := readHeader(record.Data.SessionFile)
-			if filename := standardSessionFilename.FindStringSubmatch(filepath.Base(record.Data.SessionFile)); os.IsNotExist(err) && filename != nil {
+			child, err := readPiSessionHeader(record.Data.SessionFile)
+			if filename := standardPiSessionFilename.FindStringSubmatch(filepath.Base(record.Data.SessionFile)); os.IsNotExist(err) && filename != nil {
 				child.ID = filename[1]
 			} else if err != nil {
 				return result, fmt.Errorf("read Pi child session: %w", err)
 			}
-			result.ChildTasks = append(result.ChildTasks, codexusage.ChildTaskRecord{TaskID: taskidentity.PiSession(child.ID), SourceOffset: offset})
+			result.ChildTasks = append(result.ChildTasks, childTaskRecord{TaskID: taskidentity.PiSession(child.ID), SourceOffset: offset})
 			continue
 		}
 		message := record.Message
@@ -203,12 +201,12 @@ func Read(ctx context.Context, source codexusage.SourceFile, cursor codexusage.C
 		if usage.Input < 0 || usage.Cached < 0 || usage.CacheWrite < 0 || usage.Output < 0 || usage.Reasoning < 0 || usage.Reasoning > usage.Output || input+usage.Output != usage.Total {
 			return result, fmt.Errorf("invalid Pi token usage: %s at %d", source.Path, offset)
 		}
-		tokens := &codexusage.TokenUsage{InputTokens: input, CachedInputTokens: usage.Cached, OutputTokens: usage.Output, ReasoningOutputTokens: usage.Reasoning, TotalTokens: usage.Total}
+		tokens := &tokenUsage{InputTokens: input, CachedInputTokens: usage.Cached, OutputTokens: usage.Output, ReasoningOutputTokens: usage.Reasoning, TotalTokens: usage.Total}
 		// Pi converts an absent provider cache-write count to zero and omits service tier.
 		if usage.CacheWrite > 0 {
 			tokens.CacheWriteInputTokens = &usage.CacheWrite
 		}
-		result.Observations = append(result.Observations, codexusage.Observation{SourceKind: codexusage.PiSessionSource, ResponseID: message.ResponseID, TaskID: source.TaskID, SourcePath: source.Path, SourceOffset: offset, At: record.Timestamp, Model: message.Model, Usage: tokens})
+		result.Observations = append(result.Observations, sessionUsageObservation{SourceKind: piSessionSourceKind, ResponseID: message.ResponseID, TaskID: source.TaskID, SourcePath: source.Path, SourceOffset: offset, At: record.Timestamp, Model: message.Model, Usage: tokens})
 	}
 	return result, nil
 }

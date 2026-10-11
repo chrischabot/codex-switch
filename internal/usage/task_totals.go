@@ -1,4 +1,4 @@
-package accounting
+package usage
 
 import (
 	"fmt"
@@ -6,23 +6,21 @@ import (
 	"strings"
 	"time"
 
-	"github.com/josh/codex-switch/internal/codexusage"
-	"github.com/josh/codex-switch/internal/pricing"
 	"github.com/josh/codex-switch/internal/store"
 )
 
-type TaskTotal struct {
+type taskTotal struct {
 	TaskID          string
 	System          bool
 	Tokens          int64
-	Cost            *pricing.NanoUSD
+	Cost            *nanoUSD
 	Accounts        []store.AccountName
 	LastCompletedAt time.Time
 }
 
-// TotalTasks assigns child work to its originating task before summing a period.
-func TotalTasks(completions []Completion, metadata []codexusage.TaskMetadata, start, end time.Time) ([]TaskTotal, error) {
-	byTask := make(map[string]codexusage.TaskMetadata)
+// totalTasks assigns child work to its originating task before summing a period.
+func totalTasks(completions []reconciledCompletion, metadata []taskMetadata, start, end time.Time) ([]taskTotal, error) {
+	byTask := make(map[string]taskMetadata)
 	for _, task := range metadata {
 		byTask[task.TaskID] = task
 	}
@@ -32,7 +30,7 @@ func TotalTasks(completions []Completion, metadata []codexusage.TaskMetadata, st
 			turnOwner[source.TurnID] = source.TaskID
 		}
 	}
-	totals := make(map[string]*TaskTotal)
+	totals := make(map[string]*taskTotal)
 	tasksWithUnattributedUsage := make(map[string]bool)
 	for _, completion := range completions {
 		if completion.At.Before(start) || !completion.At.Before(end) {
@@ -68,8 +66,8 @@ func TotalTasks(completions []Completion, metadata []codexusage.TaskMetadata, st
 		}
 		total := totals[owner]
 		if total == nil {
-			zero := pricing.NanoUSD(0)
-			total = &TaskTotal{TaskID: owner, System: system, Cost: &zero}
+			zero := nanoUSD(0)
+			total = &taskTotal{TaskID: owner, System: system, Cost: &zero}
 			totals[owner] = total
 		}
 		total.Tokens += completion.Tokens
@@ -88,7 +86,7 @@ func TotalTasks(completions []Completion, metadata []codexusage.TaskMetadata, st
 			total.LastCompletedAt = completion.At
 		}
 	}
-	result := make([]TaskTotal, 0, len(totals))
+	result := make([]taskTotal, 0, len(totals))
 	for _, total := range totals {
 		if tasksWithUnattributedUsage[total.TaskID] {
 			total.Accounts = nil
@@ -96,6 +94,6 @@ func TotalTasks(completions []Completion, metadata []codexusage.TaskMetadata, st
 		slices.Sort(total.Accounts)
 		result = append(result, *total)
 	}
-	slices.SortFunc(result, func(a, b TaskTotal) int { return b.LastCompletedAt.Compare(a.LastCompletedAt) })
+	slices.SortFunc(result, func(a, b taskTotal) int { return b.LastCompletedAt.Compare(a.LastCompletedAt) })
 	return result, nil
 }

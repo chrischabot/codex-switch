@@ -1,4 +1,4 @@
-package store
+package usage
 
 import (
 	"database/sql"
@@ -8,10 +8,29 @@ import (
 	"github.com/josh/codex-switch/internal/accounts"
 )
 
-// RecordProviderTokenHistory replaces one validated provider report atomically.
+func createOpenAIDailyTokenHistorySchema(database *sql.DB) error {
+	_, err := database.Exec(`
+CREATE TABLE IF NOT EXISTS provider_token_histories (
+    provider_account_id TEXT PRIMARY KEY,
+    read_started_at_unix_nano INTEGER NOT NULL,
+    reporting_date TEXT NOT NULL,
+    generated_at_unix_nano INTEGER NOT NULL,
+    lifetime_tokens INTEGER NOT NULL
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS provider_daily_token_buckets (
+    provider_account_id TEXT NOT NULL,
+    start_date TEXT NOT NULL,
+    tokens INTEGER NOT NULL,
+    PRIMARY KEY (provider_account_id, start_date)
+) STRICT;`)
+	return err
+}
+
+// saveOpenAIDailyTokenHistory replaces one validated provider report atomically.
 // A slower read from a draining proxy cannot replace a newer provider report.
-func (database *StoreDatabase) RecordProviderTokenHistory(history accounts.OpenAIDailyTokenHistory) (bool, error) {
-	transaction, err := database.sqlDatabase.Begin()
+func (ledger *UsageLedger) saveOpenAIDailyTokenHistory(history accounts.OpenAIDailyTokenHistory) (bool, error) {
+	transaction, err := ledger.sqlDatabase.Begin()
 	if err != nil {
 		return false, err
 	}
@@ -47,9 +66,9 @@ WHERE excluded.generated_at_unix_nano > provider_token_histories.generated_at_un
 	return true, transaction.Commit()
 }
 
-// ReadProviderTokenHistories reads report metadata and buckets in one SQLite snapshot.
-func (database *StoreDatabase) ReadProviderTokenHistories() (map[string]accounts.OpenAIDailyTokenHistory, error) {
-	rows, err := database.sqlDatabase.Query(`
+// readOpenAIDailyTokenHistories reads report metadata and buckets in one SQLite snapshot.
+func (ledger *UsageLedger) readOpenAIDailyTokenHistories() (map[string]accounts.OpenAIDailyTokenHistory, error) {
+	rows, err := ledger.sqlDatabase.Query(`
 SELECT h.provider_account_id, h.read_started_at_unix_nano, h.reporting_date,
        h.generated_at_unix_nano, h.lifetime_tokens, b.start_date, b.tokens
 FROM provider_token_histories h

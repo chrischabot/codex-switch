@@ -26,11 +26,11 @@ func TestSnapshotKeepsAccountThatRequiresSignIn(t *testing.T) {
 	origin, _ := url.Parse("http://127.0.0.1:1")
 	source := newPoolAccountRoutingFactsSource(data, origin, http.DefaultClient, database)
 	router := routing.CreateTaskRouter(database, source)
-	if _, err := readServingMenuSnapshot(source, router, database, "astra"); err == nil {
+	if _, err := readServingMenuSnapshot(source, router, "astra"); err == nil {
 		t.Fatal("published an empty pool before observing the installed account")
 	}
 	source.cachedFacts[store.AccountName(account.Name)] = source.fetchAccountRoutingFact(t.Context(), account)
-	snapshot, err := readServingMenuSnapshot(source, router, database, "astra")
+	snapshot, err := readServingMenuSnapshot(source, router, "astra")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +218,7 @@ func TestRevokedLoginIsUnavailableUntilSignInRepairsIt(t *testing.T) {
 			source := newPoolAccountRoutingFactsSource(data, origin, client, database)
 			source.cachedFacts["account-1"] = source.fetchAccountRoutingFact(t.Context(), account)
 			router := routing.CreateTaskRouter(database, source)
-			before, err := readServingMenuSnapshot(source, router, database, "astra")
+			before, err := readServingMenuSnapshot(source, router, "astra")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -249,7 +249,7 @@ func TestRevokedLoginIsUnavailableUntilSignInRepairsIt(t *testing.T) {
 			} else {
 				source.cachedFacts["account-1"] = source.fetchAccountRoutingFact(t.Context(), account)
 			}
-			after, err := readServingMenuSnapshot(source, router, database, "astra")
+			after, err := readServingMenuSnapshot(source, router, "astra")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -261,7 +261,7 @@ func TestRevokedLoginIsUnavailableUntilSignInRepairsIt(t *testing.T) {
 			}
 			allowanceUnavailable = true
 			source.cachedFacts["account-1"] = source.fetchAccountRoutingFact(t.Context(), account)
-			afterOutage, err := readServingMenuSnapshot(source, router, database, "astra")
+			afterOutage, err := readServingMenuSnapshot(source, router, "astra")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -302,7 +302,7 @@ func TestRevokedLoginIsUnavailableUntilSignInRepairsIt(t *testing.T) {
 			} else {
 				source.cachedFacts["account-1"] = source.fetchAccountRoutingFact(t.Context(), account)
 			}
-			restored, err := readServingMenuSnapshot(source, router, database, "astra")
+			restored, err := readServingMenuSnapshot(source, router, "astra")
 			if err != nil {
 				t.Fatal(err)
 			}

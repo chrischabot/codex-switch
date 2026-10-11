@@ -1,9 +1,9 @@
-// Package codexusage reads native Codex accounting observations without assigning accounts or prices.
-package codexusage
+package usage
 
 import "time"
 
-type TaskMetadata struct {
+// taskMetadata is the lineage a session file declares for its task.
+type taskMetadata struct {
 	SourceKind       string
 	TaskID           string
 	ParentTaskID     string
@@ -11,7 +11,7 @@ type TaskMetadata struct {
 	CreatedAt        time.Time
 }
 
-type TokenUsage struct {
+type tokenUsage struct {
 	InputTokens           int64
 	CachedInputTokens     int64
 	CacheWriteInputTokens *int64
@@ -20,23 +20,24 @@ type TokenUsage struct {
 	TotalTokens           int64
 }
 
-type AllowanceWindow struct {
+type sessionAllowanceWindow struct {
 	UsedPercent   float64
 	WindowMinutes int64
 	ResetsAt      time.Time
 }
 
-type AllowanceObservation struct {
+type sessionAllowance struct {
 	LimitID   string
 	PlanType  string
-	Primary   *AllowanceWindow
-	Secondary *AllowanceWindow
+	Primary   *sessionAllowanceWindow
+	Secondary *sessionAllowanceWindow
 }
 
-const PiSessionSource = "pi"
+const piSessionSourceKind = "pi"
 
+// sessionUsageObservation is one usage or allowance record from a local session file.
 // Usage is nil for an allowance update which repeats previously reported token counts.
-type Observation struct {
+type sessionUsageObservation struct {
 	SourceKind   string
 	ResponseID   string
 	RootTurnID   string
@@ -48,25 +49,25 @@ type Observation struct {
 	At           time.Time
 	Model        string
 	ServiceTier  *string
-	Usage        *TokenUsage
-	Allowance    *AllowanceObservation
+	Usage        *tokenUsage
+	Allowance    *sessionAllowance
 }
 
-// Cursor contains only the parsing state needed to resume after the last complete line.
-type Cursor struct {
+// sessionReadCursor contains only the parsing state needed to resume after the last complete line.
+type sessionReadCursor struct {
 	KnownParentTaskID  string
 	Offset             int64
-	PreviousTotals     *TokenUsage
+	PreviousTotals     *tokenUsage
 	Model              string
 	ServiceTier        *string
 	TurnID             string
 	ChildHistoryEnded  bool
 	CanonicalUsageSeen bool
 	PendingResponseID  string
-	PendingUsage       *TokenUsage
+	PendingUsage       *tokenUsage
 }
 
-type SourceFile struct {
+type sessionFile struct {
 	Path       string
 	TaskID     string
 	Size       int64
@@ -74,20 +75,20 @@ type SourceFile struct {
 	Identity   string
 }
 
-type ReadResult struct {
-	Metadata     TaskMetadata
-	Cursor       Cursor
-	Observations []Observation
-	ChildTasks   []ChildTaskRecord
+type sessionReadResult struct {
+	Metadata     taskMetadata
+	Cursor       sessionReadCursor
+	Observations []sessionUsageObservation
+	ChildTasks   []childTaskRecord
 	BytesRead    int64
 }
 
-type ChildTaskRecord struct {
+type childTaskRecord struct {
 	TaskID       string
 	SourceOffset int64
 }
 
-type ImportResult struct {
+type sessionImportSummary struct {
 	FilesDiscovered       int
 	FilesRead             int
 	UsageObservations     int
