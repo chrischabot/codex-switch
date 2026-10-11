@@ -44,15 +44,15 @@ bundle, menu executable, bundled helper and signature without opening the app.
 
 ## Deployment
 
-Use the [isolated official-Codex rig](docs/continuity-rig.md#isolated-supervised-updates)
-to exercise updates and rollback. A private launchd job supervises a stable
+The [system test](docs/system-test.md) exercises an update during work. A
+private launchd job supervises a stable
 executable path. The deployment script starts a detached bridge on the same
 loopback port, confirms it accepts new connections, and lets admitted work
 finish on the old process. It retires the bridge only after confirming the
 supervised successor. Python 3 is included in the pinned development environment.
 
 Build proxy artifacts with `devenv shell -- scripts/dev/build-proxy <output>`;
-this is also the proxy build used by `dev:build` and the rig. It records source
+this is also the proxy build used by `dev:build` and the system test. It records source
 revision and modified state for deployment checks.
 
 Live proxy deployment, menu installation and main Codex configuration changes

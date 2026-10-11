@@ -37,7 +37,7 @@ publishable. Later, not now: Claude support and server-side use.
 | What runs it? | `launchctl list \| grep codex-switch`; the launchd plist names the binary, port and data directory. |
 | How do clients reach it? | Codex: `openai_base_url` in `~/.codex/config.toml` (`codex-switch print-codex-config`). Pi: `~/.pi/agent/models.json`, provider `openai-codex`. |
 | How does Codex itself behave? | The Codex source (`openai/codex`), and the installed client: `/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex`. |
-| How do I prove a change in isolation? | `docs/continuity-rig.md`. |
+| Does the whole system work before a deploy? | `scripts/dev/system-test`; see `docs/system-test.md`. |
 | How do I update the live proxy? | `deploy/deploy.sh new <binary> ...`: new work goes to the new process, admitted work finishes on the old one. |
 
 ## The code
@@ -54,7 +54,7 @@ publishable. Later, not now: Claude support and server-side use.
 | `internal/clientcapability/` | The private URL path that stops web pages from using the proxy. |
 | `proto/`, `internal/menupb/` | The typed snapshot the menu renders. |
 | `macos/CodexSwitchMenu/` | The menu bar app. |
-| `deploy/`, `scripts/dev/` | Blue-green updates; build, test and rig scripts (`devenv tasks run dev:build`, `dev:test`). |
+| `deploy/`, `scripts/dev/` | Blue-green updates; build, test and system-test scripts (`devenv tasks run dev:build`, `dev:test`, `scripts/dev/system-test`). |
 
 ## How the owner wants it proved
 

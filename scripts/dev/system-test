@@ -1,0 +1,329 @@
+#!/usr/bin/env python3
+"""Codex Switch system test: the whole system, on the real path, in one run.
+
+Builds the proxy from this working tree and runs it under a private launchd job
+on a spare port, with its own data directory and copies of the account logins.
+Drives the official Codex client and Pi on Luna at low effort against real
+OpenAI. A gateway between the proxy and OpenAI simulates exhausted accounts;
+the model work itself is real. Prints what the system did for each outcome and
+leaves nothing running. Evidence stays in .project-private/system-test.
+"""
+import os
+import signal
+import sys
+import time
+import uuid
+
+sys.dont_write_bytecode = True
+import system_test_rig as rig  # noqa: E402
+from system_test_rig import Failure  # noqa: E402
+
+GOAL = ('Append exactly one START line to {effect} using a tool. Then use a separate tool call to read input.txt, '
+        'compute the sum of its numbers, and write only that sum to {result}. Verify both files and mark the goal '
+        'complete. Never append START again.')
+SLEEPING_GOAL = ('In one tool call, append exactly one START line to {effect} and then run `sleep 40`. Afterwards use '
+                 'a separate tool call to read input.txt, compute the sum of its numbers, and write only that sum to '
+                 '{result}. Verify both files and mark the goal complete. Never append START again.')
+
+
+class System:
+    """What the test has told the gateway, and every task whose responses must be recorded."""
+
+    def __init__(self, accounts):
+        self.accounts, self.base = accounts, None
+        # Distinct weekly levels, so exactly one account has the most allowance left.
+        self.weekly = {account: max(5, 90 - 10 * number) for number, account in enumerate(accounts, 1)}
+        self.limited, self.extra, self.records = set(), [], []
+
+    def apply(self):
+        rig.control(*[f'weekly-used {account} {used}' for account, used in self.weekly.items()],
+                    *[f'limited {account}' for account in sorted(self.limited)], *self.extra)
+
+    def best_account(self, excluding=()):
+        """The rule under test: the most weekly allowance left, at the levels the gateway reports.
+        An account whose plan has no weekly window, as `codex-switch status` shows, ranks last."""
+        candidates = [account for account in rig.weekly_used_percent() if account not in self.limited | set(excluding)]
+        if not candidates:
+            raise Failure('No account with a weekly allowance is available.')
+        return min(candidates, key=self.weekly.get)
+
+    def record_codex_task(self, label, thread):
+        self.records.append((label, thread, lambda: rig.codex_client_usage(thread), lambda: rig.forwarded_requests(thread=thread)))
+
+    def record_pi_session(self, label, session):
+        self.records.append((label, rig.pi_task_id(session), lambda: rig.pi_client_usage(session),
+                             lambda: rig.forwarded_requests(session=session, client='pi')))
+
+
+def main():
+    began = time.monotonic()
+    results, leftovers = [], []
+    signal.signal(signal.SIGTERM, stop)
+    try:
+        accounts = rig.prepare()
+        print(f'Codex Switch system test: {len(accounts)} accounts, {rig.MODEL} at low effort.', flush=True)
+        rig.build()
+        system = System(accounts)
+        system.apply()  # before the proxy's first allowance read
+        rig.start_gateway()
+        system.base = rig.start_proxy()
+        print(f'Proxy build {rig.deploy_status()["revision"][:12]} is serving under launchd on {rig.listen_address()}.\n', flush=True)
+        for outcome in OUTCOMES:
+            results.append(run_outcome(outcome, system))
+    except Failure as failure:
+        print(f'The system did not start: {failure}')
+    except KeyboardInterrupt:
+        print('\nStopped before the end.')
+    finally:
+        leftovers = rig.clean_up()
+    print('Nothing is left running.' if not leftovers else 'STILL RUNNING: ' + '; '.join(leftovers))
+    passed = sum(results)
+    print(f'{passed} of {len(OUTCOMES)} outcomes held, in {format_duration(time.monotonic() - began)}. '
+          f'Evidence: {rig.RUN.relative_to(rig.REPO)}')
+    raise SystemExit(0 if passed == len(OUTCOMES) and not leftovers else 1)
+
+
+def stop(signal_number, frame):
+    raise KeyboardInterrupt  # so cleanup runs when the run is terminated
+
+
+def run_outcome(outcome, system):
+    try:
+        observed, held = outcome(system), True
+    except Failure as failure:
+        observed, held = str(failure), False
+    except Exception as error:  # a defect in this test, reported without stopping the run
+        observed, held = f'The test itself failed: {error!r}', False
+    print(('PASS  ' if held else 'FAIL  ') + outcome.__doc__.strip())
+    for line in observed.splitlines():
+        print('      ' + line)
+    print(flush=True)
+    return held
+
+
+def new_work_goes_to_the_most_allowance_left(system):
+    """New tasks and Pi sessions go to the account with the most weekly allowance left, and stay there"""
+    if len(rig.weekly_used_percent()) < 2:
+        raise Failure('Fewer than two accounts report a weekly allowance, so there is no choice to test.')
+    leader = system.best_account()
+    leader_left = 100 - system.weekly[leader]
+    task = rig.CodexTask('routing-task', 'Use a shell command to read input.txt and write the sum of its numbers to routing.txt. '
+                                         'Reply with the sum only.').finish()
+    session = str(uuid.uuid4())
+    rig.run_pi('routing-pi-first', 'Reply with the word one.', session)
+    pi_task = rig.pi_task_id(session)
+    started = {'Codex task': rig.pinned_account(task.thread), 'Pi session': rig.pinned_account(pi_task)}
+    if set(started.values()) != {leader}:
+        raise Failure(f'{leader} had the most weekly allowance left ({leader_left}%), but the Codex task went to '
+                      f'{started["Codex task"]} and the Pi session to {started["Pi session"]}.')
+
+    runner_up = system.best_account(excluding={leader})
+    system.weekly[leader], system.weekly[runner_up] = 95, 20
+    system.apply()
+    rig.wait_for(lambda: rig.weekly_used_percent().get(leader) == 95, 'the proxy to read the new allowance levels', timeout=150, interval=5)
+    rig.CodexTask('routing-task-again', 'Use a shell command to read routing.txt. Reply with its content only.', thread=task.thread).finish()
+    rig.run_pi('routing-pi-second', 'Reply with the word two.', session)
+    new_task = rig.CodexTask('routing-new-task', 'Reply with the word fresh.').finish()
+
+    system.record_codex_task('routing Codex task', task.thread)
+    system.record_codex_task('second routing Codex task', new_task.thread)
+    system.record_pi_session('routing Pi session', session)
+    served = {'Codex task': {row[0] for row in rig.database_rows(task.thread)}, 'Pi session': {row[0] for row in rig.database_rows(pi_task)}}
+    if any(accounts != {leader} for accounts in served.values()) or rig.pinned_account(new_task.thread) != runner_up:
+        raise Failure(f'After {runner_up} took the lead, the Codex task was served by {sorted(served["Codex task"])}, the Pi session by '
+                      f'{sorted(served["Pi session"])}, and a new task went to {rig.pinned_account(new_task.thread)}.')
+    return (f'A Codex task and a Pi session both started on {leader}, which had the most weekly allowance left ({leader_left}%).\n'
+            f'Then {runner_up} took the lead with 80% left. Both took their second turn on {leader} again, and a new Codex task went to {runner_up}.')
+
+
+def request_without_task_id_is_served(system):
+    """A request without a task ID is served"""
+    best = system.best_account()
+    status, completed = rig.post_without_task_id(system.base, 'Reply with the word four.')
+    rows = rig.database_rows('')
+    if status != 200 or len(completed) != 1 or not rows:
+        raise Failure(f'The proxy answered {status} with {len(completed)} completed responses and recorded {len(rows)}.')
+    if rig.pinned_account(''):
+        raise Failure('The request was served, but the proxy pinned the empty task ID to an account.')
+    if rows[-1][0] != best:
+        raise Failure(f'The request was served by {rows[-1][0]}, but {best} had the most weekly allowance left.')
+    usage = completed[0]['usage']
+    received = (usage['input_tokens'], usage['input_tokens_details']['cached_tokens'], usage['output_tokens'],
+                usage['output_tokens_details']['reasoning_tokens'])
+    system.records.append(('request without a task ID', '', lambda: [received], lambda: rig.forwarded_requests(thread='', session='', client='')))
+    return f'A streamed request with no task ID got a complete answer from {best}, which had the most weekly allowance left. No task was pinned.'
+
+
+def exhausted_task_moves_on_its_next_turn(system):
+    """When a task's account runs out, its next turn moves to another account: no replayed work, no repeated tool effect, no error shown"""
+    start = system.best_account()
+    expected = system.best_account(excluding={start})
+    system.extra = [f'exhaust-after {start} 1']
+    system.apply()
+    goal = rig.Goal('exhaustion-goal', GOAL)
+    errors = goal.finish()
+    system.limited.add(start)
+    system.extra = []
+    system.apply()
+    system.record_codex_task('goal that moved account', goal.thread)
+
+    forwarded = rig.forwarded_requests(thread=goal.thread)
+    accounts = [account for account, _ in forwarded]
+    refused = rig.gateway_events('websocket-rejected-usage-limit', thread=goal.thread) + rig.gateway_events('rejected-usage-limit', thread=goal.thread)
+    if not accounts or accounts[0] != start or not refused or sorted(set(accounts) - {start}) != [expected]:
+        raise Failure(f'Expected the goal to start on {start} and move to {expected}. Its model requests went to {accounts}; '
+                      f'{len(refused)} were refused for the usage limit.')
+    require_no_replay('The goal', forwarded)
+    if errors:
+        raise Failure(f'The goal finished, but Codex showed {describe_errors(errors)}.')
+    return (f'A goal started on {start}. Its second model request found {start} out of allowance; the proxy kept the limit from\n'
+            f'Codex, and Codex\'s retry went to {expected}, which had the most weekly allowance left. The goal finished by itself.\n'
+            f'None of its {len(forwarded)} model requests reached OpenAI twice, its tool effect ran once, and Codex showed no error.')
+
+
+def goal_continues_when_an_account_returns(system):
+    """With every account exhausted, a running goal continues by itself when one comes back"""
+    start = system.best_account()
+    returning = next(account for account in rig.weekly_used_percent() if account != start)
+    system.limited = set(system.accounts) - {start}
+    system.extra = [f'exhaust-after {start} 1']
+    system.apply()
+    goal = rig.Goal('outage-goal', GOAL)
+    rig.wait_for(lambda: f'limited {start}' in rig.read('control'), f'{start} to run out of allowance', timeout=180)
+    time.sleep(20)
+    system.limited = set(system.accounts) - {returning}
+    system.extra = []
+    system.apply()
+    returned_at = time.monotonic()
+    errors = goal.finish(timeout=400)
+    finished_after = time.monotonic() - returned_at
+    system.limited = set()
+    system.apply()
+    system.record_codex_task('goal through the outage', goal.thread)
+
+    forwarded = rig.forwarded_requests(thread=goal.thread)
+    accounts = [account for account, _ in forwarded]
+    if not accounts or accounts[0] != start or accounts[-1] != returning:
+        raise Failure(f'Expected the goal to start on {start} and finish on {returning}; its model requests went to {accounts}.')
+    require_no_replay('The goal', forwarded)
+    shown = f'While it waited, Codex showed {describe_errors(errors)}.' if errors else 'Codex showed no error.'
+    return (f'A goal started on {start}; after one model request every account was out of allowance. Twenty seconds later\n'
+            f'{returning} came back. The goal continued on {returning} without being restarted and finished {finished_after:.0f} seconds\n'
+            f'after that. No model request reached OpenAI twice and its tool effect ran once.\n{shown}')
+
+
+def update_during_work_finishes_on_the_old_process(system):
+    """A blue-green update during work completes by itself, and admitted work finishes on the old process"""
+    goal = rig.Goal('update-goal', SLEEPING_GOAL)
+    rig.wait_for(goal.effect_file.exists, 'the goal to start its 40-second tool call', timeout=180)
+    # Two Codex responses are held mid-stream on the old process: one over WebSocket, one over HTTP.
+    system.extra = ['hold-responses codex_exec']
+    system.apply()
+    websocket_task = rig.CodexTask('update-websocket-task', 'Reply with the word socket.')
+    rig.wait_for(lambda: rig.gateway_events('response-held', client='codex_exec'), 'a WebSocket response to start', timeout=180)
+    system.extra = ['http-only', 'hold-responses codex_exec']
+    system.apply()
+    http_task = rig.CodexTask('update-http-task', 'Reply with the word stream.')
+    rig.wait_for(lambda: len(rig.gateway_events('response-held', client='codex_exec')) == 2, 'an HTTP response to start', timeout=180)
+    system.extra = ['hold-responses codex_exec', 'hold-responses pi']
+    system.apply()
+    old = rig.deploy_status()['pid']
+    held = rig.gateway_events('response-held', client='codex_exec')
+    held_on_old = {event['remote'] for event in held}
+    if sorted(event['method'] for event in held) != ['GET', 'POST'] or not held_on_old <= rig.gateway_connections(old):
+        raise Failure(f'Expected one WebSocket and one HTTP response held on the serving process {old}; held {held}.')
+
+    update = rig.start_client([str(rig.REPO / 'deploy/deploy.sh'), 'new', str(rig.RUN / 'candidate'), '--stable', str(rig.RUN / 'codex-switch'),
+                               '--data', str(rig.RUN / 'data'), '--listen', rig.listen_address()], 'update', env=dict(os.environ, **rig.proxy_environment()))
+    rig.wait_for(lambda: f'process {old} stopping' in rig.proxy_log(), f'process {old} to stop taking new work', timeout=180)
+    if goal.result_file.exists():
+        raise Failure('The goal finished its tool call before the update began, so it did not run across the update.')
+    new = rig.deploy_status()['pid']
+    # New work during the drain, from Pi: held too, so the process holding it can be seen.
+    session = str(uuid.uuid4())
+    pi = rig.start_pi('update-pi', 'Reply with the word new.', session)
+    pi_held = rig.wait_for(lambda: rig.gateway_events('response-held', client='pi'), 'new Pi work to start', timeout=180)
+    new_work_on_new_process = new != old and pi_held[0]['remote'] in rig.gateway_connections(new)
+    system.extra = ['hold-responses codex_exec']
+    system.apply()
+    pi_reply = rig.finish_pi('update-pi', pi)
+    old_was_draining = held_on_old <= rig.gateway_connections(old)
+    system.extra = []
+    system.apply()
+    for task in (websocket_task, http_task):
+        task.finish()
+        system.record_codex_task(task.name, task.thread)
+    if update.wait(timeout=300):
+        raise Failure(f'The update command failed: {rig.read("logs/update.err")[-400:]}')
+    final = rig.deploy_status()['pid']
+    errors = goal.finish() + websocket_task.errors + http_task.errors
+    system.record_codex_task('goal across the update', goal.thread)
+    system.record_pi_session('Pi work during the update', session)
+
+    if not new_work_on_new_process or not old_was_draining or 'new' not in pi_reply.lower():
+        raise Failure(f'New Pi work did not run on new process {new} while old process {old} still held its two responses.')
+    canceled = rig.gateway_events('response-canceled')
+    replies = (websocket_task.reply.lower(), http_task.reply.lower())
+    if canceled or f'process {old} stopped after' not in rig.proxy_log() or 'socket' not in replies[0] or 'stream' not in replies[1]:
+        raise Failure(f'{len(canceled)} held responses were cancelled; Codex replied {replies}; see process {old} in data/proxy.log.')
+    if final in (old, new) or rig.process_alive(old) or rig.process_alive(new):
+        raise Failure(f'After the update, process {final} serves; old {old} and interim {new} should both have exited.')
+    for label, thread in (('A held task', websocket_task.thread), ('A held task', http_task.thread), ('The goal', goal.thread)):
+        require_no_replay(label, rig.forwarded_requests(thread=thread))
+    if errors:
+        raise Failure(f'The update completed, but Codex showed {describe_errors(errors)}.')
+    return ('Two Codex responses, one over WebSocket and one over HTTP, were mid-stream when the update began. The old process\n'
+            'stopped taking new work, and new Pi work ran on the new build meanwhile. Both responses then finished on the old\n'
+            'process before it exited, and launchd now runs the new build. The update command finished by itself. A goal sleeping\n'
+            'in a tool across the update finished with its tool effect run once. Nothing was replayed and Codex showed no error.')
+
+
+def every_response_recorded_once(system):
+    """Each completed response is recorded once, with its account, task and tokens"""
+    problems, total = [], 0
+    for label, task, client_usage, forwarded_requests in system.records:
+        rows = rig.database_rows(task)
+        total += len(rows)
+        recorded, received = [row[1:] for row in rows], client_usage()
+        if recorded != received:
+            problems.append(f'{label}: the client received {len(received)} responses and the proxy recorded {len(recorded)}. '
+                            f'Tokens (input, cached, output, reasoning): client {received}, proxy {recorded}.')
+        recorded_accounts, forwarded_accounts = [row[0] for row in rows], [account for account, _ in forwarded_requests()]
+        if recorded_accounts != forwarded_accounts:
+            problems.append(f'{label}: recorded on {recorded_accounts}, sent to OpenAI on {forwarded_accounts}.')
+    unexplained = rig.database_row_count() - total
+    if unexplained:
+        problems.append(f'The proxy recorded {unexplained} responses that belong to no task this test ran.')
+    if problems:
+        raise Failure('\n'.join(problems))
+    return (f'{total} responses across {len(system.records)} tasks, sessions and requests. Each was recorded once, in order, on the\n'
+            f'account its request was sent on, under its task, with the input, cached, output and reasoning tokens the client received.')
+
+
+def require_no_replay(label, forwarded):
+    fingerprints = [fingerprint for _, fingerprint in forwarded]
+    if len(set(fingerprints)) != len(fingerprints):
+        raise Failure(f'{label} sent {len(fingerprints) - len(set(fingerprints))} model requests to OpenAI a second time.')
+
+
+def describe_errors(errors):
+    """Codex's own words for each error it showed, from app-server notifications or `codex exec` events."""
+    shown = []
+    for error in errors:
+        detail = error.get('params', {}).get('error') or error.get('error') or error
+        message = detail.get('message', '') if isinstance(detail, dict) else str(detail)
+        cause = detail.get('additionalDetails') or '' if isinstance(detail, dict) else ''
+        shown.append(f'"{message}" ({cause.split(", url:")[0]})' if cause else f'"{message}"')
+    return ', '.join(shown)
+
+
+def format_duration(seconds):
+    minutes, seconds = divmod(round(seconds), 60)
+    return f'{minutes}m {seconds:02d}s'
+
+
+OUTCOMES = [new_work_goes_to_the_most_allowance_left, request_without_task_id_is_served, exhausted_task_moves_on_its_next_turn,
+            goal_continues_when_an_account_returns, update_during_work_finishes_on_the_old_process, every_response_recorded_once]
+
+if __name__ == '__main__':
+    main()

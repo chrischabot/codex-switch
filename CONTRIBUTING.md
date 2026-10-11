@@ -16,10 +16,10 @@ devenv tasks run dev:test
 `dev:test` is the canonical Go and Swift test path. Add a test only when it
 protects a real user path, a hard external contract or a small critical rule.
 
-Use the [isolated continuity and deployment rig](docs/continuity-rig.md) for
-real client and update proofs. The former `dev:accept-openai-history` and
-`dev:accept-deployment` tasks do not exist. Build/signature checks are available
-through `dev:stage` and `dev:inspect`; they do not prove product behavior.
+Run the [system test](docs/system-test.md), `scripts/dev/system-test`, to
+prove the whole system with the real clients before a live deploy.
+Build/signature checks are available through `dev:stage` and `dev:inspect`;
+they do not prove product behavior.
 
 Never use the installed proxy, menu, account data or port 2455 as a development
 test target. Do not install, restart or replace live components while agents
