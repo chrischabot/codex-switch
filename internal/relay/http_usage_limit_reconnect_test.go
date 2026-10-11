@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/josh/codex-switch/internal/accounts"
-	"github.com/josh/codex-switch/internal/routing"
-	"github.com/josh/codex-switch/internal/store"
+	"github.com/joshp123/codex-switch/internal/accounts"
+	"github.com/joshp123/codex-switch/internal/routing"
+	"github.com/joshp123/codex-switch/internal/store"
 )
 
 func TestHTTPUsageLimitRejectionAllowsClientRetryWithoutProxyReplay(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/josh/codex-switch/internal/store"
+	"github.com/joshp123/codex-switch/internal/store"
 )
 
 func TestWebSocketFragmentedMessageAllowsPingBeforeContinuation(t *testing.T) {

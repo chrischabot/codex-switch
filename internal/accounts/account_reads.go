@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/josh/codex-switch/internal/store"
+	"github.com/joshp123/codex-switch/internal/store"
 )
 
 var errWhamUsageUnauthorized = errors.New("wham/usage rejected account credentials")

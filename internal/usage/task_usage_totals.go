@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/josh/codex-switch/internal/accounts"
-	"github.com/josh/codex-switch/internal/codexstate"
-	"github.com/josh/codex-switch/internal/menupb"
-	"github.com/josh/codex-switch/internal/store"
+	"github.com/joshp123/codex-switch/internal/accounts"
+	"github.com/joshp123/codex-switch/internal/codexstate"
+	"github.com/joshp123/codex-switch/internal/menupb"
+	"github.com/joshp123/codex-switch/internal/store"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

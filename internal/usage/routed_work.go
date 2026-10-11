@@ -6,7 +6,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/josh/codex-switch/internal/menupb"
+	"github.com/joshp123/codex-switch/internal/menupb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

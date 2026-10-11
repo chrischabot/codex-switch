@@ -6,8 +6,8 @@ import (
 	"log"
 	"strings"
 
-	accountapi "github.com/josh/codex-switch/internal/accounts"
-	"github.com/josh/codex-switch/internal/codexstate"
+	accountapi "github.com/joshp123/codex-switch/internal/accounts"
+	"github.com/joshp123/codex-switch/internal/codexstate"
 )
 
 func loginCommand(args []string) {

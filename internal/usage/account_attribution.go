@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/josh/codex-switch/internal/store"
+	"github.com/joshp123/codex-switch/internal/store"
 )
 
 type allowanceOwnerReader interface {

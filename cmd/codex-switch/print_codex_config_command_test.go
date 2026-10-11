@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/josh/codex-switch/internal/clientcapability"
+	"github.com/joshp123/codex-switch/internal/clientcapability"
 )
 
 func TestPrintCodexConfigCreatesStableSourceInstallConfiguration(t *testing.T) {

@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/josh/codex-switch/internal/taskidentity"
+	"github.com/joshp123/codex-switch/internal/taskidentity"
 )
 
 var errNotPiSession = errors.New("not a Pi session")

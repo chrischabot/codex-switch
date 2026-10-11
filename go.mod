@@ -1,4 +1,4 @@
-module github.com/josh/codex-switch
+module github.com/joshp123/codex-switch
 
 go 1.24
 

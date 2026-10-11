@@ -5,7 +5,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/josh/codex-switch/internal/accounts"
+	"github.com/joshp123/codex-switch/internal/accounts"
 )
 
 // reportingPeriodDays is the longest reporting period, 30 Days.

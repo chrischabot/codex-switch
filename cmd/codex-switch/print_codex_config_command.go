@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/josh/codex-switch/internal/clientcapability"
+	"github.com/joshp123/codex-switch/internal/clientcapability"
 )
 
 func printCodexConfigCommand(args []string) {

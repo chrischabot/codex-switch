@@ -17,8 +17,8 @@ import (
 	"time"
 	"unicode"
 
-	accountapi "github.com/josh/codex-switch/internal/accounts"
-	"github.com/josh/codex-switch/internal/menupb"
+	accountapi "github.com/joshp123/codex-switch/internal/accounts"
+	"github.com/joshp123/codex-switch/internal/menupb"
 	"google.golang.org/protobuf/proto"
 )
 

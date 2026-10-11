@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/josh/codex-switch/internal/accounts"
-	"github.com/josh/codex-switch/internal/store"
+	"github.com/joshp123/codex-switch/internal/accounts"
+	"github.com/joshp123/codex-switch/internal/store"
 )
 
 // accountUnavailableReason is the one rule for whether an account may take new

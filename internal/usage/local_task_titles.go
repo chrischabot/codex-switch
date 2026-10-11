@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/josh/codex-switch/internal/taskidentity"
+	"github.com/joshp123/codex-switch/internal/taskidentity"
 )
 
 // localTaskTitle names the tasks Codex's own database cannot: work no task

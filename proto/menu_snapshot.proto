@@ -1,6 +1,6 @@
 syntax = "proto3";
 package codex_switch.menu;
-option go_package = "github.com/josh/codex-switch/internal/menupb";
+option go_package = "github.com/joshp123/codex-switch/internal/menupb";
 option swift_prefix = "CSSwitch_";
 import "google/protobuf/timestamp.proto";
 

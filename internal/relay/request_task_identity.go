@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/josh/codex-switch/internal/store"
-	"github.com/josh/codex-switch/internal/taskidentity"
+	"github.com/joshp123/codex-switch/internal/store"
+	"github.com/joshp123/codex-switch/internal/taskidentity"
 )
 
 func taskIdentityForRequest(request *http.Request) store.CodexTaskID {

@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	accountapi "github.com/josh/codex-switch/internal/accounts"
-	"github.com/josh/codex-switch/internal/menupb"
-	"github.com/josh/codex-switch/internal/routing"
-	"github.com/josh/codex-switch/internal/store"
+	accountapi "github.com/joshp123/codex-switch/internal/accounts"
+	"github.com/joshp123/codex-switch/internal/menupb"
+	"github.com/joshp123/codex-switch/internal/routing"
+	"github.com/joshp123/codex-switch/internal/store"
 )
 
 func TestSnapshotKeepsAccountThatRequiresSignIn(t *testing.T) {

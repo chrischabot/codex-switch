@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/josh/codex-switch/internal/store"
+	"github.com/joshp123/codex-switch/internal/store"
 )
 
 // observeRejectedResponse logs every request OpenAI answers with HTTP 400 or

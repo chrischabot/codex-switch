@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	accountapi "github.com/josh/codex-switch/internal/accounts"
+	accountapi "github.com/joshp123/codex-switch/internal/accounts"
 )
 
 func writeAccountFixture(t *testing.T, home, userID, email, accessToken string) accountapi.PoolAccount {

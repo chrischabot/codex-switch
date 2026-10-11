@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/josh/codex-switch/internal/store"
-	"github.com/josh/codex-switch/internal/taskidentity"
+	"github.com/joshp123/codex-switch/internal/store"
+	"github.com/joshp123/codex-switch/internal/taskidentity"
 )
 
 func TestNativePiUsageImportsOnceAndJoinsItsRoutedResponse(t *testing.T) {

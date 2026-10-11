@@ -1157,7 +1157,7 @@ const file_menu_snapshot_proto_rawDesc = "" +
 	"\x1cREPORTING_PERIOD_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16REPORTING_PERIOD_TODAY\x10\x01\x12\x1f\n" +
 	"\x1bREPORTING_PERIOD_SEVEN_DAYS\x10\x02\x12 \n" +
-	"\x1cREPORTING_PERIOD_THIRTY_DAYS\x10\x03B:Z,github.com/josh/codex-switch/internal/menupb\xba\x02\tCSSwitch_b\x06proto3"
+	"\x1cREPORTING_PERIOD_THIRTY_DAYS\x10\x03B>Z0github.com/joshp123/codex-switch/internal/menupb\xba\x02\tCSSwitch_b\x06proto3"
 
 var (
 	file_menu_snapshot_proto_rawDescOnce sync.Once

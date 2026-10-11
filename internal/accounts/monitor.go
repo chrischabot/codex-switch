@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/josh/codex-switch/internal/store"
+	"github.com/joshp123/codex-switch/internal/store"
 )
 
 // Healthy accounts are read once a minute; waiting work asks for a read at

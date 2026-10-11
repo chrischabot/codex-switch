@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/josh/codex-switch/internal/store"
+	"github.com/joshp123/codex-switch/internal/store"
 )
 
 func TestCompletionAccountingPreservesCacheWritesAndExcludesPrewarm(t *testing.T) {

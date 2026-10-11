@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/josh/codex-switch/internal/accounts"
+	"github.com/joshp123/codex-switch/internal/accounts"
 )
 
 // refreshOpenAIDailyTokenHistories reads every pool account's daily token

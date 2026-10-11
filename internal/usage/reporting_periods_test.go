@@ -3,7 +3,7 @@ package usage
 import (
 	"testing"
 
-	"github.com/josh/codex-switch/internal/accounts"
+	"github.com/joshp123/codex-switch/internal/accounts"
 )
 
 // Credits and costs follow account 1 on 1 and 2 October 2026: OpenAI's

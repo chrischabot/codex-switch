@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/josh/codex-switch/internal/accounts"
+	"github.com/joshp123/codex-switch/internal/accounts"
 )
 
 func createOpenAIDailyTokenHistorySchema(database *sql.DB) error {
