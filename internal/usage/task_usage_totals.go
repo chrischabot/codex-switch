@@ -85,7 +85,7 @@ func (ledger *UsageLedger) readAccountDailyUsage(pool []accounts.PoolAccount, co
 	if err != nil {
 		return nil, err
 	}
-	shares, err := ledger.readOpenAIAllowanceShares()
+	credits, err := ledger.readOpenAIModelDayCredits()
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +108,7 @@ func (ledger *UsageLedger) readAccountDailyUsage(pool []accounts.PoolAccount, co
 		}
 		local[account][date] = amount
 	}
-	localStandardCost, err := ledger.readProxyStandardCostByModelDay(shares)
+	localStandardCost, err := ledger.readProxyStandardCostByModelDay(credits)
 	if err != nil {
 		return nil, err
 	}
@@ -118,14 +118,14 @@ func (ledger *UsageLedger) readAccountDailyUsage(pool []accounts.PoolAccount, co
 		for _, bucket := range histories[account.AccountID].Buckets {
 			openAITokens[bucket.StartDate] = bucket.Tokens
 		}
-		accountShares := shares[account.AccountID]
-		value, agreeing := allowanceValuePerPercent(accountShares, localStandardCost[account.Name])
+		accountCredits := credits[account.AccountID]
+		value, agreeing := dollarsPerPercent(accountCredits, localStandardCost[account.Name])
 		if value > 0 {
-			ledger.logOnChange("value/"+account.Name, fmt.Sprintf("%s: 1%% of the allowance is worth $%.4f at API prices, agreed by %d model-days served only through this Mac", account.Name, value/1e9, agreeing))
-		} else if len(accountShares) > 0 {
-			ledger.logOnChange("value/"+account.Name, fmt.Sprintf("%s: cannot price the use OpenAI reports from elsewhere: fewer than two model-days were served only through this Mac", account.Name))
+			ledger.logOnChange("value/"+account.Name, fmt.Sprintf("%s: OpenAI's busiest day in the last 30 days is worth $%.2f at API prices, agreed by %d model-days served only through this Mac", account.Name, value/1e7, agreeing))
+		} else if len(accountCredits) > 0 {
+			ledger.logOnChange("value/"+account.Name, fmt.Sprintf("%s: cannot price the use OpenAI reports from elsewhere: fewer than two model-days in the last 30 days were served only through this Mac", account.Name))
 		}
-		for date, amount := range accountDailyUsage(openAITokens, openAIDailyCost(accountShares, value), local[account.Name]) {
+		for date, amount := range accountDailyUsage(openAITokens, openAIDailyCost(accountCredits, value), local[account.Name]) {
 			daily[accountDay{account.Name, date}] = amount
 		}
 	}
@@ -133,15 +133,14 @@ func (ledger *UsageLedger) readAccountDailyUsage(pool []accounts.PoolAccount, co
 }
 
 // readProxyStandardCostByModelDay prices every Standard response the proxy
-// recorded since the oldest stored allowance share, by account and model-day.
-// Calibration reads all of this retained history, so the allowance value
-// survives after the days that established it leave the 30-day window.
-func (ledger *UsageLedger) readProxyStandardCostByModelDay(shares map[string][]accounts.OpenAIAllowanceShare) (map[string]map[modelDay]nanoUSD, error) {
+// recorded since the oldest date in OpenAI's latest reads, by account and
+// model-day.
+func (ledger *UsageLedger) readProxyStandardCostByModelDay(credits map[string][]accounts.OpenAIModelDayCredits) (map[string]map[modelDay]nanoUSD, error) {
 	oldest := ""
-	for _, accountShares := range shares {
-		for _, share := range accountShares {
-			if oldest == "" || share.Date < oldest {
-				oldest = share.Date
+	for _, accountCredits := range credits {
+		for _, day := range accountCredits {
+			if oldest == "" || day.Date < oldest {
+				oldest = day.Date
 			}
 		}
 	}

@@ -46,18 +46,18 @@ func (ledger *UsageLedger) refreshOpenAIDailyTokenHistories(ctx context.Context)
 			}
 			lastDate := time.Now().UTC()
 			firstDate := lastDate.AddDate(0, 0, 1-reportingPeriodDays)
-			shareAccountID, shares, err := profileSource.ReadDailyAllowanceShares(requestContext, firstDate, lastDate)
+			creditsAccountID, credits, err := profileSource.ReadDailyModelCredits(requestContext, firstDate, lastDate)
 			if err != nil {
 				if ctx.Err() == nil {
 					ledger.logOnChange(account.Name, fmt.Sprintf("%s: could not read OpenAI's daily usage by model: %v", account.Name, err))
 				}
 				return
 			}
-			if shareAccountID != account.AccountID {
+			if creditsAccountID != account.AccountID {
 				ledger.logOnChange(account.Name, fmt.Sprintf("%s: OpenAI's daily usage by model belongs to a different account than its saved login", account.Name))
 				return
 			}
-			if err = ledger.saveOpenAIAllowanceShares(account.AccountID, dateOnly(firstDate), shares); err != nil {
+			if err = ledger.saveOpenAIModelDayCredits(account.AccountID, credits); err != nil {
 				ledger.logOnChange(account.Name, fmt.Sprintf("%s: could not save OpenAI's daily usage by model: %v", account.Name, err))
 				return
 			}

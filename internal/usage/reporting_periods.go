@@ -35,28 +35,23 @@ type modelDay struct {
 	fast  bool
 }
 
-// openAIAccountUsage is what OpenAI reports for one account: tokens per UTC
-// date, and each model's share of the allowance per UTC date.
-type openAIAccountUsage struct {
-	tokensByDate map[string]int64
-	shares       []accounts.OpenAIAllowanceShare
-}
-
-// allowanceValuePerPercent is what one percent of an account's allowance is
-// worth at API-equivalent prices. OpenAI reports each model's daily use only
-// as a share of the allowance. On a day when all of one model's Standard use
-// on the account went through this Mac, this Mac's exact cost divided by that
-// share is the value, and the same value repeats on every such day; days with
-// use elsewhere give less. The value is the one most model-days agree on, to
-// seven significant figures, and at least two must agree.
-func allowanceValuePerPercent(shares []accounts.OpenAIAllowanceShare, localStandardCost map[modelDay]nanoUSD) (float64, int) {
+// dollarsPerPercent is what one percent of the busiest day in an account's
+// latest OpenAI read is worth at API-equivalent prices, in nano-US dollars.
+// OpenAI reports each model's daily credits only relative to that day. On a
+// day when all of one model's Standard use on the account went through this
+// Mac, this Mac's exact cost divided by OpenAI's percentage is the value, and
+// the same value repeats on every such day; days with use elsewhere give less.
+// The value is the one most model-days agree on, to seven significant figures,
+// and at least two must agree. It depends only on OpenAI's published credit
+// rates, never on the size of the plan's allowance.
+func dollarsPerPercent(credits []accounts.OpenAIModelDayCredits, localStandardCost map[modelDay]nanoUSD) (float64, int) {
 	agreeing := make(map[string][]float64)
-	for _, share := range shares {
-		cost := localStandardCost[modelDay{share.Date, share.Model, false}]
-		if share.Fast || cost <= 0 {
+	for _, day := range credits {
+		cost := localStandardCost[modelDay{day.Date, day.Model, false}]
+		if day.Fast || cost <= 0 {
 			continue
 		}
-		value := float64(cost) / share.Percent
+		value := float64(cost) / day.PercentOfBusiestDay
 		key := fmt.Sprintf("%.6e", value)
 		agreeing[key] = append(agreeing[key], value)
 	}
@@ -72,15 +67,15 @@ func allowanceValuePerPercent(shares []accounts.OpenAIAllowanceShare, localStand
 	return best[0], len(best)
 }
 
-// openAIDailyCost values each UTC date's allowance shares at valuePerPercent.
-func openAIDailyCost(shares []accounts.OpenAIAllowanceShare, valuePerPercent float64) map[string]nanoUSD {
+// openAIDailyCost values each UTC date's model credits at valuePerPercent.
+func openAIDailyCost(credits []accounts.OpenAIModelDayCredits, valuePerPercent float64) map[string]nanoUSD {
 	costs := make(map[string]nanoUSD)
-	for _, share := range shares {
-		value := share.Percent * valuePerPercent
-		if share.Fast {
+	for _, day := range credits {
+		value := day.PercentOfBusiestDay * valuePerPercent
+		if day.Fast {
 			value = value / fastAllowanceMultiplier * fastCostMultiplier
 		}
-		costs[share.Date] += nanoUSD(math.Round(value))
+		costs[day.Date] += nanoUSD(math.Round(value))
 	}
 	return costs
 }

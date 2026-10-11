@@ -25,12 +25,14 @@ CREATE TABLE IF NOT EXISTS provider_daily_token_buckets (
     PRIMARY KEY (provider_account_id, start_date)
 ) STRICT;
 
-CREATE TABLE IF NOT EXISTS provider_daily_allowance_shares (
+DROP TABLE IF EXISTS provider_daily_allowance_shares;
+
+CREATE TABLE IF NOT EXISTS provider_daily_model_credits (
     provider_account_id TEXT NOT NULL,
     date TEXT NOT NULL,
     model TEXT NOT NULL,
     fast INTEGER NOT NULL,
-    percent REAL NOT NULL,
+    percent_of_busiest_day REAL NOT NULL,
     PRIMARY KEY (provider_account_id, date, model, fast)
 ) STRICT;`)
 	return err
@@ -115,39 +117,41 @@ ORDER BY h.provider_account_id, b.start_date`)
 	return histories, rows.Err()
 }
 
-// saveOpenAIAllowanceShares replaces one account's shares from firstDate on.
-func (ledger *UsageLedger) saveOpenAIAllowanceShares(accountID string, firstDate time.Time, shares []accounts.OpenAIAllowanceShare) error {
+// saveOpenAIModelDayCredits replaces one account's credits with one read.
+// Values from different reads are on different scales, so none are kept.
+func (ledger *UsageLedger) saveOpenAIModelDayCredits(accountID string, credits []accounts.OpenAIModelDayCredits) error {
 	transaction, err := ledger.sqlDatabase.Begin()
 	if err != nil {
 		return err
 	}
 	defer transaction.Rollback()
-	if _, err := transaction.Exec(`DELETE FROM provider_daily_allowance_shares WHERE provider_account_id = ? AND date >= ?`, accountID, firstDate.Format(time.DateOnly)); err != nil {
+	if _, err := transaction.Exec(`DELETE FROM provider_daily_model_credits WHERE provider_account_id = ?`, accountID); err != nil {
 		return err
 	}
-	for _, share := range shares {
-		if _, err := transaction.Exec(`INSERT INTO provider_daily_allowance_shares (provider_account_id, date, model, fast, percent) VALUES (?, ?, ?, ?, ?)`, accountID, share.Date, share.Model, share.Fast, share.Percent); err != nil {
-			return fmt.Errorf("record OpenAI allowance share: %w", err)
+	for _, day := range credits {
+		if _, err := transaction.Exec(`INSERT INTO provider_daily_model_credits (provider_account_id, date, model, fast, percent_of_busiest_day) VALUES (?, ?, ?, ?, ?)`, accountID, day.Date, day.Model, day.Fast, day.PercentOfBusiestDay); err != nil {
+			return fmt.Errorf("record OpenAI model credits: %w", err)
 		}
 	}
 	return transaction.Commit()
 }
 
-// readOpenAIAllowanceShares returns every stored share by provider account ID.
-func (ledger *UsageLedger) readOpenAIAllowanceShares() (map[string][]accounts.OpenAIAllowanceShare, error) {
-	rows, err := ledger.sqlDatabase.Query(`SELECT provider_account_id, date, model, fast, percent FROM provider_daily_allowance_shares ORDER BY provider_account_id, date, model, fast`)
+// readOpenAIModelDayCredits returns each account's latest read by provider
+// account ID.
+func (ledger *UsageLedger) readOpenAIModelDayCredits() (map[string][]accounts.OpenAIModelDayCredits, error) {
+	rows, err := ledger.sqlDatabase.Query(`SELECT provider_account_id, date, model, fast, percent_of_busiest_day FROM provider_daily_model_credits ORDER BY provider_account_id, date, model, fast`)
 	if err != nil {
-		return nil, fmt.Errorf("read OpenAI allowance shares: %w", err)
+		return nil, fmt.Errorf("read OpenAI model credits: %w", err)
 	}
 	defer rows.Close()
-	shares := make(map[string][]accounts.OpenAIAllowanceShare)
+	credits := make(map[string][]accounts.OpenAIModelDayCredits)
 	for rows.Next() {
 		var accountID string
-		var share accounts.OpenAIAllowanceShare
-		if err := rows.Scan(&accountID, &share.Date, &share.Model, &share.Fast, &share.Percent); err != nil {
+		var day accounts.OpenAIModelDayCredits
+		if err := rows.Scan(&accountID, &day.Date, &day.Model, &day.Fast, &day.PercentOfBusiestDay); err != nil {
 			return nil, err
 		}
-		shares[accountID] = append(shares[accountID], share)
+		credits[accountID] = append(credits[accountID], day)
 	}
-	return shares, rows.Err()
+	return credits, rows.Err()
 }

@@ -6,27 +6,27 @@ import (
 	"github.com/josh/codex-switch/internal/accounts"
 )
 
-// Shares and costs follow account 1 on 1 and 2 October 2026: OpenAI's share
-// for a model served only through this Mac gives one value per percent; a
-// model also served by another machine gives a lower one.
-func TestAllowanceValueIsTheOneModelDaysServedOnlyHereAgreeOn(t *testing.T) {
-	value := 3_743_878_563.6 // nano-USD per percent
-	shares := []accounts.OpenAIAllowanceShare{
-		{Date: "2026-10-01", Model: "gpt-5.6-sol", Percent: 1.0468},
-		{Date: "2026-10-02", Model: "gpt-5.6-sol", Percent: 1.8042},
-		{Date: "2026-10-02", Model: "gpt-6-astra", Percent: 6.26},
-		{Date: "2026-10-02", Model: "gpt-6-astra", Fast: true, Percent: 1},
+// Credits and costs follow account 1 on 1 and 2 October 2026: OpenAI's
+// percentage for a model served only through this Mac gives one value per
+// percent; a model also served by another machine gives a lower one.
+func TestValuePerPercentIsTheOneModelDaysServedOnlyHereAgreeOn(t *testing.T) {
+	value := 3_743_878_563.6 // nano-USD per percent of the busiest day
+	credits := []accounts.OpenAIModelDayCredits{
+		{Date: "2026-10-01", Model: "gpt-5.6-sol", PercentOfBusiestDay: 1.0468},
+		{Date: "2026-10-02", Model: "gpt-5.6-sol", PercentOfBusiestDay: 1.8042},
+		{Date: "2026-10-02", Model: "gpt-6-astra", PercentOfBusiestDay: 6.26},
+		{Date: "2026-10-02", Model: "gpt-6-astra", Fast: true, PercentOfBusiestDay: 1},
 	}
 	local := map[modelDay]nanoUSD{
 		{"2026-10-01", "gpt-5.6-sol", false}: nanoUSD(1.0468 * value),
 		{"2026-10-02", "gpt-5.6-sol", false}: nanoUSD(1.8042 * value),
 		{"2026-10-02", "gpt-6-astra", false}: nanoUSD(2.0 * value),
 	}
-	got, agreeing := allowanceValuePerPercent(shares, local)
+	got, agreeing := dollarsPerPercent(credits, local)
 	if agreeing != 2 || got < value*0.999999 || got > value*1.000001 {
 		t.Fatalf("value = %f agreed by %d, want %f agreed by 2", got, agreeing, value)
 	}
-	costs := openAIDailyCost(shares, value)
+	costs := openAIDailyCost(credits, value)
 	if want := nanoUSD((1.8042 + 6.26 + 1/fastAllowanceMultiplier*fastCostMultiplier) * value); costs["2026-10-02"] < want-2 || costs["2026-10-02"] > want+2 {
 		t.Fatalf("2 October cost = %d, want %d", costs["2026-10-02"], want)
 	}
