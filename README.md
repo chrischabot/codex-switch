@@ -40,7 +40,7 @@ devenv tasks run dev:inspect
 ```
 
 `dev:stage` creates a signed app under `dist/staged/`. `dev:inspect` verifies the
-bundle, menu executable, bundled helper and signature without opening the app.
+bundle, menu executable and signature without opening the app.
 
 ## Deployment
 
@@ -106,10 +106,9 @@ codex-switch
 codex-switch status
 ```
 
-Both commands read the serving proxy selected by Codex's effective configuration.
-They show each account's allowance, whether it can take new work and why not,
-and recent tasks with the accounts that served them. Use
-`status --address 127.0.0.1:PORT` to inspect an explicitly selected local proxy.
+Both commands read the snapshot the serving proxy composes once a minute. They
+show each account's allowance, whether it can take new work and why not, and
+recent tasks with the accounts that served them.
 
 The serving proxy appends to `proxy.log` in its data directory; every process,
 including both sides of a blue-green update, writes to the same file. Each line
@@ -134,8 +133,7 @@ are not used to invent earlier request or failure totals. The separate completed
 replies and tokens table shows today's recorded work. An active request has no
 outcome yet; a process crash or failed counter write does not manufacture one.
 
-The menu reads the same protobuf snapshot. Its helper adds local task titles and
-caches display content; the command always requests current status.
+The menu app reads the same protobuf snapshot from the proxy's private URL.
 
 ## Local data
 

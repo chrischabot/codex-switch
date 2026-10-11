@@ -1,34 +1,76 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 	"unicode"
 
 	accountapi "github.com/josh/codex-switch/internal/accounts"
 	"github.com/josh/codex-switch/internal/menupb"
+	"google.golang.org/protobuf/proto"
 )
 
 func status(args []string) {
 	flags := flag.NewFlagSet("status", flag.ExitOnError)
-	address := flags.String("address", "", "Codex Switch loopback address (defaults to the effective Codex provider)")
 	_ = flags.Parse(args)
 	if flags.NArg() != 0 {
-		log.Fatal("usage: codex-switch [status] [--address 127.0.0.1:PORT]")
+		log.Fatal("usage: codex-switch [status]")
 	}
-	snapshot, err := readMenuSnapshot(dataDir(), *address)
+	snapshot, err := fetchMenuSnapshot(dataDir())
 	if err != nil {
 		log.Fatalf("cannot read current Codex Switch status: %v", err)
 	}
 	writeCurrentStatus(os.Stdout, snapshot)
 	fmt.Printf("\nProxy log: %s\n", proxyLogPath(dataDir()))
+}
+
+// fetchMenuSnapshot reads the snapshot the serving proxy last composed.
+func fetchMenuSnapshot(dataDirectory string) (*menupb.MenuSnapshot, error) {
+	published, err := os.ReadFile(filepath.Join(dataDirectory, menuSnapshotURLFilename))
+	if err != nil {
+		return nil, fmt.Errorf("no proxy has served from %s: %w", dataDirectory, err)
+	}
+	snapshotURL, err := url.Parse(strings.TrimSpace(string(published)))
+	if err != nil || snapshotURL.Scheme != "http" {
+		return nil, fmt.Errorf("%s does not hold a local proxy URL", menuSnapshotURLFilename)
+	}
+	if err := validateLocalListenAddress(snapshotURL.Host); err != nil {
+		return nil, err
+	}
+	client := http.Client{Timeout: 5 * time.Second}
+	response, err := client.Get(snapshotURL.String())
+	if err != nil {
+		return nil, fmt.Errorf("the proxy at %s did not answer", snapshotURL.Host)
+	}
+	defer response.Body.Close()
+	switch response.StatusCode {
+	case http.StatusOK:
+	case http.StatusServiceUnavailable:
+		return nil, errors.New("the proxy is composing its first snapshot; try again in a minute")
+	default:
+		return nil, fmt.Errorf("the proxy answered HTTP %d", response.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, 8<<20))
+	if err != nil {
+		return nil, err
+	}
+	snapshot := &menupb.MenuSnapshot{}
+	if err := proto.Unmarshal(body, snapshot); err != nil {
+		return nil, err
+	}
+	return snapshot, nil
 }
 
 func writeCurrentStatus(output io.Writer, snapshot *menupb.MenuSnapshot) {
@@ -68,11 +110,8 @@ func writeCurrentStatus(output io.Writer, snapshot *menupb.MenuSnapshot) {
 	if len(snapshot.ReportingPeriods) > 0 {
 		writeAccountTokenTable(output, snapshot)
 	}
-	tasks := snapshot.CompletedTasks
-	heading := "Recent tasks:"
-	if snapshot.ProxyActivity != nil {
-		tasks = nil
-	}
+	var tasks []*menupb.CompletedTask
+	heading := ""
 	for _, period := range snapshot.ReportingPeriods {
 		if period.Kind == menupb.ReportingPeriodKind_REPORTING_PERIOD_TODAY && period.TaskUsage != nil {
 			tasks = slices.Clone(period.TaskUsage.Tasks)

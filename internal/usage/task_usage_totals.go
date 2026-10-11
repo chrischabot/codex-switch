@@ -3,7 +3,6 @@ package usage
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -15,36 +14,37 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// refreshReportingPeriods scans local Codex and Pi session history, joins it
-// with the responses the proxy recorded and OpenAI's per-account report, and
-// totals Today, 7 Days and 30 Days by account and by task.
-func (ledger *UsageLedger) refreshReportingPeriods(ctx context.Context) {
-	periods, err := ledger.totalReportingPeriods(ctx, time.Now().UTC())
-	if err != nil {
-		if ctx.Err() == nil {
-			log.Printf("could not total usage per account and task: %v", err)
-		}
-		return
-	}
-	ledger.periodsMutex.Lock()
-	ledger.periods = periods
-	ledger.periodsMutex.Unlock()
-}
-
-func (ledger *UsageLedger) totalReportingPeriods(ctx context.Context, now time.Time) ([]*menupb.ReportingPeriod, error) {
+// TotalUsage scans local Codex and Pi session history, joins it with the
+// responses the proxy recorded and OpenAI's per-account report, and totals
+// Today, 7 Days and 30 Days by account and by task, and each account's usage
+// on each of the last 30 UTC dates, oldest first.
+func (ledger *UsageLedger) TotalUsage(ctx context.Context) ([]*menupb.ReportingPeriod, []*menupb.AccountDay, error) {
+	now := time.Now().UTC()
 	today := dateOnly(now)
 	start := today.AddDate(0, 0, 1-reportingPeriodDays)
 	completions, metadata, err := ledger.readLocalCompletions(ctx, start, now)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	pool, err := accounts.ReadPool(ledger.dataDirectory)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	dailyUsage, err := ledger.readAccountDailyUsage(pool, completions)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	var days []*menupb.AccountDay
+	for _, account := range pool {
+		for _, date := range periodDates(today, reportingPeriodDays) {
+			startedAt, err := time.Parse(time.DateOnly, date)
+			if err != nil {
+				return nil, nil, err
+			}
+			amount := dailyUsage[accountDay{account.Name, date}]
+			cost := int64(amount.cost)
+			days = append(days, &menupb.AccountDay{AccountKey: account.Name, StartedAt: timestamppb.New(startedAt), Tokens: amount.tokens, CostNanoUsd: &cost})
+		}
 	}
 	periods := make([]*menupb.ReportingPeriod, 0, 3)
 	for _, definition := range []struct {
@@ -68,14 +68,14 @@ func (ledger *UsageLedger) totalReportingPeriods(ctx context.Context, now time.T
 		}
 		tasks, err := totalTasks(completions, metadata, begin, end)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, total := range tasks {
 			period.TaskUsage.Tasks = append(period.TaskUsage.Tasks, completedTask(total))
 		}
 		periods = append(periods, period)
 	}
-	return periods, nil
+	return periods, days, nil
 }
 
 // readAccountDailyUsage merges OpenAI's per-account report with this Mac's

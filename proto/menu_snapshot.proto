@@ -7,7 +7,7 @@ import "google/protobuf/timestamp.proto";
 message MenuSnapshot {
   google.protobuf.Timestamp generated_at = 1;
   repeated Account accounts = 2;
-  repeated CompletedTask completed_tasks = 3;
+  reserved 3;
   Connection connection = 4;
   repeated ReportingPeriod reporting_periods = 5;
   ProxyActivity proxy_activity = 6;

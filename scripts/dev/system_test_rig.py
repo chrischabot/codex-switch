@@ -369,7 +369,7 @@ def pi_client_usage(session):
 def weekly_used_percent():
     """Weekly allowance used per account, as `codex-switch status` shows it to a person."""
     environment = dict(client_environment(), CODEX_SWITCH_DATA_DIR=str(RUN / 'data'))
-    shown = subprocess.run([str(RUN / 'codex-switch'), 'status', '--address', listen_address()], env=environment,
+    shown = subprocess.run([str(RUN / 'codex-switch'), 'status'], env=environment,
                            capture_output=True, text=True).stdout
     used, account = {}, None
     for line in shown.splitlines():

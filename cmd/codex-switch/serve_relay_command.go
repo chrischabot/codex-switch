@@ -111,7 +111,19 @@ func serveRelay(tcpListenAddress string) {
 	log.Print(serving)
 	fmt.Printf("codex-switch listening on %s\ncodex-switch log: %s\n", "http://"+listener.Addr().String(), proxyLogPath(dataDir()))
 
-	server := &http.Server{Handler: menuSnapshotOrRelay(capability, dataDir(), taskRouter, usageLedger, deployStatusOrRelay(capability, relayHandler))}
+	codexReader, err := codexstate.DefaultReader()
+	if err != nil {
+		log.Fatal(err)
+	}
+	clientURL := "http://" + listener.Addr().String() + clientcapability.PathPrefix(capability)
+	snapshots := &menuSnapshots{dataDirectory: dataDir(), codexBaseURL: clientURL + "/backend-api/codex", router: taskRouter, usageLedger: usageLedger, codex: codexReader}
+	background.Add(1)
+	go func() { defer background.Done(); snapshots.Run(factsContext) }()
+	if err := writeMenuSnapshotURL(dataDir(), clientURL+menuSnapshotEndpoint); err != nil {
+		log.Fatalf("publish the menu snapshot URL: %v", err)
+	}
+
+	server := &http.Server{Handler: snapshots.serveOrRelay(capability, deployStatusOrRelay(capability, relayHandler))}
 	serveFailed := make(chan error, 1)
 	go func() { serveFailed <- server.Serve(listener) }()
 

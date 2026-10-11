@@ -26,8 +26,6 @@ func main() {
 		serveCommand(args)
 	case "print-codex-config":
 		printCodexConfigCommand(args)
-	case "menu-snapshot":
-		menuSnapshotCommand(args)
 	case "print-revision":
 		printBinaryRevision()
 	default:
@@ -40,7 +38,7 @@ func selectCommand(args []string) (string, []string) {
 		return "status", args
 	}
 	switch args[0] {
-	case "login", "accounts", "remove", "serve", "status", "print-codex-config", "print-revision", "menu-snapshot":
+	case "login", "accounts", "remove", "serve", "status", "print-codex-config", "print-revision":
 		return args[0], args[1:]
 	default:
 		return "status", args

@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/josh/codex-switch/internal/menupb"
 	"github.com/josh/codex-switch/internal/store"
 )
 
@@ -29,9 +28,6 @@ type UsageLedger struct {
 
 	logMutex      sync.Mutex
 	lastLoggedFor map[string]string
-
-	periodsMutex sync.Mutex
-	periods      []*menupb.ReportingPeriod
 }
 
 // OpenUsageLedger creates the usage tables when absent. httpClient reads
@@ -50,34 +46,17 @@ func OpenUsageLedger(database *store.StoreDatabase, dataDirectory string, httpCl
 	return ledger, nil
 }
 
-// Run refreshes OpenAI's per-account report and the reporting periods once a
-// minute until ctx ends. A slow OpenAI read never delays the local totals.
+// Run refreshes OpenAI's per-account report once a minute until ctx ends,
+// so a slow OpenAI read never delays the local totals.
 func (ledger *UsageLedger) Run(ctx context.Context) {
-	var refreshes sync.WaitGroup
-	for _, refresh := range []func(context.Context){ledger.refreshOpenAIDailyTokenHistories, ledger.refreshReportingPeriods} {
-		refreshes.Add(1)
-		go func() {
-			defer refreshes.Done()
-			ticker := time.NewTicker(usageRefreshInterval)
-			defer ticker.Stop()
-			for {
-				refresh(ctx)
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-				}
-			}
-		}()
+	ticker := time.NewTicker(usageRefreshInterval)
+	defer ticker.Stop()
+	for {
+		ledger.refreshOpenAIDailyTokenHistories(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
-	refreshes.Wait()
-}
-
-// ReadReportingPeriods returns Today, 7 Days and 30 Days as of the last
-// refresh: each account's tokens and API-equivalent cost, and each task's
-// tokens and cost on this Mac. It never starts a network request.
-func (ledger *UsageLedger) ReadReportingPeriods() []*menupb.ReportingPeriod {
-	ledger.periodsMutex.Lock()
-	defer ledger.periodsMutex.Unlock()
-	return ledger.periods
 }
