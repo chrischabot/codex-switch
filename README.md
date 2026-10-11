@@ -1,29 +1,45 @@
 # Codex Switch
 
-Use all your ChatGPT subscriptions as one pool in Codex.
-
-Codex Switch is a small local proxy and a macOS menu bar app. You point Codex at
-one local URL and sign in to each ChatGPT account once. From then on, new tasks
-go to the account with the most weekly allowance left, and running agents are
-never interrupted.
+Use several ChatGPT accounts in Codex as one pool, without ever logging out.
 
 <img src="docs/images/menu-demo.png" alt="The Codex Switch menu cycling through Today, 7 Days and 30 Days, in API-equivalent cost and then in tokens, with account emails hidden" width="344">
 
-## Why it exists
+## Why
 
-I run long Codex goals and several agents at once. One subscription's allowance
-runs out in a few hours, and the agents stop. Switching accounts by hand means
-signing out, signing in and restarting every running task. At API prices, my
-last 30 days of Codex work would have cost about $3,500.
+When GPT-5.6 Sol came out, one or two Codex threads could use up a five-hour
+limit in one to two hours. I had two accounts and balanced work between them by
+hand. It wasn't enough.
 
-I already pay for the subscriptions, so I want Codex to use all of them, without
-me thinking about it.
+The ChatGPT app is built for one account at a time. To use a second account you
+log out and log in again, and that breaks things: Codex Remote stops working,
+memory stops working, and running tasks lose their place. There is no way to
+pool usage across accounts.
+
+Codex Switch is a transparent proxy. You stay logged in to your main ChatGPT
+account everywhere, and Codex Switch spreads the work across all your accounts
+behind the scenes.
+
+Ironically, Claude Opus 5.5 is what finally let me ship it.
+
+## How it works
+
+Codex lets you set a different API address. Companies use the same setting to
+put their own gateway in front of OpenAI. Codex Switch sits at that address as a
+drop-in, so the ChatGPT app and the Codex CLI just work. Nothing is patched.
+
+- It all runs locally on your Mac. Need it on two machines? Install it on both.
+- You sign each account in once, with Codex's normal ChatGPT login. Codex Switch
+  keeps every account's tokens refreshed after that.
+- It does not use OpenAI's "Sign in with ChatGPT" for apps yet. That may come
+  later.
 
 ## Is this allowed?
 
-Uhh, you probably shouldn't do this. It uses ChatGPT endpoints that OpenAI
-doesn't document, and pooling accounts may break their terms. Please don't ban
-me, [Tibo](https://x.com/thsottiaux). Raise the rate limits instead lol.
+Use it at your own risk. You're probably not supposed to do this: it relies on
+ChatGPT endpoints that OpenAI doesn't document, and pooling accounts may go
+against their terms. Until OpenAI supports several accounts in the app natively,
+it's the only way I've found to make this work. Tibo, if you're reading this:
+please just add it.
 
 It is macOS only, you build it from source, and so far it has one user: me.
 
