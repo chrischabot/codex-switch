@@ -31,20 +31,22 @@ publishable. Later, not now: Claude support and server-side use.
 | --- | --- |
 | What did the owner actually ask for? | The owner's messages, if present locally: `.project-private/steering/README.md`. Later messages win. |
 | How does the owner want engineering done? | `~/.codex/AGENTS.md` (the owner's own principles). |
-| What does the accepted menu look like? | `.project-private/visual-steering/accepted-direction/`, then OpenUsage (`robinebers/openusage`). |
+| What does the accepted menu look like? | `.project-private/m3-mockups-r2/` (the approved design), `.project-private/visual-steering/accepted-direction/` (the original direction), then OpenUsage (`robinebers/openusage`). |
 | Is the live proxy working, and how are accounts used? | `codex-switch status`; the log at `~/Library/Application Support/codex-switch/proxy.log`. |
-| Which build is live? | `GET http://127.0.0.1:<port>/client/<capability>/codex-switch/deploy-status`; the capability is in the data directory. |
+| Which build is live? | `GET http://127.0.0.1:<port>/client/<capability>/codex-switch/deploy-status`; the capability is in `client-capability` in the data directory. |
 | What runs it? | `launchctl list \| grep codex-switch`; the launchd plist names the binary, port and data directory. |
 | How do clients reach it? | Codex: `openai_base_url` in `~/.codex/config.toml` (`codex-switch print-codex-config`). Pi: `~/.pi/agent/models.json`, provider `openai-codex`. |
 | How does Codex itself behave? | The Codex source (`openai/codex`), and the installed client: `/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex`. |
+| Where does the menu get its numbers? | The serving proxy composes a snapshot once a minute and writes its private URL to `menu-snapshot-url` in the data directory; the menu and `codex-switch status` fetch it from there. |
 | Does the whole system work before a deploy? | `scripts/dev/system-test`; see `docs/system-test.md`. |
 | How do I update the live proxy? | `deploy/deploy.sh new <binary> ...`: new work goes to the new process, admitted work finishes on the old one. |
+| How do I update the menu app? | Quit it, then `macos/CodexSwitchMenu/package_app.sh --live --destination /Applications/CodexSwitchMenu.app`. |
 
 ## The code
 
 | Path | Owns |
 | --- | --- |
-| `cmd/codex-switch/` | CLI commands and wiring. Logic does not belong here. |
+| `cmd/codex-switch/` | CLI commands, wiring, and composing and serving the menu snapshot. Logic does not belong here. |
 | `internal/accounts/` | Sign-in, credentials, the account pool, and every read from OpenAI about an account. |
 | `internal/routing/` | Which account serves a task, and when a task moves. |
 | `internal/relay/` | Forwarding HTTP, SSE and WebSocket traffic byte for byte, recording completed responses, draining on update. |
@@ -52,9 +54,10 @@ publishable. Later, not now: Claude support and server-side use.
 | `internal/store/` | The one SQLite database. Imports nothing of ours. |
 | `internal/codexstate/` | Reading task titles and model settings from the installed Codex. |
 | `internal/clientcapability/` | The private URL path that stops web pages from using the proxy. |
-| `proto/`, `internal/menupb/` | The typed snapshot the menu renders. |
+| `internal/taskidentity/` | The task ID a Pi session is routed and counted under. |
+| `proto/`, `internal/menupb/` | The typed snapshot the menu renders. Regenerate the Go and Swift code with `scripts/dev/generate-menu-protobuf`. |
 | `macos/CodexSwitchMenu/` | The menu bar app. |
-| `deploy/`, `scripts/dev/` | Blue-green updates; build, test and system-test scripts (`devenv tasks run dev:build`, `dev:test`, `scripts/dev/system-test`). |
+| `deploy/`, `scripts/dev/` | Blue-green updates; build, test, stage and system-test scripts (`devenv tasks run dev:build`, `dev:test`, `dev:stage`, `scripts/dev/system-test`). |
 
 ## How the owner wants it proved
 
