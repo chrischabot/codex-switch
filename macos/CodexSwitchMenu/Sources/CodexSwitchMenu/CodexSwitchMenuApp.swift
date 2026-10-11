@@ -47,10 +47,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Leaves any state other than `.notRegistered` alone so the login item can be turned off in System Settings.
+    /// Registers only an app that has never been registered (`.notFound` before
+    /// the first registration), so a login item turned off in System Settings stays off.
     private func registerLoginItem() {
         let service = SMAppService.mainApp
-        guard service.status == .notRegistered else { return }
+        guard service.status == .notRegistered || service.status == .notFound else { return }
         do {
             try service.register()
         } catch {

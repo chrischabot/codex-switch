@@ -103,6 +103,7 @@ struct CodexSwitchPanel: View {
             UsageFooter(store: store)
         }
         .frame(width: UsageTheme.panelWidth)
+        .focusEffectDisabled()
         .background(UsageTheme.traySurface)
         .onChange(of: store.latestSnapshot, initial: true) { _, snapshot in
             guard let snapshot else { return }
