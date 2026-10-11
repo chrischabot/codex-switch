@@ -13,8 +13,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/josh/codex-switch/internal/fslock"
 )
 
 func TestRefreshRotatesAndPersistsTokens(t *testing.T) {
@@ -288,7 +286,7 @@ func TestRefreshHoldsThePerAccountLockUntilItsAtomicWriteFinishes(t *testing.T) 
 	lockAcquired := make(chan struct{})
 	lockDone := make(chan error, 1)
 	go func() {
-		lockDone <- fslock.With(filepath.Join(home, "auth.lock"), func() error {
+		lockDone <- withAuthLock(home, func() error {
 			close(lockAcquired)
 			return nil
 		})

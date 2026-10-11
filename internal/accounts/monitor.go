@@ -1,0 +1,244 @@
+package accounts
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"net/http"
+	"net/url"
+	"path/filepath"
+	"slices"
+	"sync"
+	"time"
+
+	"github.com/josh/codex-switch/internal/store"
+)
+
+// Healthy accounts are read once a minute; waiting work asks for a read at
+// most every five seconds. Network reads never run on the routing path.
+const (
+	accountReadInterval          = time.Minute
+	requestedAccountReadInterval = 5 * time.Second
+	accountReadTimeout           = 15 * time.Second
+)
+
+// AccountRoutingFact keeps provider eligibility and its matching credentials in one selection unit.
+type AccountRoutingFact struct {
+	AccountName       store.AccountName
+	Credentials       Credentials
+	AccountState      AccountState
+	AccountStateCause error
+	AllowanceSample   AllowanceSample
+	RefreshedAt       time.Time
+	// Nil means the catalogue has not been observed; an empty slice means no models.
+	SupportedModelSlugs []string
+	// ModelListCause is why the latest model-list read failed; nil after a successful read.
+	ModelListCause error
+}
+
+// Monitor watches every account in the pool: its credentials, what OpenAI
+// reports about its allowance, and which models it may use. Routing reads the
+// latest facts without waiting on the network.
+type Monitor struct {
+	dataDirectory   string
+	usageURL        string
+	modelsURL       string
+	codexExecutable string
+	httpClient      *http.Client
+	storeDatabase   *store.StoreDatabase
+
+	mutex         sync.Mutex
+	accounts      map[store.AccountName]*monitoredAccount
+	readRequested chan struct{}
+	firstReadDone chan struct{}
+}
+
+// monitoredAccount has at most one read in flight. The request path may change
+// its fact during that read; see keepRequestPathObservations.
+type monitoredAccount struct {
+	fact            AccountRoutingFact
+	credentialStore *CredentialStore
+	lastReadStarted time.Time
+	reading         bool
+}
+
+// NewMonitor reads accounts from upstreamOrigin, asking for the model catalogue
+// that codexExecutable's version of Codex would see.
+func NewMonitor(dataDirectory string, upstreamOrigin *url.URL, codexExecutable string, httpClient *http.Client, storeDatabase *store.StoreDatabase) *Monitor {
+	return &Monitor{
+		dataDirectory:   dataDirectory,
+		usageURL:        upstreamOrigin.ResolveReference(&url.URL{Path: "/backend-api/wham/usage"}).String(),
+		modelsURL:       upstreamOrigin.ResolveReference(&url.URL{Path: "/backend-api/codex/models"}).String(),
+		codexExecutable: codexExecutable,
+		httpClient:      httpClient,
+		storeDatabase:   storeDatabase,
+		accounts:        map[store.AccountName]*monitoredAccount{},
+		readRequested:   make(chan struct{}, 1),
+		firstReadDone:   make(chan struct{}),
+	}
+}
+
+// WaitForFirstRead returns once every account has been read once,
+// successfully or not.
+func (monitor *Monitor) WaitForFirstRead() {
+	<-monitor.firstReadDone
+}
+
+// Run discovers accounts and reads them until ctx ends. Each account is read
+// independently, so a slow account never delays another.
+func (monitor *Monitor) Run(ctx context.Context) {
+	var reads sync.WaitGroup
+	defer reads.Wait()
+	monitor.startDueReads(ctx, &reads, false)
+	reads.Wait()
+	close(monitor.firstReadDone)
+	ticker := time.NewTicker(requestedAccountReadInterval)
+	defer ticker.Stop()
+	for {
+		readRequested := false
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		case <-monitor.readRequested:
+			readRequested = true
+		}
+		monitor.startDueReads(ctx, &reads, readRequested)
+	}
+}
+
+func (monitor *Monitor) startDueReads(ctx context.Context, reads *sync.WaitGroup, readRequested bool) {
+	pool, err := ReadPool(monitor.dataDirectory)
+	if err != nil {
+		log.Printf("could not read the account pool: %v", err)
+		return
+	}
+	interval := accountReadInterval
+	if readRequested {
+		interval = requestedAccountReadInterval
+	}
+	monitor.mutex.Lock()
+	defer monitor.mutex.Unlock()
+	for _, account := range pool {
+		monitored := monitor.monitoredAccountLocked(store.AccountName(account.Name))
+		if monitored.reading || time.Since(monitored.lastReadStarted) < interval {
+			continue
+		}
+		monitored.reading = true
+		monitored.lastReadStarted = time.Now()
+		reads.Add(1)
+		go func(scheduled AccountRoutingFact) {
+			defer reads.Done()
+			monitor.readAccount(ctx, account, monitored, scheduled)
+		}(monitored.fact)
+	}
+}
+
+func (monitor *Monitor) readAccount(ctx context.Context, account PoolAccount, monitored *monitoredAccount, scheduled AccountRoutingFact) {
+	read := monitor.observeAccount(ctx, account, monitored.credentialStore, scheduled)
+	monitor.mutex.Lock()
+	latest := monitored.fact
+	read = keepRequestPathObservations(read, scheduled, latest)
+	availabilityChange := describeAccountAvailabilityChange(latest, read, account.Email)
+	monitored.fact = read
+	monitored.reading = false
+	monitor.mutex.Unlock()
+	if availabilityChange != "" && ctx.Err() == nil {
+		log.Print(availabilityChange)
+	}
+}
+
+// keepRequestPathObservations keeps what the request path learnt while a read
+// was in flight: credentials it refreshed after a 401, a model OpenAI
+// rejected, and a sign-in OpenAI demanded. They are newer than the read.
+func keepRequestPathObservations(read, scheduled, latest AccountRoutingFact) AccountRoutingFact {
+	if latest.Credentials != scheduled.Credentials {
+		read.Credentials = latest.Credentials
+	}
+	if !slices.Equal(latest.SupportedModelSlugs, scheduled.SupportedModelSlugs) {
+		read.SupportedModelSlugs = latest.SupportedModelSlugs
+	}
+	if latest.AccountState == AccountSignInRequired && scheduled.AccountState != AccountSignInRequired && read.Credentials == latest.Credentials {
+		read.AccountState = latest.AccountState
+		read.AccountStateCause = latest.AccountStateCause
+	}
+	return read
+}
+
+// ReadAccountRoutingFacts joins the latest facts to current pool membership.
+// Removed or replaced accounts cannot admit new work before their next read.
+func (monitor *Monitor) ReadAccountRoutingFacts() ([]AccountRoutingFact, error) {
+	pool, err := ReadPool(monitor.dataDirectory)
+	if err != nil {
+		return nil, err
+	}
+	monitor.mutex.Lock()
+	defer monitor.mutex.Unlock()
+	facts := make([]AccountRoutingFact, 0, len(pool))
+	for _, account := range pool {
+		monitored, known := monitor.accounts[store.AccountName(account.Name)]
+		if known && monitored.fact.Credentials.AccountID == account.AccountID {
+			facts = append(facts, monitored.fact)
+		}
+	}
+	return facts, nil
+}
+
+// RequestAccountRoutingFactsRefresh asks for every account to be read again
+// soon, because work is waiting for capacity.
+func (monitor *Monitor) RequestAccountRoutingFactsRefresh() {
+	select {
+	case monitor.readRequested <- struct{}{}:
+	default:
+	}
+}
+
+// ExcludeUnsupportedAccountModel records that OpenAI rejected modelSlug for the
+// account before admitting work. An in-flight catalogue read cannot overwrite
+// this newer observation.
+func (monitor *Monitor) ExcludeUnsupportedAccountModel(accountName store.AccountName, modelSlug string) {
+	monitor.mutex.Lock()
+	monitored := monitor.monitoredAccountLocked(accountName)
+	monitored.fact.SupportedModelSlugs = slices.DeleteFunc(slices.Clone(monitored.fact.SupportedModelSlugs), func(slug string) bool { return slug == modelSlug })
+	monitor.mutex.Unlock()
+	monitor.RequestAccountRoutingFactsRefresh()
+}
+
+// RefreshAccountCredentialsAfterUnauthorized prepares the account for the next routed request.
+func (monitor *Monitor) RefreshAccountCredentialsAfterUnauthorized(accountName store.AccountName, rejected Credentials) error {
+	pool, err := ReadPool(monitor.dataDirectory)
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(pool, func(account PoolAccount) bool { return store.AccountName(account.Name) == accountName }) {
+		return fmt.Errorf("account %s is not in the pool", accountName)
+	}
+	monitor.mutex.Lock()
+	monitored := monitor.monitoredAccountLocked(accountName)
+	monitor.mutex.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), accountReadTimeout)
+	refreshed, refreshErr := monitored.credentialStore.RefreshAfterUnauthorized(ctx, rejected)
+	cancel()
+	monitor.mutex.Lock()
+	defer monitor.mutex.Unlock()
+	if refreshErr != nil {
+		if RequiresSignIn(refreshErr) && monitored.fact.AccountName != "" && monitored.fact.Credentials == rejected {
+			monitored.fact.AccountState = AccountSignInRequired
+			monitored.fact.AccountStateCause = refreshErr
+		}
+		return refreshErr
+	}
+	if monitored.fact.AccountName != "" {
+		monitored.fact.Credentials = refreshed
+	}
+	return nil
+}
+
+func (monitor *Monitor) monitoredAccountLocked(accountName store.AccountName) *monitoredAccount {
+	monitored, known := monitor.accounts[accountName]
+	if !known {
+		monitored = &monitoredAccount{credentialStore: NewCredentialStore(filepath.Join(monitor.dataDirectory, string(accountName)), monitor.httpClient)}
+		monitor.accounts[accountName] = monitored
+	}
+	return monitored
+}

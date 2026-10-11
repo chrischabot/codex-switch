@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 	"text/tabwriter"
-	"time"
 	"unicode"
 
+	accountapi "github.com/josh/codex-switch/internal/accounts"
 	"github.com/josh/codex-switch/internal/menupb"
 )
 
@@ -55,7 +55,7 @@ func writeCurrentStatus(output io.Writer, snapshot *menupb.MenuSnapshot) {
 		}
 		fmt.Fprintf(output, "\n%s · %s\n", label, state)
 		for _, window := range account.GetAllowance().GetWindows() {
-			fmt.Fprintf(output, "  %-8s %g%% used · %g%% free", allowancePeriodLabel(window.PeriodSeconds), window.UsedPercent, 100-window.UsedPercent)
+			fmt.Fprintf(output, "  %-8s %g%% used · %g%% free", accountapi.AllowancePeriodLabel(window.PeriodSeconds), window.UsedPercent, 100-window.UsedPercent)
 			if window.ResetAt != nil {
 				fmt.Fprintf(output, " · resets %s", window.ResetAt.AsTime().Local().Format("Mon 2 Jan 15:04"))
 			}
@@ -190,22 +190,6 @@ func taskLabel(task *menupb.CompletedTask) string {
 		return string(label[:71]) + "…"
 	}
 	return string(label)
-}
-
-func allowancePeriodLabel(seconds int64) string {
-	switch seconds {
-	case 5 * 3600:
-		return "5-hour"
-	case 7 * 86400:
-		return "weekly"
-	}
-	if seconds >= 86400 && seconds%86400 == 0 {
-		return fmt.Sprintf("%d days", seconds/86400)
-	}
-	if seconds >= 3600 && seconds%3600 == 0 {
-		return fmt.Sprintf("%d hours", seconds/3600)
-	}
-	return (time.Duration(seconds) * time.Second).String()
 }
 
 func oneLine(value string) string {

@@ -16,7 +16,9 @@ import (
 	"syscall"
 	"time"
 
+	accountapi "github.com/josh/codex-switch/internal/accounts"
 	"github.com/josh/codex-switch/internal/clientcapability"
+	"github.com/josh/codex-switch/internal/codexstate"
 	"github.com/josh/codex-switch/internal/relay"
 	"github.com/josh/codex-switch/internal/routing"
 	"github.com/josh/codex-switch/internal/store"
@@ -68,17 +70,17 @@ func serveRelay(tcpListenAddress string) {
 		log.Fatal(err)
 	}
 
-	accountFacts := newPoolAccountRoutingFactsSource(dataDir(), upstreamOrigin, &http.Client{Timeout: 30 * time.Second}, storeDatabase)
+	accountMonitor := accountapi.NewMonitor(dataDir(), upstreamOrigin, codexstate.FindCodexExecutable(), &http.Client{Timeout: 30 * time.Second}, storeDatabase)
 	accountUsage := newPoolAccountUsageSource(dataDir(), &http.Client{Timeout: 15 * time.Second}, storeDatabase)
 	taskUsage := newTaskUsageSource(storeDatabase, accountUsage, dataDir())
 	factsContext, stopFacts := context.WithCancel(context.Background())
 	var background sync.WaitGroup
-	for _, run := range []func(context.Context){accountFacts.Run, accountUsage.Run, taskUsage.Run} {
+	for _, run := range []func(context.Context){accountMonitor.Run, accountUsage.Run, taskUsage.Run} {
 		background.Add(1)
 		go func() { defer background.Done(); run(factsContext) }()
 	}
 	defer func() { stopFacts(); background.Wait() }()
-	taskRouter := routing.CreateTaskRouter(storeDatabase, accountFacts)
+	taskRouter := routing.CreateTaskRouter(storeDatabase, accountMonitor)
 	relayHandler, err := relay.CreateCodexTrafficRelayHandler(relay.RelayHandlerOptions{
 		UpstreamOrigin:   upstreamOrigin,
 		ClientCapability: capability,
@@ -92,7 +94,7 @@ func serveRelay(tcpListenAddress string) {
 
 	// A generation listens only once it can route: during an update, new
 	// connections reach it as soon as it listens.
-	accountFacts.WaitForFirstAccountRead()
+	accountMonitor.WaitForFirstRead()
 	listener, err := openRelayListener(tcpListenAddress)
 	if err != nil {
 		log.Fatal(err)
@@ -106,7 +108,7 @@ func serveRelay(tcpListenAddress string) {
 	log.Print(serving)
 	fmt.Printf("codex-switch listening on %s\ncodex-switch log: %s\n", "http://"+listener.Addr().String(), proxyLogPath(dataDir()))
 
-	server := &http.Server{Handler: menuSnapshotOrRelay(capability, accountFacts, taskRouter, storeDatabase, accountUsage, taskUsage, deployStatusOrRelay(capability, relayHandler))}
+	server := &http.Server{Handler: menuSnapshotOrRelay(capability, dataDir(), taskRouter, storeDatabase, accountUsage, taskUsage, deployStatusOrRelay(capability, relayHandler))}
 	serveFailed := make(chan error, 1)
 	go func() { serveFailed <- server.Serve(listener) }()
 

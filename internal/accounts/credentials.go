@@ -14,8 +14,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/josh/codex-switch/internal/fslock"
 )
 
 const (
@@ -100,7 +98,7 @@ func (s *CredentialStore) Credentials(ctx context.Context) (Credentials, error) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var result Credentials
-	err := fslock.WithExistingDirectory(filepath.Join(s.home, "auth.lock"), func() error {
+	err := withAuthLock(s.home, func() error {
 		auth, err := s.read()
 		if err != nil {
 			return err
@@ -141,7 +139,7 @@ func (s *CredentialStore) RefreshAfterUnauthorized(ctx context.Context, rejected
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var result Credentials
-	err := fslock.WithExistingDirectory(filepath.Join(s.home, "auth.lock"), func() error {
+	err := withAuthLock(s.home, func() error {
 		auth, err := s.read()
 		if err != nil {
 			return err
