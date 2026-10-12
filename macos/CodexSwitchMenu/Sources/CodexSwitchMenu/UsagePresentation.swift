@@ -13,23 +13,38 @@ enum UsageMetric: String, CaseIterable, Hashable, Identifiable, Sendable {
 
 struct UsagePresentation: Equatable, Sendable {
     let totalCostNanoUSD: Int64?
+    let hasMultipleProviders: Bool
     let totalTokens: Int64
     let accountTokenShares: [Share]
     let accountCostShares: [Share]
 
     init?(snapshot: OverviewSnapshot, selectedPeriod: OverviewSnapshot.ReportingPeriodKind) {
         guard let period = snapshot.reportingPeriod(selectedPeriod), !period.accounts.isEmpty else { return nil }
+        let hasMultipleProviders = snapshot.menuSnapshot.providers.count > 1
+        self.hasMultipleProviders = hasMultipleProviders
         let accounts = snapshot.menuSnapshot.accounts
+        // One slice per account, in the pool's order, so the legend reads
+        // provider by provider.
+        let totals = accounts.compactMap { account in
+            period.accounts.first(where: { $0.accountKey == account.key }).map { (account, $0) }
+        }
         totalTokens = period.accounts.reduce(0) { $0 + $1.tokens }
         totalCostNanoUSD = period.accounts.allSatisfy(\.hasCostNanoUsd) ? period.accounts.reduce(0) { $0 + $1.costNanoUsd } : nil
         func shares(metric: UsageMetric, total: Int64) -> [Share] {
             var cursor = 0.0
-            return period.accounts.compactMap { item in
-                guard let account = accounts.first(where: { $0.key == item.accountKey }) else { return nil }
+            return totals.map { account, item in
                 let start = cursor
                 let amount = metric == .tokens ? item.tokens : item.costNanoUsd
                 if total > 0 { cursor += Double(amount) / Double(total) }
-                return Share(id: account.key, label: "Account \(account.accountNumber)", accountNumber: Int(account.accountNumber), tokens: item.tokens, costNanoUSD: item.hasCostNanoUsd ? item.costNanoUsd : nil, startFraction: start, endFraction: cursor)
+                return Share(
+                    id: account.key,
+                    label: hasMultipleProviders ? account.poolName : "Account \(account.accountNumber)",
+                    colourSlot: snapshot.menuSnapshot.colourSlot(of: account),
+                    tokens: item.tokens,
+                    costNanoUSD: item.hasCostNanoUsd ? item.costNanoUsd : nil,
+                    startFraction: start,
+                    endFraction: cursor
+                )
             }
         }
         accountTokenShares = shares(metric: .tokens, total: totalTokens)
@@ -39,7 +54,7 @@ struct UsagePresentation: Equatable, Sendable {
     struct Share: Equatable, Identifiable, Sendable {
         let id: String
         let label: String
-        let accountNumber: Int
+        let colourSlot: Int
         let tokens: Int64
         let costNanoUSD: Int64?
         let startFraction: Double

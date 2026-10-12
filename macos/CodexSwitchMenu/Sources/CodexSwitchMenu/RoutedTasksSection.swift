@@ -6,20 +6,24 @@ struct RoutedTasksSection: View {
     let selectedPeriod: OverviewSnapshot.ReportingPeriodKind
     let selectedMetric: UsageMetric
 
-    /// The ten largest named tasks. Tasks that share a name, such as repeated
-    /// `codex exec` runs in one repository, make one row.
+    /// The ten largest named tasks across every provider. Tasks that share a
+    /// name and provider, such as repeated `codex exec` runs in one
+    /// repository, make one row.
     private var rows: [TaskRow] {
-        var rowsByTitle: [String: TaskRow] = [:]
+        var rowsByID: [String: TaskRow] = [:]
         for task in period?.taskUsage.tasks ?? [] where task.hasTitle && !task.title.isEmpty {
+            let accounts = task.accountKeys.compactMap(snapshot.account(key:))
+            guard let provider = accounts.first?.menuProvider else { continue }
             let title = firstLine(task.title)
-            var row = rowsByTitle[title] ?? TaskRow(title: title)
+            let id = "\(provider.rawValue) \(title)"
+            var row = rowsByID[id] ?? TaskRow(id: id, provider: provider, title: title)
             row.tokens += task.tokens
             row.costNanoUSD += task.costNanoUsd
-            row.accountNumbers.formUnion(accountNumbers(task))
+            row.accountKeys.formUnion(accounts.map(\.key))
             row.lastCompletedAt = max(row.lastCompletedAt, task.lastCompletedAt.date)
-            rowsByTitle[title] = row
+            rowsByID[id] = row
         }
-        let ranked = rowsByTitle.values.sorted { left, right in
+        let ranked = rowsByID.values.sorted { left, right in
             let leftAmount = selectedMetric == .tokens ? left.tokens : left.costNanoUSD
             let rightAmount = selectedMetric == .tokens ? right.tokens : right.costNanoUSD
             if leftAmount != rightAmount { return leftAmount > rightAmount }
@@ -31,7 +35,14 @@ struct RoutedTasksSection: View {
     var body: some View {
         let rows = rows
         if !rows.isEmpty {
-            let accountSlots = Array(Set(rows.flatMap(\.accountNumbers))).sorted()
+            let showsProvider = snapshot.providers.count > 1
+            // Account markers sit in fixed columns, account 1 first for every
+            // provider, so the values line up down the list.
+            let slotsByProvider = Dictionary(grouping: rows.flatMap { row in row.accountKeys.map { (row.provider, $0) } }) { $0.0 }
+                .mapValues { pairs in
+                    Set(pairs.map(\.1)).compactMap(snapshot.account(key:)).sorted { $0.accountNumber < $1.accountNumber }
+                }
+            let slotCount = slotsByProvider.values.map(\.count).max() ?? 0
             VStack(alignment: .leading, spacing: 9) {
                 HStack(alignment: .firstTextBaseline) {
                     Text("Top tasks")
@@ -44,6 +55,10 @@ struct RoutedTasksSection: View {
                 .padding(.bottom, 1)
                 ForEach(rows) { row in
                     HStack(spacing: 8) {
+                        if showsProvider {
+                            ProviderMark(provider: row.provider, size: 12)
+                                .foregroundStyle(.secondary)
+                        }
                         Text(row.title)
                             .font(UsageTheme.detailFont)
                             .lineLimit(1)
@@ -55,20 +70,23 @@ struct RoutedTasksSection: View {
                             .monospacedDigit()
                             .fixedSize()
                         HStack(spacing: 4) {
-                            ForEach(accountSlots, id: \.self) { number in
+                            let slots = slotsByProvider[row.provider] ?? []
+                            ForEach(slots, id: \.key) { account in
+                                let used = row.accountKeys.contains(account.key)
                                 HStack(spacing: 3) {
-                                    AccountMarker(number: number, size: 7)
-                                    Text("\(number)")
+                                    AccountMarker(colour: snapshot.colour(of: account), size: 7)
+                                    Text("\(account.accountNumber)")
                                         .font(UsageTheme.detailEmphasisFont)
                                         .monospacedDigit()
                                 }
                                 .frame(width: 20, alignment: .trailing)
-                                .opacity(row.accountNumbers.contains(number) ? 1 : 0)
+                                .opacity(used ? 1 : 0)
                                 .accessibilityElement(children: .ignore)
-                                .accessibilityLabel("Account \(number)")
-                                .accessibilityHidden(!row.accountNumbers.contains(number))
+                                .accessibilityLabel(account.poolName)
+                                .accessibilityHidden(!used)
                             }
                         }
+                        .frame(width: CGFloat(slotCount) * 24 - 4, alignment: .leading)
                     }
                 }
             }
@@ -80,19 +98,14 @@ struct RoutedTasksSection: View {
     private func firstLine(_ title: String) -> String {
         title.split(whereSeparator: \.isNewline).first.map(String.init) ?? title
     }
-
-    private func accountNumbers(_ task: CSSwitch_CompletedTask) -> Set<Int> {
-        Set(task.accountKeys.compactMap { key in
-            snapshot.accounts.first(where: { $0.key == key }).map { Int($0.accountNumber) }
-        })
-    }
 }
 
 private struct TaskRow: Identifiable {
+    let id: String
+    let provider: CSSwitch_Provider
     let title: String
     var tokens: Int64 = 0
     var costNanoUSD: Int64 = 0
-    var accountNumbers: Set<Int> = []
+    var accountKeys: Set<String> = []
     var lastCompletedAt: Date = .distantPast
-    var id: String { title }
 }

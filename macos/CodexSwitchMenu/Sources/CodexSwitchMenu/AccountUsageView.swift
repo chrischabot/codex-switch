@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AccountSection: View {
     let account: CSSwitch_Account
+    let colour: Color
     let hideIdentity: Bool
     let now: Date
     /// The account's usage per day for the last 30 days, oldest first, in the selected metric.
@@ -10,7 +11,7 @@ struct AccountSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                AccountMarker(number: Int(account.accountNumber))
+                AccountMarker(colour: colour)
                     .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
                 Text("Account \(account.accountNumber)")
                     .font(UsageTheme.labelFont)
@@ -24,19 +25,25 @@ struct AccountSection: View {
                 }
                 Spacer(minLength: 4)
                 if !account.plan.isEmpty {
-                    Text(account.plan.capitalized)
+                    Text(account.plan.prefix(1).uppercased() + account.plan.dropFirst())
                         .font(UsageTheme.detailEmphasisFont)
                         .foregroundStyle(.secondary)
                         .layoutPriority(2)
                 }
             }
             if account.hasAllowance {
-                let windows = account.allowance.windows.sorted { $0.periodSeconds < $1.periodSeconds }
-                ForEach(windows, id: \.periodSeconds) { window in
+                // Shortest first; a model's own limit follows the limit it sits inside.
+                let windows = account.allowance.windows.sorted {
+                    ($0.periodSeconds, $0.modelID, $0.modelName) < ($1.periodSeconds, $1.modelID, $1.modelName)
+                }
+                // A stored reset refills the whole account, so it sits under the account's longest limit.
+                let longest = windows.last { $0.modelID.isEmpty && $0.modelName.isEmpty }
+                ForEach(windows, id: \.self) { window in
                     AllowanceRow(
                         allowance: window,
+                        title: window.title(for: account.menuProvider),
                         now: now,
-                        storedResets: window == windows.last && account.allowance.hasAvailableResetCredits
+                        storedResets: window == longest && account.allowance.hasAvailableResetCredits
                             ? Int(account.allowance.availableResetCredits) : 0
                     )
                 }
@@ -46,7 +53,7 @@ struct AccountSection: View {
                     Text("Usage trend")
                         .font(UsageTheme.labelFont)
                     Spacer(minLength: 12)
-                    UsageTrend(values: dailyUsage, colour: UsageTheme.accountColour(Int(account.accountNumber)))
+                    UsageTrend(values: dailyUsage, colour: colour)
                 }
             }
         }
@@ -58,8 +65,11 @@ struct AccountSection: View {
 extension CSSwitch_AllowanceWindow {
     var freePercent: Double { 100 - usedPercent }
 
-    var periodTitle: String {
-        switch periodSeconds {
+    /// "Session", "Weekly", or the model the limit belongs to, such as "Fable".
+    func title(for provider: CSSwitch_Provider) -> String {
+        guard modelID.isEmpty && modelName.isEmpty else { return modelName.isEmpty ? modelID : modelName }
+        return switch periodSeconds {
+        case 18_000 where provider == .claude: "Session"
         case 604_800: "Weekly"
         case let seconds where seconds % 86_400 == 0: "\(seconds / 86_400)-day"
         case let seconds where seconds % 3_600 == 0: "\(seconds / 3_600)-hour"
@@ -81,6 +91,7 @@ extension CSSwitch_AllowanceWindow {
 
 private struct AllowanceRow: View {
     let allowance: CSSwitch_AllowanceWindow
+    let title: String
     let now: Date
     let storedResets: Int
 
@@ -88,7 +99,7 @@ private struct AllowanceRow: View {
         let runOut = allowance.runOutDate(now: now)
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Text(allowance.periodTitle)
+                Text(title)
                     .font(UsageTheme.labelFont)
                 Spacer(minLength: 4)
                 Text("\(UsageFormatting.percent(allowance.freePercent)) left")

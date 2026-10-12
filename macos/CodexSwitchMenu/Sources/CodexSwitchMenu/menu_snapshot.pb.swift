@@ -20,6 +20,44 @@ fileprivate nonisolated struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobu
   typealias Version = _2
 }
 
+nonisolated enum CSSwitch_Provider: SwiftProtobuf.Enum, Swift.CaseIterable {
+  typealias RawValue = Int
+  case unspecified // = 0
+  case chatgpt // = 1
+  case claude // = 2
+  case UNRECOGNIZED(Int)
+
+  init() {
+    self = .unspecified
+  }
+
+  init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .unspecified
+    case 1: self = .chatgpt
+    case 2: self = .claude
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  var rawValue: Int {
+    switch self {
+    case .unspecified: return 0
+    case .chatgpt: return 1
+    case .claude: return 2
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  static let allCases: [CSSwitch_Provider] = [
+    .unspecified,
+    .chatgpt,
+    .claude,
+  ]
+
+}
+
 nonisolated enum CSSwitch_AccountState: SwiftProtobuf.Enum, Swift.CaseIterable {
   typealias RawValue = Int
   case unspecified // = 0
@@ -318,6 +356,8 @@ nonisolated struct CSSwitch_Account: Sendable {
   /// part of the pool for current work even while its allowance is used up.
   var offersConfiguredModel: Bool = false
 
+  var provider: CSSwitch_Provider = .unspecified
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -379,6 +419,11 @@ nonisolated struct CSSwitch_AllowanceWindow: Sendable {
   var hasResetAt: Bool {self._resetAt != nil}
   /// Clears the value of `resetAt`. Subsequent reads from it will return its default value.
   mutating func clearResetAt() {self._resetAt = nil}
+
+  /// Empty for a window shared by all models.
+  var modelID: String = String()
+
+  var modelName: String = String()
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -539,6 +584,10 @@ nonisolated struct CSSwitch_AccountTotal: Sendable {
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 fileprivate nonisolated let _protobuf_package = "codex_switch.menu"
+
+nonisolated extension CSSwitch_Provider: SwiftProtobuf._ProtoNameProviding {
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0PROVIDER_UNSPECIFIED\0\u{1}PROVIDER_CHATGPT\0\u{1}PROVIDER_CLAUDE\0")
+}
 
 nonisolated extension CSSwitch_AccountState: SwiftProtobuf._ProtoNameProviding {
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0ACCOUNT_STATE_UNSPECIFIED\0\u{1}ACCOUNT_STATE_READY\0\u{1}ACCOUNT_STATE_LIMITED\0\u{1}ACCOUNT_STATE_SIGN_IN_REQUIRED\0\u{1}ACCOUNT_STATE_CREDENTIALS_UNAVAILABLE\0\u{1}ACCOUNT_STATE_USAGE_CHECK_FAILED\0")
@@ -806,7 +855,7 @@ nonisolated extension CSSwitch_ModelRequestCounts: SwiftProtobuf.Message, SwiftP
 
 nonisolated extension CSSwitch_Account: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".Account"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}key\0\u{1}email\0\u{1}plan\0\u{1}state\0\u{1}allowance\0\u{3}account_number\0\u{1}usable\0\u{3}unavailable_reason\0\u{3}offers_configured_model\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}key\0\u{1}email\0\u{1}plan\0\u{1}state\0\u{1}allowance\0\u{3}account_number\0\u{1}usable\0\u{3}unavailable_reason\0\u{3}offers_configured_model\0\u{1}provider\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -823,6 +872,7 @@ nonisolated extension CSSwitch_Account: SwiftProtobuf.Message, SwiftProtobuf._Me
       case 7: try { try decoder.decodeSingularBoolField(value: &self.usable) }()
       case 8: try { try decoder.decodeSingularStringField(value: &self.unavailableReason) }()
       case 9: try { try decoder.decodeSingularBoolField(value: &self.offersConfiguredModel) }()
+      case 10: try { try decoder.decodeSingularEnumField(value: &self.provider) }()
       default: break
       }
     }
@@ -860,6 +910,9 @@ nonisolated extension CSSwitch_Account: SwiftProtobuf.Message, SwiftProtobuf._Me
     if self.offersConfiguredModel != false {
       try visitor.visitSingularBoolField(value: self.offersConfiguredModel, fieldNumber: 9)
     }
+    if self.provider != .unspecified {
+      try visitor.visitSingularEnumField(value: self.provider, fieldNumber: 10)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -873,6 +926,7 @@ nonisolated extension CSSwitch_Account: SwiftProtobuf.Message, SwiftProtobuf._Me
     if lhs.usable != rhs.usable {return false}
     if lhs.unavailableReason != rhs.unavailableReason {return false}
     if lhs.offersConfiguredModel != rhs.offersConfiguredModel {return false}
+    if lhs.provider != rhs.provider {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -934,7 +988,7 @@ nonisolated extension CSSwitch_AllowanceObservation: SwiftProtobuf.Message, Swif
 
 nonisolated extension CSSwitch_AllowanceWindow: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".AllowanceWindow"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}period_seconds\0\u{3}used_percent\0\u{3}reset_at\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}period_seconds\0\u{3}used_percent\0\u{3}reset_at\0\u{3}model_id\0\u{3}model_name\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -945,6 +999,8 @@ nonisolated extension CSSwitch_AllowanceWindow: SwiftProtobuf.Message, SwiftProt
       case 1: try { try decoder.decodeSingularInt64Field(value: &self.periodSeconds) }()
       case 2: try { try decoder.decodeSingularDoubleField(value: &self.usedPercent) }()
       case 3: try { try decoder.decodeSingularMessageField(value: &self._resetAt) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.modelID) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.modelName) }()
       default: break
       }
     }
@@ -964,6 +1020,12 @@ nonisolated extension CSSwitch_AllowanceWindow: SwiftProtobuf.Message, SwiftProt
     try { if let v = self._resetAt {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
     } }()
+    if !self.modelID.isEmpty {
+      try visitor.visitSingularStringField(value: self.modelID, fieldNumber: 4)
+    }
+    if !self.modelName.isEmpty {
+      try visitor.visitSingularStringField(value: self.modelName, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -971,6 +1033,8 @@ nonisolated extension CSSwitch_AllowanceWindow: SwiftProtobuf.Message, SwiftProt
     if lhs.periodSeconds != rhs.periodSeconds {return false}
     if lhs.usedPercent != rhs.usedPercent {return false}
     if lhs._resetAt != rhs._resetAt {return false}
+    if lhs.modelID != rhs.modelID {return false}
+    if lhs.modelName != rhs.modelName {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

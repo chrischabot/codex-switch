@@ -73,6 +73,13 @@ enum UsageFormatting {
         return "$" + decimal(dollars, fractionDigits: fractionDigits, locale: locale)
     }
 
+    /// The cost inside the ring: as `cost` up to $9,999, then three
+    /// significant figures, $10.6K, so it fits the ring as OpenUsage's does.
+    static func ringCost(_ nanoUSD: Int64, locale: Locale = .autoupdatingCurrent) -> String {
+        let dollars = abs(nanoUSD) / 1_000_000_000
+        return dollars < 10_000 ? cost(nanoUSD, locale: locale) : "$" + tokens(dollars, locale: locale)
+    }
+
     private static func dayAndTime(_ date: Date, now: Date, locale: Locale, timeZone: TimeZone) -> String {
         let day = DateFormatter()
         day.locale = locale

@@ -49,13 +49,20 @@ struct CodexSwitchPanel: View {
                                     selectMetric: { selectedMetric = $0 }
                                 )
                             }
-                            ForEach(snapshot.accounts, id: \.key) { account in
-                                AccountSection(
-                                    account: account,
-                                    hideIdentity: privacyModeEnabled,
-                                    now: snapshot.generatedAt.date,
-                                    dailyUsage: overview?.dailyUsage(account: account.key, metric: selectedMetric) ?? []
-                                )
+                            let providers = snapshot.providers
+                            ForEach(providers, id: \.self) { provider in
+                                if providers.count > 1 {
+                                    ProviderHeader(provider: provider)
+                                }
+                                ForEach(snapshot.accounts.filter { $0.menuProvider == provider }, id: \.key) { account in
+                                    AccountSection(
+                                        account: account,
+                                        colour: snapshot.colour(of: account),
+                                        hideIdentity: privacyModeEnabled,
+                                        now: snapshot.generatedAt.date,
+                                        dailyUsage: overview?.dailyUsage(account: account.key, metric: selectedMetric) ?? []
+                                    )
+                                }
                             }
                             RoutedTasksSection(
                                 snapshot: snapshot,
@@ -160,29 +167,41 @@ private struct PanelStatusHeader: View {
     let currentCheckSucceeded: Bool
     @Binding var privacyModeEnabled: Bool
 
-    private enum ProxyState {
-        case working, allLimited, notConnected
+    private enum ProxyState: Equatable {
+        case working, limited(String), notConnected(String)
 
         var title: String {
             switch self {
             case .working: "Working"
-            case .allLimited: "All accounts limited"
-            case .notConnected: "Not connected"
+            case let .limited(who): "\(who) limited"
+            case let .notConnected(who): who.isEmpty ? "Not connected" : "\(who) not connected"
             }
         }
 
         var symbol: String {
             switch self {
             case .working: "checkmark.circle.fill"
-            case .allLimited: "pause.circle.fill"
+            case .limited: "pause.circle.fill"
             case .notConnected: "xmark.circle.fill"
             }
         }
     }
 
+    /// Keep the Codex connection check and name any provider whose accounts are limited.
     private var state: ProxyState {
-        guard currentCheckSucceeded && snapshot.connection.newTasksConfigured else { return .notConnected }
-        return snapshot.accounts.contains(where: \.usable) ? .working : .allLimited
+        let providers = snapshot.providers
+        guard currentCheckSucceeded else { return .notConnected("") }
+        let disconnected = providers.filter { provider in
+            provider == .chatgpt && !snapshot.connection.newTasksConfigured
+        }
+        if !disconnected.isEmpty {
+            return .notConnected(disconnected.count == providers.count ? "" : disconnected.map(\.title).joined(separator: ", "))
+        }
+        let limited = providers.filter { provider in
+            !snapshot.accounts.contains { $0.menuProvider == provider && $0.usable }
+        }
+        if limited.isEmpty { return .working }
+        return .limited(limited.count == providers.count ? "All accounts" : limited.map(\.title).joined(separator: ", "))
     }
 
     var body: some View {

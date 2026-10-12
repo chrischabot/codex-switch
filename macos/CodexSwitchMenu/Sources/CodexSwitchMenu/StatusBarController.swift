@@ -81,7 +81,7 @@ final class StatusBarController: NSObject {
         }
 
         let toolTip = values.map { account in
-            "Account \(account.number): \(UsageFormatting.percent(account.freePercent)) left"
+            "\(account.provider.title) \(account.number): \(UsageFormatting.percent(account.freePercent)) left"
         }.joined(separator: "\n")
         guard let image = StatusStripRenderer.image(for: values) else {
             showIdentity(button: button, toolTip: toolTip)

@@ -44,14 +44,14 @@ private struct UsageBreakdown: View {
             HStack(spacing: 18) {
                 BreakdownRing(
                     shares: shares,
-                    primary: format(total),
+                    primary: selectedMetric == .cost && presentation.hasMultipleProviders ? UsageFormatting.ringCost(total) : format(total),
                     unit: selectedMetric == .tokens ? "tokens" : nil,
                     accessibilityLabel: "\(selectedMetric.title) \(format(total))"
                 )
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(presentation.accountTokenShares) { share in
                         HStack(spacing: 7) {
-                            AccountMarker(number: share.accountNumber)
+                            AccountMarker(colour: UsageTheme.accountColour(share.colourSlot))
                             Text(share.label)
                                 .font(UsageTheme.detailFont)
                                 .lineLimit(1)
@@ -147,7 +147,7 @@ private struct BreakdownRing: View {
                     startFraction: arc.startFraction,
                     endFraction: arc.endFraction
                 )
-                .fill(UsageTheme.accountColour(arc.accountNumber))
+                .fill(UsageTheme.accountColour(arc.colourSlot))
             }
             VStack(spacing: 1) {
                 Text(primary)

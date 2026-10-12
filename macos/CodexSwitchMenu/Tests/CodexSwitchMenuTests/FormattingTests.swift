@@ -44,8 +44,8 @@ final class FormattingTests: XCTestCase {
     @MainActor
     func testMenuBarShowsEachAccountNumberAndRoundedAllowance() {
         let layout = StatusStripRenderer.layout(for: [
-            MenuBarAccountValue(number: 1, freePercent: 74.6),
-            MenuBarAccountValue(number: 2, freePercent: 25.4),
+            MenuBarAccountValue(provider: .chatgpt, number: 1, freePercent: 74.6),
+            MenuBarAccountValue(provider: .chatgpt, number: 2, freePercent: 25.4),
         ])
 
         XCTAssertEqual(layout.badges, ["1", "2"])

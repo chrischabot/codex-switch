@@ -20,7 +20,7 @@ import SwiftUI
 
 struct CostRingArc: Equatable, Identifiable, Sendable {
     let id: String
-    let accountNumber: Int
+    let colourSlot: Int
     let startFraction: Double
     let endFraction: Double
 }
@@ -41,7 +41,7 @@ enum CostRingArcLayout {
             cursor += width
             return CostRingArc(
                 id: entry.0.id,
-                accountNumber: entry.0.accountNumber,
+                colourSlot: entry.0.colourSlot,
                 startFraction: start,
                 endFraction: cursor
             )

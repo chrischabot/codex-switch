@@ -25,16 +25,20 @@ final class PanelRenderTests: XCTestCase {
         let periods: [(String, OverviewSnapshot.ReportingPeriodKind)] = [
             ("today", .today), ("7-days", .sevenDays), ("30-days", .thirtyDays),
         ]
+        // The tallest the menu may be on each screen: its visible height, less
+        // the menu bar and the popover's margin. 14-inch MacBook Pro at its
+        // default 1512x982, and a 1440-point-high desktop display.
+        let screens: [(String, CGFloat)] = [("full", 4_000), ("1512x982", 982 - 37 - 16), ("2560x1440", 1_440 - 25 - 16)]
         for (periodName, period) in periods {
             for metric in UsageMetric.allCases {
-                try await renderPanel(store: store, period: period, metric: metric, privacy: false, maximumHeight: 4_000,
-                                      to: output.appending(path: "panel-\(periodName)-\(metric.rawValue).png"))
+                for (screenName, height) in screens {
+                    try await renderPanel(store: store, period: period, metric: metric, privacy: true, maximumHeight: height,
+                                          to: output.appending(path: "panel-\(periodName)-\(metric.rawValue)-\(screenName).png"))
+                }
             }
         }
-        try await renderPanel(store: store, period: .today, metric: .cost, privacy: true, maximumHeight: 4_000,
-                              to: output.appending(path: "panel-today-cost-private.png"))
-        try await renderPanel(store: store, period: .thirtyDays, metric: .cost, privacy: false, maximumHeight: 900,
-                              to: output.appending(path: "panel-30-days-cost-monitor.png"))
+        try await renderPanel(store: store, period: .today, metric: .cost, privacy: false, maximumHeight: 4_000,
+                              to: output.appending(path: "panel-today-cost-privacy-off-full.png"))
 
         let values = MenuBarAccountValue.values(for: snapshot.accounts)
         let strip = try XCTUnwrap(StatusStripRenderer.image(for: values))
@@ -70,7 +74,7 @@ final class PanelRenderTests: XCTestCase {
         hostingView.frame = CGRect(x: 0, y: 0, width: UsageTheme.panelWidth, height: maximumHeight)
         for _ in 0..<4 {
             hostingView.layoutSubtreeIfNeeded()
-            await Task.yield()
+            try await Task.sleep(for: .milliseconds(20))
         }
         hostingView.setFrameSize(hostingView.fittingSize)
         hostingView.layoutSubtreeIfNeeded()
