@@ -6,54 +6,18 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/joshp123/codex-switch/internal/store"
 )
 
-func claudeSessionForRequest(request *http.Request, body []byte) store.TaskID {
-	client := "code"
-	session := request.Header.Get("X-Claude-Code-Session-Id")
-	if session == "" {
-		session = request.Header.Get("Session-ID")
-		if session != "" {
-			client = "pi"
-		}
+func claudeSessionForRequest(request *http.Request, conversationPrefixes []string) store.TaskID {
+	if session := request.Header.Get("X-Claude-Code-Session-Id"); session != "" {
+		return store.TaskID("claude:code:" + session)
 	}
-	if session == "" {
-		session = request.Header.Get("X-Session-ID")
+	if len(conversationPrefixes) > 0 {
+		return store.TaskID("claude:conversation:" + conversationPrefixes[0])
 	}
-	if session == "" {
-		session = request.Header.Get("X-Session-Affinity")
-		if session != "" {
-			client = "pi"
-		}
-	}
-	if session == "" {
-		var fields struct {
-			Metadata struct {
-				UserID string `json:"user_id"`
-			} `json:"metadata"`
-		}
-		if json.Unmarshal(body, &fields) == nil {
-			var metadata struct {
-				SessionID string `json:"session_id"`
-			}
-			if json.Unmarshal([]byte(fields.Metadata.UserID), &metadata) == nil {
-				session = metadata.SessionID
-			}
-			if session == "" {
-				if index := strings.LastIndex(fields.Metadata.UserID, "_session_"); index >= 0 {
-					session = fields.Metadata.UserID[index+len("_session_"):]
-				}
-			}
-		}
-	}
-	if session == "" {
-		return ""
-	}
-	taskID := store.TaskID("claude:" + client + ":" + session)
-	return taskID
+	return ""
 }
 
 // Only hashes of reusable prompt prefixes survive the request. Cache markers

@@ -198,8 +198,8 @@ func (handler *TrafficRelayHandler) serveAuthenticatedTraffic(response http.Resp
 			warmup = modelRequest.Generate != nil && !*modelRequest.Generate
 		}
 		if provider == accounts.ProviderClaude {
-			taskID = claudeSessionForRequest(request, inspectedBody)
 			cachePrefixes = claudeConversationPrefixes(inspectedBody)
+			taskID = claudeSessionForRequest(request, cachePrefixes)
 			if taskID != "" && parentTaskID == "" && handler.cacheAffinity != nil {
 				parentTaskID, err = handler.cacheAffinity.ReadPromptCacheParent(taskID, cachePrefixes)
 				if err != nil {
