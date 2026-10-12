@@ -13,9 +13,10 @@ import (
 func loginCommand(args []string) {
 	flags := flag.NewFlagSet("login", flag.ExitOnError)
 	codex := flags.String("codex", codexstate.FindCodexExecutable(), "official Codex executable")
+	claude := flags.Bool("claude", false, "sign in to a Claude subscription account")
 	_ = flags.Parse(args)
 	if flags.NArg() > 1 || (flags.NArg() == 1 && !strings.HasPrefix(flags.Arg(0), "account-")) {
-		log.Fatal("usage: codex-switch login [account-N]")
+		log.Fatal("usage: codex-switch login [--claude] [account-N]")
 	}
 	target := flags.Arg(0)
 	if target == "" {
@@ -23,7 +24,13 @@ func loginCommand(args []string) {
 	} else {
 		fmt.Printf("Sign in again to %s\n", target)
 	}
-	published, err := accountapi.SignIn(dataDir(), *codex, target)
+	var published accountapi.PoolAccount
+	var err error
+	if *claude {
+		published, err = accountapi.SignInClaude(dataDir(), target)
+	} else {
+		published, err = accountapi.SignIn(dataDir(), *codex, target)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -47,7 +54,11 @@ func accountsCommand(args []string) {
 		return
 	}
 	for _, account := range pool {
-		fmt.Printf("%s\t%s\n", account.Name, account.Email)
+		provider := "ChatGPT"
+		if account.Provider == accountapi.ProviderClaude {
+			provider = "Claude"
+		}
+		fmt.Printf("%s\t%s\t%s\n", account.Name, provider, account.Email)
 	}
 }
 

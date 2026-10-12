@@ -68,10 +68,11 @@ type Credentials struct {
 
 // savedLogin reads one account's auth.json and refreshes its tokens.
 type savedLogin struct {
-	mu     sync.Mutex
-	home   string
-	client *http.Client
-	token  string
+	provider Provider
+	mu       sync.Mutex
+	home     string
+	client   *http.Client
+	token    string
 }
 
 type authFile struct {
@@ -96,6 +97,9 @@ func newSavedLogin(home string, client *http.Client) *savedLogin {
 }
 
 func (s *savedLogin) Credentials(ctx context.Context) (Credentials, error) {
+	if s.provider == ProviderClaude {
+		return s.claudeCredentials(ctx, Credentials{})
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var result Credentials
@@ -118,6 +122,9 @@ func (s *savedLogin) Credentials(ctx context.Context) (Credentials, error) {
 // CurrentCredentials reads the stored ChatGPT credentials without refreshing
 // or modifying them. It accepts only a current access token.
 func (s *savedLogin) CurrentCredentials() (Credentials, error) {
+	if s.provider == ProviderClaude {
+		return s.currentClaudeCredentials()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	auth, err := s.read()
@@ -134,6 +141,9 @@ func (s *savedLogin) CurrentCredentials() (Credentials, error) {
 // Concurrent callers which observed the same 401 therefore share one
 // same-account refresh-token rotation.
 func (s *savedLogin) RefreshAfterUnauthorized(ctx context.Context, rejected Credentials) (Credentials, error) {
+	if s.provider == ProviderClaude {
+		return s.claudeCredentials(ctx, rejected)
+	}
 	if rejected.AccessToken == "" || rejected.AccountID == "" {
 		return Credentials{}, signInRequired(errors.New("rejected credentials are incomplete"))
 	}

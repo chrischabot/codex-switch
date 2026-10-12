@@ -21,10 +21,15 @@ func (ledger *UsageLedger) ReadRoutedWork(accountKeys []string) (*menupb.ProxyAc
 	if err != nil {
 		return nil, err
 	}
+	claudeMetadata, err := claudeTaskMetadata(records)
+	if err != nil {
+		return nil, err
+	}
 	metadata, err := ledger.readTaskMetadata(context.Background())
 	if err != nil {
 		return nil, err
 	}
+	metadata = append(metadata, claudeMetadata...)
 	activity := &menupb.ProxyActivity{StartedAt: timestamppb.New(start), EndedAt: timestamppb.New(now)}
 	accountActivity := make(map[string]*menupb.ProxyAccountActivity)
 	for _, key := range accountKeys {
@@ -55,7 +60,12 @@ func (ledger *UsageLedger) ReadRoutedWork(accountKeys []string) (*menupb.ProxyAc
 		}
 		accountActivity[key].CompletedResponses++
 		accountActivity[key].Tokens += record.InputTokens + record.OutputTokens
-		completions = append(completions, reconciledCompletion{TaskID: string(record.CodexTaskID), At: record.CompletedAt, AccountName: record.AccountName, Tokens: record.InputTokens + record.OutputTokens})
+		cost := apiEquivalentPrice(record.ModelSlug, harnessMode(record.HarnessMode), tokenUsage{InputTokens: record.InputTokens, CachedInputTokens: record.CachedInputTokens, OutputTokens: record.OutputTokens})
+		if record.CostNanoUSD != nil {
+			price := nanoUSD(*record.CostNanoUSD)
+			cost = &price
+		}
+		completions = append(completions, reconciledCompletion{TaskID: string(record.TaskID), At: record.CompletedAt, AccountName: record.AccountName, Tokens: record.InputTokens + record.OutputTokens, Cost: cost})
 	}
 	for _, account := range accountActivity {
 		activity.Accounts = append(activity.Accounts, account)

@@ -18,7 +18,7 @@ const updateWebSocketQuietPeriod = time.Second
 // has had no response in progress for the quiet period; a request arriving
 // before then closes it unforwarded. Codex and Pi then send their next
 // request on a new connection, which reaches the new process.
-func (handler *CodexTrafficRelayHandler) CloseWebSocketsOnceIdle() {
+func (handler *TrafficRelayHandler) CloseWebSocketsOnceIdle() {
 	handler.drainMutex.Lock()
 	handler.closingWebSockets = true
 	openWebSockets := make([]*terminalResponseObserver, 0, len(handler.openWebSockets))
@@ -32,7 +32,7 @@ func (handler *CodexTrafficRelayHandler) CloseWebSocketsOnceIdle() {
 }
 
 // BeginRelayDrain closes idle upstream keep-alives after the command layer stops admission.
-func (handler *CodexTrafficRelayHandler) BeginRelayDrain() {
+func (handler *TrafficRelayHandler) BeginRelayDrain() {
 	handler.drainMutex.Lock()
 	if !handler.drainStarted {
 		handler.drainStarted = true
@@ -45,7 +45,7 @@ func (handler *CodexTrafficRelayHandler) BeginRelayDrain() {
 }
 
 // WaitForRelayDrain returns once every admitted request has finished.
-func (handler *CodexTrafficRelayHandler) WaitForRelayDrain(ctx context.Context) error {
+func (handler *TrafficRelayHandler) WaitForRelayDrain(ctx context.Context) error {
 	select {
 	case <-handler.drainComplete:
 		return nil
@@ -54,7 +54,7 @@ func (handler *CodexTrafficRelayHandler) WaitForRelayDrain(ctx context.Context) 
 	}
 }
 
-func (handler *CodexTrafficRelayHandler) trackOpenWebSocket(observer *terminalResponseObserver, closeWebSocket func()) {
+func (handler *TrafficRelayHandler) trackOpenWebSocket(observer *terminalResponseObserver, closeWebSocket func()) {
 	observer.admissionMutex.Lock()
 	observer.closeWebSocket = closeWebSocket
 	observer.idleSince = time.Now()
@@ -68,7 +68,7 @@ func (handler *CodexTrafficRelayHandler) trackOpenWebSocket(observer *terminalRe
 	}
 }
 
-func (handler *CodexTrafficRelayHandler) forgetOpenWebSocket(observer *terminalResponseObserver) {
+func (handler *TrafficRelayHandler) forgetOpenWebSocket(observer *terminalResponseObserver) {
 	handler.drainMutex.Lock()
 	delete(handler.openWebSockets, observer)
 	handler.drainMutex.Unlock()

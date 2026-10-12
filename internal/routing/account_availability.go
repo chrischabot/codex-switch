@@ -17,15 +17,26 @@ import (
 func (router *TaskRouter) accountUnavailableReason(fact accounts.AccountRoutingFact, modelSlug string) (string, error) {
 	switch {
 	case fact.AccountState == accounts.AccountSignInRequired:
-		return "signed out; run: codex-switch login " + string(fact.AccountName), nil
+		command := "codex-switch login "
+		if fact.Provider == accounts.ProviderClaude {
+			command += "--claude "
+		}
+		return "signed out; run: " + command + string(fact.AccountName), nil
 	case !accountCredentialsUsable(fact.Credentials) || fact.AccountState == accounts.AccountCredentialsUnavailable:
 		return withCause("cannot read its saved login", fact.AccountStateCause), nil
-	case fact.AccountState == accounts.AccountLimited:
+	case fact.Provider != accounts.ProviderClaude && fact.AccountState == accounts.AccountLimited:
 		return "OpenAI reports its usage limit reached" + resetSuffix(latestReset(fact.AllowanceSample)), nil
-	case !fact.AccountState.Eligible():
+	case !fact.AccountState.Eligible() && !(fact.Provider == accounts.ProviderClaude && fact.AccountState == accounts.AccountLimited):
 		return "account state " + string(fact.AccountState), nil
 	}
 	now := router.currentTime().UTC()
+	if fact.Provider == accounts.ProviderClaude {
+		reason, resetsAt := accounts.ClaudeUnavailableReason(fact, modelSlug, now)
+		if reason != "" {
+			reason += resetSuffix(resetsAt)
+		}
+		return reason, nil
+	}
 	for _, kind := range []accounts.AllowanceWindowKind{accounts.FiveHours, accounts.Weekly} {
 		window, known := accounts.AnalyseAllowance(fact.AllowanceSample, fact.AccountState, now, kind)
 		if known && window.FreePercent <= 0 {
@@ -61,7 +72,10 @@ func (router *TaskRouter) accountUnavailableReason(fact accounts.AccountRoutingF
 
 // weeklyAllowanceLeft is the free share of the weekly allowance, which ranks
 // accounts for new work. An account that reports no weekly window ranks last.
-func (router *TaskRouter) weeklyAllowanceLeft(fact accounts.AccountRoutingFact) (float64, bool) {
+func (router *TaskRouter) weeklyAllowanceLeft(fact accounts.AccountRoutingFact, modelSlug string) (float64, bool) {
+	if fact.Provider == accounts.ProviderClaude {
+		return accounts.ClaudeWeeklyAllowanceLeft(fact, modelSlug, router.currentTime().UTC())
+	}
 	weekly, known := accounts.AnalyseAllowance(fact.AllowanceSample, fact.AccountState, router.currentTime().UTC(), accounts.Weekly)
 	return weekly.FreePercent, known
 }

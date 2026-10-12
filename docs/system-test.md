@@ -1,4 +1,4 @@
-<!-- Written by AI on 2026.10.11 by model claude-opus-5.5. -->
+<!-- Written by AI on 2026.10.11 by model claude-opus-5.5; updated on 2026.10.12 by model GPT-6.1 Sol. -->
 
 # System test
 
@@ -9,7 +9,7 @@ scripts/dev/system-test
 ```
 
 It takes about four minutes. It builds the proxy from this working tree, runs
-the whole system in isolation, and prints what the system did for each outcome:
+the ChatGPT pool in isolation, and prints what the system did for each outcome:
 
 1. New Codex tasks and Pi sessions go to the account with the most weekly
    allowance left, and stay there when another account takes the lead.
@@ -77,3 +77,17 @@ in `.project-private/system-test/`:
 | `control` | The simulation as it ended |
 
 The next run moves this directory to the Trash.
+
+## Claude accounts
+
+[Claude setup](../README.md#claude-subscriptions) uses the same proxy, data
+folder and account commands. Sign in with `login --claude`; print Claude Code's
+persistent settings with `print-claude-config`, or Pi's provider entry with
+`print-claude-config --pi`.
+
+The system-test command above exercises ChatGPT accounts. Test Claude Code and
+Pi against a separate proxy and data folder, using `--listen` on the printed
+settings to match that proxy's port. Use new Claude sign-ins in that folder.
+Keep existing client settings and live account tokens in place. Check session
+placement, continuation, forks and cache reads, model-specific limits, usage
+and a blue-green update with the real clients.

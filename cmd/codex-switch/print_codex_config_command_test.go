@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"os"
 	"os/exec"
@@ -50,12 +51,21 @@ func TestPrintCodexConfigProcess(t *testing.T) {
 	if os.Getenv("CODEX_SWITCH_PRINT_CONFIG_PROCESS") != "1" {
 		return
 	}
-	os.Args = append([]string{"codex-switch", "print-codex-config"}, flag.Args()...)
+	command := os.Getenv("CODEX_SWITCH_PRINT_CONFIG_COMMAND")
+	if command == "" {
+		command = "print-codex-config"
+	}
+	os.Args = append([]string{"codex-switch", command}, flag.Args()...)
 	main()
 	os.Exit(0)
 }
 
 func runPrintCodexConfigProcess(t *testing.T, dataDirectory string, args ...string) []byte {
+	t.Helper()
+	return runPrintConfigProcess(t, dataDirectory, "print-codex-config", args...)
+}
+
+func runPrintConfigProcess(t *testing.T, dataDirectory, commandName string, args ...string) []byte {
 	t.Helper()
 	executable, err := os.Executable()
 	if err != nil {
@@ -64,6 +74,7 @@ func runPrintCodexConfigProcess(t *testing.T, dataDirectory string, args ...stri
 	command := exec.Command(executable, append([]string{"-test.run=^TestPrintCodexConfigProcess$", "--"}, args...)...)
 	command.Env = append(os.Environ(),
 		"CODEX_SWITCH_PRINT_CONFIG_PROCESS=1",
+		"CODEX_SWITCH_PRINT_CONFIG_COMMAND="+commandName,
 		"CODEX_SWITCH_DATA_DIR="+dataDirectory,
 	)
 	output, err := command.CombinedOutput()
@@ -71,4 +82,37 @@ func runPrintCodexConfigProcess(t *testing.T, dataDirectory string, args ...stri
 		t.Fatalf("print Codex config: %v\n%s", err, output)
 	}
 	return output
+}
+
+func TestPrintedClaudeClientSettingsUseOnePrivatePoolAddress(t *testing.T) {
+	dataDirectory := filepath.Join(t.TempDir(), "data")
+	claudeSettings := runPrintConfigProcess(t, dataDirectory, "print-claude-config", "--listen", "127.0.0.1:52359")
+	var settings struct {
+		Env map[string]string `json:"env"`
+	}
+	if err := json.Unmarshal(claudeSettings, &settings); err != nil {
+		t.Fatal(err)
+	}
+	capability, err := clientcapability.Read(dataDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantURL := "http://127.0.0.1:52359/client/" + capability + "/anthropic"
+	if settings.Env["ANTHROPIC_BASE_URL"] != wantURL || settings.Env["ANTHROPIC_AUTH_TOKEN"] == "" || settings.Env["ENABLE_TOOL_SEARCH"] != "true" {
+		t.Fatalf("Claude Code settings omit the pool address, gateway authentication or MCP tool search: %s", claudeSettings)
+	}
+	piSettings := runPrintConfigProcess(t, dataDirectory, "print-claude-config", "--pi", "--listen", "127.0.0.1:52359")
+	var pi struct {
+		Providers map[string]struct {
+			BaseURL string `json:"baseUrl"`
+			APIKey  string `json:"apiKey"`
+		} `json:"providers"`
+	}
+	if err := json.Unmarshal(piSettings, &pi); err != nil {
+		t.Fatal(err)
+	}
+	provider := pi.Providers["anthropic"]
+	if provider.BaseURL != wantURL || provider.APIKey != "sk-ant-oat01-codex-switch" {
+		t.Fatalf("Pi settings use a different address or do not select the Claude subscription protocol: %s", piSettings)
+	}
 }

@@ -69,8 +69,12 @@ func publishLogin(dataDirectory, staging, accountName string, signedIn PoolAccou
 		if selected == nil {
 			return PoolAccount{}, fmt.Errorf("unknown account %s", accountName)
 		}
-		if signedIn.ID != selected.ID {
-			return PoolAccount{}, fmt.Errorf("the browser signed in to a different ChatGPT account; %s was not changed", accountName)
+		if signedIn.Provider != selected.Provider || signedIn.ID != selected.ID {
+			providerName := "ChatGPT"
+			if signedIn.Provider == ProviderClaude {
+				providerName = "Claude"
+			}
+			return PoolAccount{}, fmt.Errorf("the browser signed in to a different %s account; %s was not changed", providerName, accountName)
 		}
 		active := filepath.Join(dataDirectory, accountName)
 		if err := withAuthLock(active, func() error {
@@ -84,8 +88,12 @@ func publishLogin(dataDirectory, staging, accountName string, signedIn PoolAccou
 	}
 
 	for _, account := range existing {
-		if account.ID == signedIn.ID {
-			return PoolAccount{}, fmt.Errorf("the same ChatGPT account was selected more than once")
+		if account.Provider == signedIn.Provider && account.ID == signedIn.ID {
+			providerName := "ChatGPT"
+			if signedIn.Provider == ProviderClaude {
+				providerName = "Claude"
+			}
+			return PoolAccount{}, fmt.Errorf("the same %s account was selected more than once", providerName)
 		}
 	}
 	database, err := store.OpenStoreDatabase(filepath.Join(dataDirectory, "codex-switch.db"))

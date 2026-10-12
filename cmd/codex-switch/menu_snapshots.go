@@ -62,11 +62,21 @@ func (snapshots *menuSnapshots) Run(ctx context.Context) {
 }
 
 func (snapshots *menuSnapshots) compose(ctx context.Context) error {
-	configContext, cancel := context.WithTimeout(ctx, 10*time.Second)
-	config, err := snapshots.codex.ModelConfig(configContext)
-	cancel()
+	installed, err := accountapi.ReadPool(snapshots.dataDirectory)
 	if err != nil {
 		return err
+	}
+	hasChatGPTAccounts := slices.ContainsFunc(installed, func(account accountapi.PoolAccount) bool {
+		return account.Provider != accountapi.ProviderClaude
+	})
+	var config codexstate.EffectiveModelConfig
+	if hasChatGPTAccounts {
+		configContext, cancel := context.WithTimeout(ctx, 10*time.Second)
+		config, err = snapshots.codex.ModelConfig(configContext)
+		cancel()
+		if err != nil {
+			return err
+		}
 	}
 	snapshot, err := readServingMenuSnapshot(snapshots.dataDirectory, snapshots.router, config.Model)
 	if err != nil {
@@ -83,8 +93,10 @@ func (snapshots *menuSnapshots) compose(ctx context.Context) error {
 	if snapshot.ReportingPeriods, snapshot.AccountDays, err = snapshots.usageLedger.TotalUsage(ctx); err != nil {
 		return err
 	}
-	if err := nameCodexTasks(ctx, snapshots.codex, snapshot); err != nil {
-		return err
+	if hasChatGPTAccounts {
+		if err := nameCodexTasks(ctx, snapshots.codex, snapshot); err != nil {
+			return err
+		}
 	}
 	encoded, err := proto.Marshal(snapshot)
 	if err != nil {
@@ -186,10 +198,15 @@ func readServingMenuSnapshot(dataDirectory string, router *routing.TaskRouter, m
 		identity := identities[fact.AccountName]
 		sample := fact.AllowanceSample
 		account := &menupb.Account{Key: string(fact.AccountName), AccountNumber: uint32(identity.Index), Email: identity.Email, Plan: sample.Plan, State: menuAccountState(fact.AccountState), Usable: unavailableReasons[fact.AccountName] == "", UnavailableReason: unavailableReasons[fact.AccountName], OffersConfiguredModel: modelSlug == "" || slices.Contains(fact.SupportedModelSlugs, modelSlug)}
+		account.Provider = menupb.Provider_PROVIDER_CHATGPT
+		if identity.Provider == accountapi.ProviderClaude {
+			account.Provider = menupb.Provider_PROVIDER_CLAUDE
+			account.OffersConfiguredModel = true
+		}
 		if !sample.ObservedAt.IsZero() {
 			observation := &menupb.AllowanceObservation{ObservedAt: timestamppb.New(sample.ObservedAt), Allowed: sample.Allowed, LimitReached: sample.LimitReached, AvailableResetCredits: sample.AvailableResetCredits}
 			for _, window := range sample.Windows {
-				observation.Windows = append(observation.Windows, &menupb.AllowanceWindow{PeriodSeconds: window.DurationSeconds, UsedPercent: window.UsedPercent, ResetAt: timestamppb.New(window.ResetsAt)})
+				observation.Windows = append(observation.Windows, &menupb.AllowanceWindow{PeriodSeconds: window.DurationSeconds, UsedPercent: window.UsedPercent, ResetAt: timestamppb.New(window.ResetsAt), ModelId: window.ModelID, ModelName: window.ModelName})
 			}
 			account.Allowance = observation
 		}

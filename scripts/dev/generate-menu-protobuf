@@ -1,6 +1,10 @@
 #!/bin/sh
 set -eu
 cd "$(dirname "$0")/../.."
+if [ "${1:-}" = "--go-only" ]; then
+  protoc -I proto --go_out=. --go_opt=module=github.com/joshp123/codex-switch proto/menu_snapshot.proto
+  exit 0
+fi
 swift package --package-path macos/CodexSwitchMenu resolve
 swift build --package-path macos/CodexSwitchMenu/.build/checkouts/swift-protobuf --product protoc-gen-swift
 swift_generator_dir=$(swift build --package-path macos/CodexSwitchMenu/.build/checkouts/swift-protobuf --show-bin-path)

@@ -42,15 +42,25 @@ func CreateTaskRouter(storeDatabase *store.StoreDatabase, accountFacts AccountRo
 // available and gives new work the account with the most weekly allowance left.
 // Work without a task ID gets the same choice as a new task but is never pinned.
 // Metadata requests never create or move a pin.
-func (router *TaskRouter) RouteForTask(codexTaskID store.CodexTaskID, workKind store.WorkKind, modelSlug string) (RouteDecision, error) {
+func (router *TaskRouter) RouteForTask(taskID store.TaskID, workKind store.WorkKind, modelSlug string) (RouteDecision, error) {
+	return router.RouteForProviderTask(taskID, workKind, modelSlug, accounts.ProviderChatGPT, "")
+}
+
+// RouteForProviderTask uses the same placement rule for each provider. A new fork
+// first inherits its parent account when that account can serve this model.
+func (router *TaskRouter) RouteForProviderTask(taskID store.TaskID, workKind store.WorkKind, modelSlug string, provider accounts.Provider, parentTaskID store.TaskID) (RouteDecision, error) {
 	facts, err := router.accountFacts.ReadAccountRoutingFacts()
 	if err != nil {
 		return RouteDecision{}, fmt.Errorf("read account routing facts: %w", err)
 	}
+	facts = factsForProvider(facts, provider)
+	if provider == accounts.ProviderClaude && workKind != store.ModelTurnWorkKind {
+		return router.routeClaudeMetadata(facts, taskID)
+	}
 	var pin store.TaskAccountPin
 	pinned := false
-	if codexTaskID != "" {
-		if pin, pinned, err = router.storeDatabase.ReadTaskAccountPin(codexTaskID); err != nil {
+	if taskID != "" {
+		if pin, pinned, err = router.storeDatabase.ReadTaskAccountPin(taskID); err != nil {
 			return RouteDecision{}, err
 		}
 	}
@@ -66,7 +76,31 @@ func (router *TaskRouter) RouteForTask(codexTaskID store.CodexTaskID, workKind s
 		}
 	}
 
-	selected, found, err := router.selectAccountWithMostWeeklyCapacity(facts, codexTaskID, "", modelSlug)
+	if !pinned && taskID != "" && parentTaskID != "" && workKind == store.ModelTurnWorkKind {
+		parentPin, parentPinned, err := router.storeDatabase.ReadTaskAccountPin(parentTaskID)
+		if err != nil {
+			return RouteDecision{}, err
+		}
+		if parentPinned {
+			if parentFact, present := factForAccount(facts, parentPin.AccountName); present {
+				problem, err := router.accountUnavailableReason(parentFact, modelSlug)
+				if err != nil {
+					return RouteDecision{}, err
+				}
+				if problem == "" {
+					winner, err := router.storeDatabase.PinTaskAccountIfAbsent(store.TaskAccountPin{TaskID: taskID, AccountName: parentPin.AccountName, PinnedAt: router.currentTime().UTC()})
+					if err != nil {
+						return RouteDecision{}, err
+					}
+					if winner.AccountName == parentPin.AccountName {
+						return RouteDecision{AccountName: parentPin.AccountName, Credentials: parentFact.Credentials, Assignment: "fork keeps its parent's account " + string(parentPin.AccountName)}, nil
+					}
+					return router.RouteForProviderTask(taskID, workKind, modelSlug, provider, parentTaskID)
+				}
+			}
+		}
+	}
+	selected, found, err := router.selectAccountWithMostWeeklyCapacity(facts, taskID, "", modelSlug)
 	if err != nil {
 		return RouteDecision{}, err
 	}
@@ -79,30 +113,30 @@ func (router *TaskRouter) RouteForTask(codexTaskID store.CodexTaskID, workKind s
 	if workKind != store.ModelTurnWorkKind {
 		return decision, nil
 	}
-	choice := router.describeChoice(selected)
+	choice := router.describeChoice(selected, modelSlug)
 	switch {
-	case codexTaskID == "":
+	case taskID == "":
 		decision.Assignment = "served by " + choice + "; not pinned to a task"
 		return decision, nil
 	case pinned:
-		moved, err := router.storeDatabase.CompareAndSwapTaskAccountPin(codexTaskID, pin.AccountName, selected.AccountName, router.currentTime().UTC())
+		moved, err := router.storeDatabase.CompareAndSwapTaskAccountPin(taskID, pin.AccountName, selected.AccountName, router.currentTime().UTC())
 		if err != nil {
 			return RouteDecision{}, err
 		}
 		if !moved {
-			return router.RouteForTask(codexTaskID, workKind, modelSlug)
+			return router.RouteForProviderTask(taskID, workKind, modelSlug, provider, parentTaskID)
 		}
 		decision.Assignment = fmt.Sprintf("moved from %s (%s) to %s", pin.AccountName, pinnedAccountProblem, choice)
 		return decision, nil
 	}
 	winner, err := router.storeDatabase.PinTaskAccountIfAbsent(store.TaskAccountPin{
-		CodexTaskID: codexTaskID, AccountName: selected.AccountName, PinnedAt: router.currentTime().UTC(),
+		TaskID: taskID, AccountName: selected.AccountName, PinnedAt: router.currentTime().UTC(),
 	})
 	if err != nil {
 		return RouteDecision{}, err
 	}
 	if winner.AccountName != selected.AccountName {
-		return router.RouteForTask(codexTaskID, workKind, modelSlug)
+		return router.RouteForProviderTask(taskID, workKind, modelSlug, provider, parentTaskID)
 	}
 	decision.Assignment = "new task assigned to " + choice
 	return decision, nil
@@ -110,22 +144,22 @@ func (router *TaskRouter) RouteForTask(codexTaskID store.CodexTaskID, workKind s
 
 // ReportExhaustedTurn changes the account for the next client request; routing never resends work.
 // It returns what happened to the task, for the proxy log.
-func (router *TaskRouter) ReportExhaustedTurn(codexTaskID store.CodexTaskID, servedAccountName store.AccountName, resetsAt time.Time) string {
-	outcome, err := router.reportExhaustedTaskPin(codexTaskID, servedAccountName, resetsAt)
+func (router *TaskRouter) ReportExhaustedTurn(taskID store.TaskID, servedAccountName store.AccountName, resetsAt time.Time) string {
+	outcome, err := router.reportExhaustedTaskPin(taskID, servedAccountName, resetsAt)
 	if err != nil {
 		return fmt.Sprintf("%s hit its usage limit%s; could not move the task: %v", servedAccountName, resetSuffix(resetsAt), err)
 	}
 	return outcome
 }
 
-// ReportUnauthorizedTurn refreshes rejected credentials for Codex's next request without replaying the failed turn.
+// ReportUnauthorizedTurn refreshes rejected credentials for the client's next request without replaying the failed turn.
 func (router *TaskRouter) ReportUnauthorizedTurn(servedAccountName store.AccountName, rejectedCredentials accounts.Credentials) {
 	if err := router.accountFacts.RefreshAccountCredentialsAfterUnauthorized(servedAccountName, rejectedCredentials); err != nil {
-		log.Printf("%s: OpenAI rejected its login and refreshing it failed: %v", servedAccountName, err)
+		log.Printf("%s: the provider rejected its login and refreshing it failed: %v", servedAccountName, err)
 	}
 }
 
-func (router *TaskRouter) reportExhaustedTaskPin(codexTaskID store.CodexTaskID, servedAccountName store.AccountName, resetsAt time.Time) (string, error) {
+func (router *TaskRouter) reportExhaustedTaskPin(taskID store.TaskID, servedAccountName store.AccountName, resetsAt time.Time) (string, error) {
 	limitReached := fmt.Sprintf("%s hit its usage limit%s", servedAccountName, resetSuffix(resetsAt))
 	if err := router.storeDatabase.RecordAccountReportedReset(servedAccountName, resetsAt, router.currentTime().UTC()); err != nil {
 		return "", err
@@ -134,7 +168,10 @@ func (router *TaskRouter) reportExhaustedTaskPin(codexTaskID store.CodexTaskID, 
 	if err != nil {
 		return "", fmt.Errorf("read account routing facts: %w", err)
 	}
-	selected, found, err := router.selectAccountWithMostWeeklyCapacity(facts, codexTaskID, servedAccountName, "")
+	if served, found := factForAccount(facts, servedAccountName); found {
+		facts = factsForProvider(facts, served.Provider)
+	}
+	selected, found, err := router.selectAccountWithMostWeeklyCapacity(facts, taskID, servedAccountName, "")
 	if err != nil {
 		return "", err
 	}
@@ -142,18 +179,18 @@ func (router *TaskRouter) reportExhaustedTaskPin(codexTaskID store.CodexTaskID, 
 	if !found {
 		return limitReached + "; no other account is available, so the next request waits for one", nil
 	}
-	if codexTaskID == "" {
-		return limitReached + "; the next request goes to " + router.describeChoice(selected), nil
+	if taskID == "" {
+		return limitReached + "; the next request goes to " + router.describeChoice(selected, ""), nil
 	}
 	moved, err := router.storeDatabase.CompareAndSwapTaskAccountPin(
-		codexTaskID, servedAccountName, selected.AccountName, router.currentTime().UTC())
+		taskID, servedAccountName, selected.AccountName, router.currentTime().UTC())
 	if err != nil || !moved {
 		return limitReached, err
 	}
-	return limitReached + "; task moved to " + router.describeChoice(selected) + " for its next request", nil
+	return limitReached + "; task moved to " + router.describeChoice(selected, "") + " for its next request", nil
 }
 
-func (router *TaskRouter) selectAccountWithMostWeeklyCapacity(facts []accounts.AccountRoutingFact, codexTaskID store.CodexTaskID, excludedAccountName store.AccountName, modelSlug string) (accounts.AccountRoutingFact, bool, error) {
+func (router *TaskRouter) selectAccountWithMostWeeklyCapacity(facts []accounts.AccountRoutingFact, taskID store.TaskID, excludedAccountName store.AccountName, modelSlug string) (accounts.AccountRoutingFact, bool, error) {
 	var selected accounts.AccountRoutingFact
 	selectedCapacity := -1.0
 	for _, fact := range facts {
@@ -167,22 +204,25 @@ func (router *TaskRouter) selectAccountWithMostWeeklyCapacity(facts []accounts.A
 		if problem != "" {
 			continue
 		}
-		capacity, _ := router.weeklyAllowanceLeft(fact)
-		if selectedCapacity < capacity || (selectedCapacity == capacity && codexTaskID != "" && accountWinsEqualCapacityTie(codexTaskID, fact.AccountName, selected.AccountName)) {
+		capacity, known := router.weeklyAllowanceLeft(fact, modelSlug)
+		if !known {
+			capacity = -0.5
+		}
+		if selectedCapacity < capacity || (selectedCapacity == capacity && taskID != "" && accountWinsEqualCapacityTie(taskID, fact.AccountName, selected.AccountName)) {
 			selected = fact
 			selectedCapacity = capacity
 		}
 	}
-	return selected, selectedCapacity >= 0, nil
+	return selected, selected.AccountName != "", nil
 }
 
 // describeChoice explains why selectAccountWithMostWeeklyCapacity chose an account.
-func (router *TaskRouter) describeChoice(selected accounts.AccountRoutingFact) string {
-	weeklyFreePercent, reported := router.weeklyAllowanceLeft(selected)
+func (router *TaskRouter) describeChoice(selected accounts.AccountRoutingFact, modelSlug string) string {
+	weeklyFreePercent, reported := router.weeklyAllowanceLeft(selected, modelSlug)
 	if !reported {
 		return fmt.Sprintf("%s, which reports no weekly allowance", selected.AccountName)
 	}
-	return fmt.Sprintf("%s, which has the most weekly allowance left (%g%%)", selected.AccountName, weeklyFreePercent)
+	return fmt.Sprintf("%s, which has the most weekly allowance left (%.1f%%)", selected.AccountName, weeklyFreePercent)
 }
 
 func (router *TaskRouter) describeUnavailableAccounts(facts []accounts.AccountRoutingFact, modelSlug string) string {
@@ -200,19 +240,22 @@ func (router *TaskRouter) describeUnavailableAccounts(facts []accounts.AccountRo
 	return strings.Join(problems, "; ")
 }
 
-func accountWinsEqualCapacityTie(taskID store.CodexTaskID, candidateAccountName, selectedAccountName store.AccountName) bool {
+func accountWinsEqualCapacityTie(taskID store.TaskID, candidateAccountName, selectedAccountName store.AccountName) bool {
 	candidateRank := sha256.Sum256([]byte(string(taskID) + "\x00" + string(candidateAccountName)))
 	selectedRank := sha256.Sum256([]byte(string(taskID) + "\x00" + string(selectedAccountName)))
 	return bytes.Compare(candidateRank[:], selectedRank[:]) > 0
 }
 
 // ReportUnsupportedModel prepares the next client request without resending rejected work.
-func (router *TaskRouter) ReportUnsupportedModel(taskID store.CodexTaskID, accountName store.AccountName, modelSlug string) bool {
+func (router *TaskRouter) ReportUnsupportedModel(taskID store.TaskID, accountName store.AccountName, modelSlug string) bool {
 	router.accountFacts.ExcludeUnsupportedAccountModel(accountName, modelSlug)
 	facts, err := router.accountFacts.ReadAccountRoutingFacts()
 	if err != nil {
 		log.Printf("read model routing facts: %v", err)
 		return false
+	}
+	if served, found := factForAccount(facts, accountName); found {
+		facts = factsForProvider(facts, served.Provider)
 	}
 	selected, found, err := router.selectAccountWithMostWeeklyCapacity(accountsWithKnownModels(facts), taskID, accountName, modelSlug)
 	if err != nil {
@@ -261,7 +304,7 @@ func (router *TaskRouter) RouteForModelCatalogue() (RouteDecision, error) {
 	var selected *accounts.AccountRoutingFact
 	for index := range facts {
 		fact := &facts[index]
-		if !accountCredentialsUsable(fact.Credentials) || fact.SupportedModelSlugs == nil {
+		if fact.Provider != accounts.ProviderChatGPT || !accountCredentialsUsable(fact.Credentials) || fact.SupportedModelSlugs == nil {
 			continue
 		}
 		if selected == nil || len(fact.SupportedModelSlugs) > len(selected.SupportedModelSlugs) {
@@ -284,9 +327,26 @@ func (router *TaskRouter) ReadAccountAvailability(modelSlug string) ([]accounts.
 	}
 	unavailableReasons := make(map[store.AccountName]string, len(facts))
 	for _, fact := range facts {
-		if unavailableReasons[fact.AccountName], err = router.accountUnavailableReason(fact, modelSlug); err != nil {
+		if unavailableReasons[fact.AccountName], err = router.accountUnavailableReason(fact, availabilityModel(fact, modelSlug)); err != nil {
 			return nil, nil, err
 		}
 	}
 	return facts, unavailableReasons, nil
+}
+
+func factsForProvider(facts []accounts.AccountRoutingFact, provider accounts.Provider) []accounts.AccountRoutingFact {
+	selected := make([]accounts.AccountRoutingFact, 0, len(facts))
+	for _, fact := range facts {
+		if fact.Provider == provider {
+			selected = append(selected, fact)
+		}
+	}
+	return selected
+}
+
+func availabilityModel(fact accounts.AccountRoutingFact, codexModel string) string {
+	if fact.Provider == accounts.ProviderClaude {
+		return ""
+	}
+	return codexModel
 }

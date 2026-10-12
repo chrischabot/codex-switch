@@ -1,10 +1,11 @@
 // Package usage answers how many tokens each account and each task used, and
-// what that work would cost at OpenAI's API prices.
+// what that work would cost at the provider's API prices.
 //
 // Account totals come from OpenAI's own per-account report, which counts every
 // machine and ChatGPT Work on the web. Task totals come from what this Mac
 // saw: local Codex and Pi session history joined with the responses the relay
-// recorded. It keeps its own tables in the store's database.
+// recorded. Claude account and task totals use the same served responses.
+// It keeps its own tables in the store's database.
 package usage
 
 import (

@@ -37,8 +37,14 @@ func describeAccountAvailabilityChange(previous, current AccountRoutingFact, ema
 		state = "available"
 	case AccountLimited:
 		state = "OpenAI reports its usage limit reached"
+		if current.Provider == ProviderClaude {
+			state = "Claude reports its usage limit reached"
+		}
 	case AccountSignInRequired:
 		state = fmt.Sprintf("signed out (%v); run: codex-switch login %s", current.AccountStateCause, current.AccountName)
+		if current.Provider == ProviderClaude {
+			state = fmt.Sprintf("signed out (%v); run: codex-switch login --claude %s", current.AccountStateCause, current.AccountName)
+		}
 	case AccountCredentialsUnavailable:
 		state = fmt.Sprintf("cannot read its saved login: %v", current.AccountStateCause)
 	case AccountUsageCheckFailed:
@@ -73,8 +79,14 @@ func allowanceReadFailing(fact AccountRoutingFact) bool {
 func describeAllowanceWindows(sample AllowanceSample) string {
 	windows := make([]string, 0, len(sample.Windows))
 	for _, window := range sample.Windows {
+		label := AllowancePeriodLabel(window.DurationSeconds)
+		if window.ModelName != "" {
+			label += " (" + window.ModelName + ")"
+		} else if window.ModelID != "" {
+			label += " (" + window.ModelID + ")"
+		}
 		windows = append(windows, fmt.Sprintf("%s %g%% used, %g%% free, resets %s",
-			AllowancePeriodLabel(window.DurationSeconds), window.UsedPercent, 100-window.UsedPercent,
+			label, window.UsedPercent, 100-window.UsedPercent,
 			window.ResetsAt.Local().Format("Mon 2 Jan 15:04")))
 	}
 	return strings.Join(windows, "; ")

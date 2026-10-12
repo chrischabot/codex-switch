@@ -52,6 +52,12 @@ message Account {
   // The account's plan offers the model Codex is configured to use, so it is
   // part of the pool for current work even while its allowance is used up.
   bool offers_configured_model = 9;
+  Provider provider = 10;
+}
+enum Provider {
+  PROVIDER_UNSPECIFIED = 0;
+  PROVIDER_CHATGPT = 1;
+  PROVIDER_CLAUDE = 2;
 }
 enum AccountState {
   ACCOUNT_STATE_UNSPECIFIED = 0;
@@ -72,6 +78,9 @@ message AllowanceWindow {
   int64 period_seconds = 1;
   double used_percent = 2;
   google.protobuf.Timestamp reset_at = 3;
+  // Empty for a window shared by all models.
+  string model_id = 4;
+  string model_name = 5;
 }
 message CompletedTask {
   string task_id = 1;

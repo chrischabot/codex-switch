@@ -12,17 +12,27 @@ import (
 	"strings"
 )
 
-// PoolAccount is one signed-in ChatGPT account. Pool accounts live in
-// account-N directories in the data directory, each holding Codex's auth.json.
+type Provider string
+
+const (
+	ProviderCodex   Provider = ""
+	ProviderChatGPT Provider = ProviderCodex
+	ProviderClaude  Provider = "claude"
+)
+
+// PoolAccount is one signed-in subscription account. Pool accounts live in
+// account-N directories in the data directory, each holding an auth.json.
 type PoolAccount struct {
+	Provider       Provider
+	OrganizationID string
+	Plan           string
 	// Name is the directory name, such as account-3, and Index its number.
 	Name  string
 	Index int
-	// ID identifies the signed-in ChatGPT user: the ID token's user ID, or
-	// AccountID|Email when the token has none. One user is in the pool once.
+	// ID identifies the subscription user within its provider.
 	ID string
-	// AccountID is the ChatGPT subscription account sent upstream as the
-	// ChatGPT-Account-ID header.
+	// AccountID is the immutable subscription identity. For ChatGPT it is sent
+	// as ChatGPT-Account-ID; for Claude it joins the account and organization IDs.
 	AccountID string
 	Email     string
 }
@@ -59,7 +69,7 @@ func ReadPool(dataDirectory string) ([]PoolAccount, error) {
 	return result, nil
 }
 
-// ReadPoolAccount reads the ChatGPT identity from the auth.json in
+// ReadPoolAccount reads the provider identity from the auth.json in
 // accountDirectory.
 func ReadPoolAccount(accountDirectory, name string, index int) (PoolAccount, error) {
 	data, err := os.ReadFile(filepath.Join(accountDirectory, "auth.json"))
@@ -67,13 +77,17 @@ func ReadPoolAccount(accountDirectory, name string, index int) (PoolAccount, err
 		return PoolAccount{}, err
 	}
 	var value struct {
-		Tokens struct {
+		Provider Provider `json:"provider"`
+		Tokens   struct {
 			AccountID string `json:"account_id"`
 			IDToken   string `json:"id_token"`
 		} `json:"tokens"`
 	}
 	if err := json.Unmarshal(data, &value); err != nil {
 		return PoolAccount{}, err
+	}
+	if value.Provider == ProviderClaude {
+		return readClaudePoolAccount(data, name, index)
 	}
 	if value.Tokens.AccountID == "" {
 		return PoolAccount{}, fmt.Errorf("%s has no ChatGPT account ID", name)

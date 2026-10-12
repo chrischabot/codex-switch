@@ -17,8 +17,8 @@ import (
 // started work because its account is out of allowance, or does not offer the
 // model, moves its task and becomes a retryable error for Codex; the proxy never
 // resends the request itself. Every other rejection reaches the client unchanged.
-func (handler *CodexTrafficRelayHandler) observeRejectedResponse(routedRequest *routedRelayRequest, upstreamResponse *http.Response) error {
-	subject := describeModelRequest(routedRequest.codexTaskID, routedRequest.client, routedRequest.routeDecision.AccountName)
+func (handler *TrafficRelayHandler) observeRejectedResponse(routedRequest *routedRelayRequest, upstreamResponse *http.Response) error {
+	subject := describeModelRequest(routedRequest.taskID, routedRequest.client, routedRequest.routeDecision.AccountName)
 	if routedRequest.workKind != store.ModelTurnWorkKind {
 		// Read only the start of the body for the reason, then hand the client
 		// every byte unchanged.

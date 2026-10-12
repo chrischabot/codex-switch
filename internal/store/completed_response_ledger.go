@@ -23,12 +23,12 @@ func (database *StoreDatabase) RecordCompletedResponse(record CompletedResponseR
 INSERT INTO completed_responses (
     completed_response_id, codex_task_id, account_name, model_slug, harness_mode,
     input_tokens, cached_input_tokens, cache_write_input_tokens, output_tokens, reasoning_tokens,
-    completed_at_unix_nano
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    completed_at_unix_nano, cost_nano_usd
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT DO NOTHING`,
-		record.CompletedResponseID, record.CodexTaskID, record.AccountName, record.ModelSlug, record.HarnessMode,
+		record.CompletedResponseID, record.TaskID, record.AccountName, record.ModelSlug, record.HarnessMode,
 		record.InputTokens, record.CachedInputTokens, record.CacheWriteInputTokens, record.OutputTokens, record.ReasoningTokens,
-		record.CompletedAt.UTC().UnixNano())
+		record.CompletedAt.UTC().UnixNano(), record.CostNanoUSD)
 	if err != nil {
 		return fmt.Errorf("record completed response: %w", err)
 	}

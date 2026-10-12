@@ -4,11 +4,11 @@
 
 Treat these as credentials:
 
-- ChatGPT access, refresh and identity tokens
+- ChatGPT and Claude access, refresh and identity tokens
 - the private URL key (`client-capability`) and any URL containing it
 - account IDs and email addresses
 - files under `~/Library/Application Support/codex-switch`
-- private Codex configuration, tasks, prompts and responses
+- private client configuration, tasks, prompts and responses
 
 Use isolated accounts, data directories and ports for reproduction. Redact
 sensitive values from logs, screenshots and test fixtures. A loopback listener

@@ -86,7 +86,7 @@ func serveHTTPRejection(t *testing.T, body, contentType string, websocketHandsha
 	}
 	router := &httpRejectionRouter{}
 	capability := strings.Repeat("a", 43)
-	handler, err := CreateCodexTrafficRelayHandler(RelayHandlerOptions{
+	handler, err := CreateTrafficRelayHandler(RelayHandlerOptions{
 		UpstreamOrigin: origin, ClientCapability: capability,
 		TaskRouter: router, CompletionLedger: &unusedHTTPRejectionLedger{},
 	})
@@ -113,19 +113,23 @@ func serveHTTPRejection(t *testing.T, body, contentType string, websocketHandsha
 type httpRejectionRouter struct {
 	TaskRouter
 	reportCount int
-	task        store.CodexTaskID
+	task        store.TaskID
 	account     store.AccountName
 	resetsAt    time.Time
 }
 
-func (*httpRejectionRouter) RouteForTask(store.CodexTaskID, store.WorkKind, string) (routing.RouteDecision, error) {
+func (*httpRejectionRouter) RouteForTask(store.TaskID, store.WorkKind, string) (routing.RouteDecision, error) {
 	return routing.RouteDecision{AccountName: "account-1", Credentials: accounts.Credentials{AccessToken: "test-token", AccountID: "test-account"}}, nil
 }
 
-func (router *httpRejectionRouter) ReportExhaustedTurn(task store.CodexTaskID, account store.AccountName, resetsAt time.Time) string {
+func (router *httpRejectionRouter) ReportExhaustedTurn(task store.TaskID, account store.AccountName, resetsAt time.Time) string {
 	router.reportCount++
 	router.task, router.account, router.resetsAt = task, account, resetsAt
 	return "moved"
 }
 
 type unusedHTTPRejectionLedger struct{ CompletionLedger }
+
+func (r *httpRejectionRouter) RouteForProviderTask(id store.TaskID, kind store.WorkKind, model string, _ accounts.Provider, _ store.TaskID) (routing.RouteDecision, error) {
+	return r.RouteForTask(id, kind, model)
+}

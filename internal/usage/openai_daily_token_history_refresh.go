@@ -23,6 +23,9 @@ func (ledger *UsageLedger) refreshOpenAIDailyTokenHistories(ctx context.Context)
 	ledger.logOnChange("", "")
 	var workers sync.WaitGroup
 	for _, account := range pool {
+		if account.Provider == accounts.ProviderClaude {
+			continue
+		}
 		workers.Add(1)
 		go func(account accounts.PoolAccount) {
 			defer workers.Done()

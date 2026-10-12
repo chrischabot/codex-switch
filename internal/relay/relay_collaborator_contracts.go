@@ -11,9 +11,10 @@ import (
 // TaskRouter keeps transport code independent of pin selection and movement.
 type TaskRouter interface {
 	RouteForModelCatalogue() (routing.RouteDecision, error)
-	RouteForTask(id store.CodexTaskID, kind store.WorkKind, modelSlug string) (routing.RouteDecision, error)
-	ReportUnsupportedModel(id store.CodexTaskID, served store.AccountName, modelSlug string) bool
-	ReportExhaustedTurn(id store.CodexTaskID, served store.AccountName, resetsAt time.Time) string
+	RouteForTask(id store.TaskID, kind store.WorkKind, modelSlug string) (routing.RouteDecision, error)
+	RouteForProviderTask(store.TaskID, store.WorkKind, string, accounts.Provider, store.TaskID) (routing.RouteDecision, error)
+	ReportUnsupportedModel(id store.TaskID, served store.AccountName, modelSlug string) bool
+	ReportExhaustedTurn(id store.TaskID, served store.AccountName, resetsAt time.Time) string
 	ReportUnauthorizedTurn(served store.AccountName, rejected accounts.Credentials)
 }
 

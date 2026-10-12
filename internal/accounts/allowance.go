@@ -18,6 +18,10 @@ func (s AccountState) Eligible() bool {
 }
 
 type ReportedWindow struct {
+	ObservedAt      time.Time
+	LimitReached    bool
+	ModelID         string
+	ModelName       string
 	UsedPercent     float64
 	DurationSeconds int64
 	ResetsAt        time.Time

@@ -16,6 +16,8 @@ import (
 // command reads those names from Codex.
 func localTaskTitle(taskID string, system bool, metadata taskMetadata) string {
 	switch {
+	case metadata.Title != "":
+		return metadata.Title
 	case system:
 		return "System"
 	case metadata.SourceKind == piSessionSourceKind:

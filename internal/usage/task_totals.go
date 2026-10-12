@@ -60,7 +60,7 @@ func totalTasks(completions []reconciledCompletion, metadata []taskMetadata, sta
 			}
 			owner = parent
 		}
-		system := !unresolvedOrigin && strings.HasPrefix(byTask[owner].SourceKind, "subagent:") && byTask[owner].ParentTaskID == ""
+		system := owner == "" || (!unresolvedOrigin && strings.HasPrefix(byTask[owner].SourceKind, "subagent:") && byTask[owner].ParentTaskID == "")
 		if system {
 			owner = "system"
 		}

@@ -158,7 +158,7 @@ type reconnectTestExhaustionRecorder struct {
 	reportCount int
 }
 
-func (router *reconnectTestExhaustionRecorder) ReportExhaustedTurn(_ store.CodexTaskID, _ store.AccountName, _ time.Time) string {
+func (router *reconnectTestExhaustionRecorder) ReportExhaustedTurn(_ store.TaskID, _ store.AccountName, _ time.Time) string {
 	router.reportCount++
 	return "moved"
 }

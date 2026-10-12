@@ -82,7 +82,7 @@ func TestNativePiUsageImportsOnceAndJoinsItsRoutedResponse(t *testing.T) {
 		t.Fatalf("a Pi response without a service tier is not priced at Standard: %+v", nativeOnly[0])
 	}
 	zero := int64(0)
-	joined, err := reconcileCompletions(observations, []store.CompletedResponseRecord{{CompletedResponseID: "response", CodexTaskID: store.CodexTaskID(observed.TaskID), AccountName: "account-2", ModelSlug: "gpt-5.6-luna", HarnessMode: "standard", InputTokens: 5176, CachedInputTokens: 4608, CacheWriteInputTokens: &zero, OutputTokens: 73, ReasoningTokens: 22, CompletedAt: observed.At}})
+	joined, err := reconcileCompletions(observations, []store.CompletedResponseRecord{{CompletedResponseID: "response", TaskID: store.TaskID(observed.TaskID), AccountName: "account-2", ModelSlug: "gpt-5.6-luna", HarnessMode: "standard", InputTokens: 5176, CachedInputTokens: 4608, CacheWriteInputTokens: &zero, OutputTokens: 73, ReasoningTokens: 22, CompletedAt: observed.At}})
 	if err != nil {
 		t.Fatal(err)
 	}

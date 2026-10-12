@@ -14,16 +14,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/joshp123/codex-switch/internal/accounts"
 	"github.com/joshp123/codex-switch/internal/clientcapability"
 	"github.com/joshp123/codex-switch/internal/routing"
 	"github.com/joshp123/codex-switch/internal/store"
+	"github.com/joshp123/codex-switch/internal/usage"
 	"github.com/klauspost/compress/zstd"
 )
 
 const (
 	codexResponsesPath        = "/backend-api/codex/responses"
 	codexCompactResponsesPath = "/backend-api/codex/responses/compact"
-	codexTaskIDHeader         = "Thread-ID"
+	taskIDHeader              = "Thread-ID"
 	chatGPTAccountIDHeader    = "ChatGPT-Account-ID"
 )
 
@@ -33,7 +35,9 @@ type relayRequestContextKey struct{}
 type requestTrailerSourceContextKey struct{}
 
 type routedRelayRequest struct {
-	codexTaskID             store.CodexTaskID
+	provider                accounts.Provider
+	cachePrefixes           []string
+	taskID                  store.TaskID
 	client                  string
 	workKind                store.WorkKind
 	modelSlug               string
@@ -45,21 +49,27 @@ type routedRelayRequest struct {
 
 // RelayHandlerOptions keeps listener and signal ownership outside the transport package.
 type RelayHandlerOptions struct {
-	UpstreamOrigin   *url.URL
-	ClientCapability string
-	TaskRouter       TaskRouter
-	CompletionLedger CompletionLedger
-	RequestCounters  ModelRequestCounters
-	HTTPTransport    http.RoundTripper
+	UpstreamOrigin       *url.URL
+	ClaudeUpstreamOrigin *url.URL
+	AccountObserver      ClaudeAccountObserver
+	CacheAffinity        *store.StoreDatabase
+	ClientCapability     string
+	TaskRouter           TaskRouter
+	CompletionLedger     CompletionLedger
+	RequestCounters      ModelRequestCounters
+	HTTPTransport        http.RoundTripper
 }
 
-// CodexTrafficRelayHandler stays alive with admitted streams so deployment does not cut off model work.
-type CodexTrafficRelayHandler struct {
+// TrafficRelayHandler stays alive with admitted streams so deployment does not cut off model work.
+type TrafficRelayHandler struct {
 	authenticatedHandler http.Handler
 	taskRouter           TaskRouter
 	completionLedger     CompletionLedger
 	requestCounters      ModelRequestCounters
 	upstreamOrigin       *url.URL
+	claudeUpstreamOrigin *url.URL
+	accountObserver      ClaudeAccountObserver
+	cacheAffinity        *store.StoreDatabase
 	upstreamTransport    http.RoundTripper
 	reverseProxy         *httputil.ReverseProxy
 
@@ -71,8 +81,8 @@ type CodexTrafficRelayHandler struct {
 	closingWebSockets  bool
 }
 
-// CreateCodexTrafficRelayHandler leaves listener ownership and signal handling with the command layer.
-func CreateCodexTrafficRelayHandler(options RelayHandlerOptions) (*CodexTrafficRelayHandler, error) {
+// CreateTrafficRelayHandler leaves listener ownership and signal handling with the command layer.
+func CreateTrafficRelayHandler(options RelayHandlerOptions) (*TrafficRelayHandler, error) {
 	if options.UpstreamOrigin == nil || options.UpstreamOrigin.Scheme == "" || options.UpstreamOrigin.Host == "" {
 		return nil, errors.New("relay upstream origin is required")
 	}
@@ -82,6 +92,13 @@ func CreateCodexTrafficRelayHandler(options RelayHandlerOptions) (*CodexTrafficR
 	if options.UpstreamOrigin.User != nil || options.UpstreamOrigin.Path != "" ||
 		options.UpstreamOrigin.RawQuery != "" || options.UpstreamOrigin.Fragment != "" {
 		return nil, errors.New("relay upstream origin must not include credentials, path, query, or fragment")
+	}
+	if options.ClaudeUpstreamOrigin == nil {
+		options.ClaudeUpstreamOrigin = &url.URL{Scheme: "https", Host: "api.anthropic.com"}
+	}
+	origin := options.ClaudeUpstreamOrigin
+	if (origin.Scheme != "http" && origin.Scheme != "https") || origin.Host == "" || origin.User != nil || origin.Path != "" || origin.RawQuery != "" || origin.Fragment != "" {
+		return nil, errors.New("Claude upstream origin must use http or https with no credentials, path, query, or fragment")
 	}
 	if options.TaskRouter == nil {
 		return nil, errors.New("relay task router is required")
@@ -94,43 +111,57 @@ func CreateCodexTrafficRelayHandler(options RelayHandlerOptions) (*CodexTrafficR
 	if upstreamTransport == nil {
 		upstreamTransport = http.DefaultTransport.(*http.Transport).Clone()
 	}
-	relayHandler := &CodexTrafficRelayHandler{
-		taskRouter:        options.TaskRouter,
-		completionLedger:  options.CompletionLedger,
-		requestCounters:   options.RequestCounters,
-		upstreamOrigin:    options.UpstreamOrigin,
-		upstreamTransport: upstreamTransport,
-		drainComplete:     make(chan struct{}),
-		openWebSockets:    make(map[*terminalResponseObserver]struct{}),
+	relayHandler := &TrafficRelayHandler{
+		taskRouter:           options.TaskRouter,
+		completionLedger:     options.CompletionLedger,
+		requestCounters:      options.RequestCounters,
+		upstreamOrigin:       options.UpstreamOrigin,
+		claudeUpstreamOrigin: options.ClaudeUpstreamOrigin,
+		accountObserver:      options.AccountObserver,
+		cacheAffinity:        options.CacheAffinity,
+		upstreamTransport:    upstreamTransport,
+		drainComplete:        make(chan struct{}),
+		openWebSockets:       make(map[*terminalResponseObserver]struct{}),
 	}
 	relayHandler.reverseProxy = relayHandler.createBytePreservingReverseProxy()
-	relayHandler.authenticatedHandler = clientcapability.RequirePathPrefix(options.ClientCapability, http.HandlerFunc(relayHandler.serveAuthenticatedCodexTraffic))
+	relayHandler.authenticatedHandler = clientcapability.RequirePathPrefix(options.ClientCapability, http.HandlerFunc(relayHandler.serveAuthenticatedTraffic))
 	return relayHandler, nil
 }
 
 // ServeHTTP authenticates the private client path before any account credential is selected.
-func (handler *CodexTrafficRelayHandler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
+func (handler *TrafficRelayHandler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	requestWithTrailerSource := request.WithContext(context.WithValue(
 		request.Context(), requestTrailerSourceContextKey{}, request.Trailer,
 	))
 	handler.authenticatedHandler.ServeHTTP(response, requestWithTrailerSource)
 }
 
-func (handler *CodexTrafficRelayHandler) serveAuthenticatedCodexTraffic(response http.ResponseWriter, request *http.Request) {
+func (handler *TrafficRelayHandler) serveAuthenticatedTraffic(response http.ResponseWriter, request *http.Request) {
 	handler.beginActiveRelayRequest()
 	defer handler.finishActiveRelayRequest()
 
-	codexTaskID := taskIdentityForRequest(request)
+	provider := accounts.ProviderChatGPT
+	if request.URL.Path == "/anthropic" || strings.HasPrefix(request.URL.Path, "/anthropic/") {
+		provider = accounts.ProviderClaude
+		request.URL.Path = strings.TrimPrefix(request.URL.Path, "/anthropic")
+		request.URL.RawPath = strings.TrimPrefix(request.URL.RawPath, "/anthropic")
+	}
+	taskID := taskIdentityForRequest(request)
+	if provider == accounts.ProviderClaude {
+		taskID = claudeSessionForRequest(request, nil)
+	}
+	var parentTaskID store.TaskID
+	var cachePrefixes []string
 	workKind := workKindForRequest(request)
 	client := clientNameForRequest(request)
-	var modelSlug, serviceTier string
+	var modelSlug, serviceTier, inferenceGeo string
 	var responseStreamRequested bool
 	var warmup bool
 	if workKind == store.ModelTurnWorkKind && request.Body != nil {
 		body, err := io.ReadAll(request.Body)
 		request.Body.Close()
 		if err != nil {
-			log.Printf("%s: reading the model request from the client failed: %v", describeModelRequest(codexTaskID, client, ""), err)
+			log.Printf("%s: reading the model request from the client failed: %v", describeModelRequest(taskID, client, ""), err)
 			http.Error(response, "read model request", http.StatusBadRequest)
 			return
 		}
@@ -143,69 +174,90 @@ func (handler *CodexTrafficRelayHandler) serveAuthenticatedCodexTraffic(response
 				decoder.Close()
 			}
 			if err != nil {
-				log.Printf("%s: the zstd-compressed model request could not be decoded: %v", describeModelRequest(codexTaskID, client, ""), err)
+				log.Printf("%s: the zstd-compressed model request could not be decoded: %v", describeModelRequest(taskID, client, ""), err)
 				http.Error(response, "decode model request", http.StatusBadRequest)
 				return
 			}
 		}
 		var modelRequest struct {
-			Model       string `json:"model"`
-			ServiceTier string `json:"service_tier"`
-			Stream      bool   `json:"stream"`
-			Generate    *bool  `json:"generate"`
+			Model        string `json:"model"`
+			ServiceTier  string `json:"service_tier"`
+			Stream       bool   `json:"stream"`
+			Generate     *bool  `json:"generate"`
+			Speed        string `json:"speed"`
+			InferenceGeo string `json:"inference_geo"`
 		}
 		if json.Unmarshal(inspectedBody, &modelRequest) == nil {
 			modelSlug = modelRequest.Model
 			serviceTier = modelRequest.ServiceTier
+			if provider == accounts.ProviderClaude {
+				serviceTier = modelRequest.Speed
+				inferenceGeo = modelRequest.InferenceGeo
+			}
 			responseStreamRequested = modelRequest.Stream
 			warmup = modelRequest.Generate != nil && !*modelRequest.Generate
+		}
+		if provider == accounts.ProviderClaude {
+			taskID = claudeSessionForRequest(request, inspectedBody)
+			cachePrefixes = claudeConversationPrefixes(inspectedBody)
+			if taskID != "" && parentTaskID == "" && handler.cacheAffinity != nil {
+				parentTaskID, err = handler.cacheAffinity.ReadPromptCacheParent(taskID, cachePrefixes)
+				if err != nil {
+					log.Printf("read Claude cache affinity: %v", err)
+				}
+			}
 		}
 	}
 	var routeDecision routing.RouteDecision
 	var err error
-	if request.Method == http.MethodGet && request.URL.Path == "/backend-api/codex/models" {
+	if provider == accounts.ProviderChatGPT && request.Method == http.MethodGet && request.URL.Path == "/backend-api/codex/models" {
 		routeDecision, err = handler.taskRouter.RouteForModelCatalogue()
 	} else {
-		routeDecision, err = handler.taskRouter.RouteForTask(codexTaskID, workKind, modelSlug)
+		routeDecision, err = handler.taskRouter.RouteForProviderTask(taskID, workKind, modelSlug, provider, parentTaskID)
 	}
 	if workKind == store.ModelTurnWorkKind && errors.Is(err, routing.ErrNoAvailableAccount) {
 		waitStarted := time.Now()
-		log.Printf("%s waits before sending %s to OpenAI: %v", describeModelRequest(codexTaskID, client, ""), modelSlug, err)
+		log.Printf("%s waits before sending %s to its provider: %v", describeModelRequest(taskID, client, ""), modelSlug, err)
 		recheck := time.NewTicker(5 * time.Second)
 		defer recheck.Stop()
 		for errors.Is(err, routing.ErrNoAvailableAccount) {
 			select {
 			case <-request.Context().Done():
-				log.Printf("%s stopped waiting for an account after %s: the client closed the request", describeModelRequest(codexTaskID, client, ""), time.Since(waitStarted).Round(time.Second))
+				log.Printf("%s stopped waiting for an account after %s: the client closed the request", describeModelRequest(taskID, client, ""), time.Since(waitStarted).Round(time.Second))
 				return
 			case <-recheck.C:
-				routeDecision, err = handler.taskRouter.RouteForTask(codexTaskID, workKind, modelSlug)
+				routeDecision, err = handler.taskRouter.RouteForProviderTask(taskID, workKind, modelSlug, provider, parentTaskID)
 			}
 		}
 		if err == nil {
-			log.Printf("%s stopped waiting after %s", describeModelRequest(codexTaskID, client, routeDecision.AccountName), time.Since(waitStarted).Round(time.Second))
+			log.Printf("%s stopped waiting after %s", describeModelRequest(taskID, client, routeDecision.AccountName), time.Since(waitStarted).Round(time.Second))
 		}
 	}
 	if err != nil {
-		log.Printf("%s could not be routed: %v", describeModelRequest(codexTaskID, client, ""), err)
+		log.Printf("%s could not be routed: %v", describeModelRequest(taskID, client, ""), err)
 		http.Error(response, "codex-switch could not choose an account for this request; see the codex-switch proxy log", http.StatusServiceUnavailable)
 		return
 	}
 	if routeDecision.Assignment != "" {
-		log.Printf("%s: %s", describeModelRequest(codexTaskID, client, ""), routeDecision.Assignment)
+		log.Printf("%s: %s", describeModelRequest(taskID, client, ""), routeDecision.Assignment)
 	}
 
 	requestTrailerSource, _ := request.Context().Value(requestTrailerSourceContextKey{}).(http.Header)
 	routedRequest := &routedRelayRequest{
-		codexTaskID: codexTaskID, client: client, workKind: workKind, modelSlug: modelSlug, responseStreamRequested: responseStreamRequested, routeDecision: routeDecision,
-		requestTrailerSource: requestTrailerSource,
+		taskID: taskID, client: client, workKind: workKind, modelSlug: modelSlug, responseStreamRequested: responseStreamRequested, routeDecision: routeDecision,
+		requestTrailerSource: requestTrailerSource, provider: provider, cachePrefixes: cachePrefixes,
 	}
 	forwardedRequest := request.Clone(context.WithValue(request.Context(), relayRequestContextKey{}, routedRequest))
 	if workKind == store.ModelTurnWorkKind {
-		observer := newTerminalResponseObserver(codexTaskID, client, routeDecision.AccountName, handler.taskRouter, handler.completionLedger)
+		observer := newTerminalResponseObserver(taskID, client, routeDecision.AccountName, handler.taskRouter, handler.completionLedger)
+		if provider == accounts.ProviderClaude {
+			observer.claudeUsage = usage.NewClaudeResponseUsage(modelSlug, serviceTier, inferenceGeo)
+		}
 		observer.modelSlug = modelSlug
 		observer.serviceTier = serviceTier
-		observer.forkSourceTaskID = forkSourceTaskForRequest(request)
+		if provider == accounts.ProviderChatGPT {
+			observer.forkSourceTaskID = forkSourceTaskForRequest(request)
+		}
 		observer.requestCounters = handler.requestCounters
 		routedRequest.responseObserver = observer
 		if request.Method == http.MethodPost {
@@ -218,12 +270,16 @@ func (handler *CodexTrafficRelayHandler) serveAuthenticatedCodexTraffic(response
 	handler.reverseProxy.ServeHTTP(response, forwardedRequest)
 }
 
-func (handler *CodexTrafficRelayHandler) createBytePreservingReverseProxy() *httputil.ReverseProxy {
+func (handler *TrafficRelayHandler) createBytePreservingReverseProxy() *httputil.ReverseProxy {
 	return &httputil.ReverseProxy{
 		Rewrite: func(proxyRequest *httputil.ProxyRequest) {
 			routedRequest := proxyRequest.In.Context().Value(relayRequestContextKey{}).(*routedRelayRequest)
-			proxyRequest.SetURL(handler.upstreamOrigin)
-			proxyRequest.Out.Host = handler.upstreamOrigin.Host
+			origin := handler.upstreamOrigin
+			if routedRequest.provider == accounts.ProviderClaude {
+				origin = handler.claudeUpstreamOrigin
+			}
+			proxyRequest.SetURL(origin)
+			proxyRequest.Out.Host = origin.Host
 			proxyRequest.Out.Header.Del("Accept-Encoding")
 			if proxyRequest.Out.Body != nil && len(proxyRequest.Out.Trailer) > 0 {
 				proxyRequest.Out.Body = &requestTrailerBody{
@@ -233,11 +289,28 @@ func (handler *CodexTrafficRelayHandler) createBytePreservingReverseProxy() *htt
 				}
 			}
 			proxyRequest.Out.Header.Set("Authorization", "Bearer "+routedRequest.routeDecision.Credentials.AccessToken)
-			proxyRequest.Out.Header.Set(chatGPTAccountIDHeader, routedRequest.routeDecision.Credentials.AccountID)
+			if routedRequest.provider == accounts.ProviderClaude {
+				prepareClaudeHeaders(proxyRequest.Out.Header)
+			} else {
+				proxyRequest.Out.Header.Set(chatGPTAccountIDHeader, routedRequest.routeDecision.Credentials.AccountID)
+			}
 		},
 		Transport: handler.upstreamTransport,
 		ModifyResponse: func(upstreamResponse *http.Response) error {
 			routedRequest := upstreamResponse.Request.Context().Value(relayRequestContextKey{}).(*routedRelayRequest)
+			if routedRequest.provider == accounts.ProviderClaude {
+				if handler.accountObserver != nil {
+					handler.accountObserver.ObserveClaudeResponse(routedRequest.routeDecision.AccountName, routedRequest.modelSlug, upstreamResponse.Header, upstreamResponse.StatusCode)
+				}
+				if upstreamResponse.StatusCode >= http.StatusBadRequest {
+					return handler.observeClaudeRejection(routedRequest, upstreamResponse)
+				}
+				if routedRequest.workKind == store.ModelTurnWorkKind && handler.cacheAffinity != nil && len(routedRequest.cachePrefixes) > 0 {
+					if err := handler.cacheAffinity.RememberPromptCachePrefix(routedRequest.taskID, routedRequest.cachePrefixes[len(routedRequest.cachePrefixes)-1]); err != nil {
+						log.Printf("remember Claude cache affinity: %v", err)
+					}
+				}
+			}
 			if upstreamResponse.StatusCode >= http.StatusBadRequest {
 				return handler.observeRejectedResponse(routedRequest, upstreamResponse)
 			}
@@ -285,7 +358,7 @@ func (handler *CodexTrafficRelayHandler) createBytePreservingReverseProxy() *htt
 		},
 		ErrorHandler: func(response http.ResponseWriter, request *http.Request, err error) {
 			routedRequest := request.Context().Value(relayRequestContextKey{}).(*routedRelayRequest)
-			subject := describeModelRequest(routedRequest.codexTaskID, routedRequest.client, routedRequest.routeDecision.AccountName)
+			subject := describeModelRequest(routedRequest.taskID, routedRequest.client, routedRequest.routeDecision.AccountName)
 			switch {
 			case errors.Is(err, errUpstreamRejectedBeforeAdmission):
 				// Logged when the rejection was observed.
@@ -293,10 +366,10 @@ func (handler *CodexTrafficRelayHandler) createBytePreservingReverseProxy() *htt
 				// A model POST counts as interrupted; a cancelled metadata read or
 				// WebSocket handshake carries no model work.
 				if routedRequest.workKind == store.ModelTurnWorkKind && request.Method == http.MethodPost {
-					log.Printf("%s: the client closed the %s request before OpenAI answered", subject, routedRequest.modelSlug)
+					log.Printf("%s: the client closed the %s request before the provider answered", subject, routedRequest.modelSlug)
 				}
 			default:
-				log.Printf("%s could not reach OpenAI: %v", subject, err)
+				log.Printf("%s could not reach the provider: %v", subject, err)
 			}
 			http.Error(response, "upstream service unavailable", http.StatusBadGateway)
 		},
@@ -322,19 +395,19 @@ func (body *requestTrailerBody) Read(buffer []byte) (int, error) {
 }
 
 func workKindForRequest(request *http.Request) store.WorkKind {
-	if request.URL.Path == codexResponsesPath || request.URL.Path == codexCompactResponsesPath {
+	if request.URL.Path == codexResponsesPath || request.URL.Path == codexCompactResponsesPath || (request.Method == http.MethodPost && request.URL.Path == "/v1/messages") {
 		return store.ModelTurnWorkKind
 	}
 	return store.TaskMetadataWorkKind
 }
 
-func (handler *CodexTrafficRelayHandler) beginActiveRelayRequest() {
+func (handler *TrafficRelayHandler) beginActiveRelayRequest() {
 	handler.drainMutex.Lock()
 	handler.activeRequestCount++
 	handler.drainMutex.Unlock()
 }
 
-func (handler *CodexTrafficRelayHandler) finishActiveRelayRequest() {
+func (handler *TrafficRelayHandler) finishActiveRelayRequest() {
 	handler.drainMutex.Lock()
 	handler.activeRequestCount--
 	if handler.drainStarted && handler.activeRequestCount == 0 {
@@ -347,10 +420,10 @@ func (handler *CodexTrafficRelayHandler) finishActiveRelayRequest() {
 	handler.drainMutex.Unlock()
 }
 
-func (handler *CodexTrafficRelayHandler) closeIdleUpstreamConnections() {
+func (handler *TrafficRelayHandler) closeIdleUpstreamConnections() {
 	if idleConnectionCloser, ok := handler.upstreamTransport.(interface{ CloseIdleConnections() }); ok {
 		idleConnectionCloser.CloseIdleConnections()
 	}
 }
 
-var _ http.Handler = (*CodexTrafficRelayHandler)(nil)
+var _ http.Handler = (*TrafficRelayHandler)(nil)

@@ -29,10 +29,10 @@ func TestEqualCapacityTasksUseBothAccountsAndKeepPinsWhenCapacityCrosses(t *test
 		})
 	}
 	router := CreateTaskRouter(database, facts)
-	pins := map[store.CodexTaskID]store.AccountName{}
+	pins := map[store.TaskID]store.AccountName{}
 	counts := map[store.AccountName]int{}
 	for index := range 32 {
-		taskID := store.CodexTaskID(fmt.Sprintf("00000000-0000-4000-8000-%012d", index))
+		taskID := store.TaskID(fmt.Sprintf("00000000-0000-4000-8000-%012d", index))
 		decision, err := router.RouteForTask(taskID, store.ModelTurnWorkKind, "luna")
 		if err != nil {
 			t.Fatal(err)

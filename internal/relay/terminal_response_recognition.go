@@ -11,15 +11,17 @@ import (
 	"time"
 
 	"github.com/joshp123/codex-switch/internal/store"
+	"github.com/joshp123/codex-switch/internal/usage"
 )
 
 const providerUsageLimitErrorType = "usage_limit_reached"
 
 type terminalResponseObserver struct {
-	codexTaskID store.CodexTaskID
+	claudeUsage *usage.ClaudeResponseUsage
+	taskID      store.TaskID
 	// forkSourceTaskID is the task a Codex fork was made from. Its responses
 	// count toward that task, as the fork has no name or history of its own.
-	forkSourceTaskID store.CodexTaskID
+	forkSourceTaskID store.TaskID
 	client           string
 	accountName      store.AccountName
 	taskRouter       TaskRouter
@@ -85,14 +87,14 @@ type httpJSONResponseWire struct {
 }
 
 func newTerminalResponseObserver(
-	codexTaskID store.CodexTaskID,
+	taskID store.TaskID,
 	client string,
 	accountName store.AccountName,
 	taskRouter TaskRouter,
 	completionLedger CompletionLedger,
 ) *terminalResponseObserver {
 	return &terminalResponseObserver{
-		codexTaskID: codexTaskID, client: client, accountName: accountName,
+		taskID: taskID, client: client, accountName: accountName,
 		taskRouter: taskRouter, completionLedger: completionLedger,
 	}
 }
@@ -100,6 +102,10 @@ func newTerminalResponseObserver(
 func (observer *terminalResponseObserver) observeStructuredEvent(eventBytes []byte) bool {
 	observer.admissionMutex.Lock()
 	defer observer.admissionMutex.Unlock()
+	if observer.claudeUsage != nil {
+		observer.observeClaudeUsage(eventBytes)
+		return false
+	}
 	var event structuredResponseEvent
 	if json.Unmarshal(eventBytes, &event) != nil {
 		return false
@@ -137,7 +143,7 @@ func (observer *terminalResponseObserver) observeStructuredEvent(eventBytes []by
 			observer.admittedRequests = max(0, observer.admittedRequests-1)
 			// A WebSocket handshake carries no model, so reconnecting helps only
 			// when the task's pin moved to an account that offers the model.
-			reconnect = (observer.reportUnsupportedModel(event.Error) && observer.codexTaskID != "") || reconnect
+			reconnect = (observer.reportUnsupportedModel(event.Error) && observer.taskID != "") || reconnect
 		}
 		observer.noteResponseEnded()
 		return reconnect && observer.activeResponses == 0 && observer.admittedRequests == 0
@@ -149,6 +155,10 @@ func (observer *terminalResponseObserver) observeStructuredEvent(eventBytes []by
 func (observer *terminalResponseObserver) observeHTTPJSONBody(bodyBytes []byte) {
 	observer.admissionMutex.Lock()
 	defer observer.admissionMutex.Unlock()
+	if observer.claudeUsage != nil {
+		observer.observeClaudeUsage(bodyBytes)
+		return
+	}
 	var response httpJSONResponseWire
 	if json.Unmarshal(bodyBytes, &response) != nil {
 		return
@@ -200,7 +210,7 @@ func (observer *terminalResponseObserver) logProviderFailure(providerError *prov
 }
 
 func (observer *terminalResponseObserver) describe() string {
-	return describeModelRequest(observer.codexTaskID, observer.client, observer.accountName)
+	return describeModelRequest(observer.taskID, observer.client, observer.accountName)
 }
 
 func (observer *terminalResponseObserver) logReadError(err error) {
@@ -233,7 +243,7 @@ func (observer *terminalResponseObserver) reportProviderUsageLimit(providerError
 		return "", false
 	}
 	return observer.taskRouter.ReportExhaustedTurn(
-		observer.codexTaskID,
+		observer.taskID,
 		observer.accountName,
 		time.Unix(providerError.ResetsAt, 0).UTC(),
 	), true
@@ -249,13 +259,13 @@ func (observer *terminalResponseObserver) recordCompletedResponse(response compl
 		log.Printf("%s: OpenAI completed response %q without complete token usage; its usage is not recorded", observer.describe(), response.ID)
 		return
 	}
-	taskID := observer.codexTaskID
+	taskID := observer.taskID
 	if observer.forkSourceTaskID != "" {
 		taskID = observer.forkSourceTaskID
 	}
 	record := store.CompletedResponseRecord{
 		CompletedResponseID:   store.CompletedResponseID(response.ID),
-		CodexTaskID:           taskID,
+		TaskID:                taskID,
 		AccountName:           observer.accountName,
 		ModelSlug:             response.Model,
 		HarnessMode:           harnessModeForServiceTier(observer.serviceTier),
@@ -307,14 +317,14 @@ func (observer *terminalResponseObserver) routeClientMessage(message []byte) boo
 	}
 	// A socket without a task ID keeps the account chosen at its handshake: no
 	// pin would carry a different choice across a reconnect.
-	if observer.codexTaskID != "" {
-		decision, err := observer.taskRouter.RouteForTask(observer.codexTaskID, store.ModelTurnWorkKind, request.Model)
+	if observer.taskID != "" {
+		decision, err := observer.taskRouter.RouteForTask(observer.taskID, store.ModelTurnWorkKind, request.Model)
 		if err != nil {
 			log.Printf("%s: the socket closes so the client reconnects, because no account can take its next %s request: %v", observer.describe(), request.Model, err)
 			return true
 		}
 		if decision.Assignment != "" {
-			log.Printf("%s: %s", describeModelRequest(observer.codexTaskID, observer.client, ""), decision.Assignment)
+			log.Printf("%s: %s", describeModelRequest(observer.taskID, observer.client, ""), decision.Assignment)
 		}
 		if decision.AccountName != observer.accountName {
 			// Closing the socket before forwarding makes Codex reconnect and send
@@ -337,7 +347,7 @@ func (observer *terminalResponseObserver) reportUnsupportedModel(providerError *
 	if strings.TrimSpace(providerError.Message) != expected {
 		return false
 	}
-	return observer.taskRouter.ReportUnsupportedModel(observer.codexTaskID, observer.accountName, observer.modelSlug)
+	return observer.taskRouter.ReportUnsupportedModel(observer.taskID, observer.accountName, observer.modelSlug)
 }
 
 func (observer *terminalResponseObserver) reportUnsupportedModelDetail(detail string) bool {

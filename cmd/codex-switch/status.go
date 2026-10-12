@@ -75,13 +75,15 @@ func fetchMenuSnapshot(dataDirectory string) (*menupb.MenuSnapshot, error) {
 
 func writeCurrentStatus(output io.Writer, snapshot *menupb.MenuSnapshot) {
 	available := 0
+	hasChatGPTAccount := false
 	for _, account := range snapshot.Accounts {
+		hasChatGPTAccount = hasChatGPTAccount || account.Provider != menupb.Provider_PROVIDER_CLAUDE
 		if account.Usable {
 			available++
 		}
 	}
-	fmt.Fprintf(output, "%d of %d accounts can take new work for the configured model.\n", available, len(snapshot.Accounts))
-	if !snapshot.GetConnection().GetNewTasksConfigured() {
+	fmt.Fprintf(output, "%d of %d accounts can take new work.\n", available, len(snapshot.Accounts))
+	if hasChatGPTAccount && !snapshot.GetConnection().GetNewTasksConfigured() {
 		fmt.Fprintln(output, "Codex is not configured to send new work to this proxy.")
 	}
 	for _, account := range snapshot.Accounts {
@@ -90,14 +92,26 @@ func writeCurrentStatus(output io.Writer, snapshot *menupb.MenuSnapshot) {
 			state = "unavailable: " + oneLine(account.UnavailableReason)
 		}
 		label := oneLine(account.Key)
-		for _, detail := range []string{account.Email, account.Plan} {
+		provider := "ChatGPT"
+		if account.Provider == menupb.Provider_PROVIDER_CLAUDE {
+			provider = "Claude"
+		}
+		for _, detail := range []string{provider, account.Email, account.Plan} {
 			if detail != "" {
 				label += " · " + oneLine(detail)
 			}
 		}
 		fmt.Fprintf(output, "\n%s · %s\n", label, state)
 		for _, window := range account.GetAllowance().GetWindows() {
-			fmt.Fprintf(output, "  %-8s %g%% used · %g%% free", accountapi.AllowancePeriodLabel(window.PeriodSeconds), window.UsedPercent, 100-window.UsedPercent)
+			label := accountapi.AllowancePeriodLabel(window.PeriodSeconds)
+			model := window.ModelName
+			if model == "" {
+				model = window.ModelId
+			}
+			if model != "" {
+				label += " · " + oneLine(model)
+			}
+			fmt.Fprintf(output, "  %-8s %.1f%% used · %.1f%% free", label, window.UsedPercent, 100-window.UsedPercent)
 			if window.ResetAt != nil {
 				fmt.Fprintf(output, " · resets %s", window.ResetAt.AsTime().Local().Format("Mon 2 Jan 15:04"))
 			}

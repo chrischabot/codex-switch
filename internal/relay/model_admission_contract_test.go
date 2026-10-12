@@ -26,15 +26,15 @@ type modelAdmissionRouter struct {
 	declineUnsupported bool
 }
 
-func (r *modelAdmissionRouter) RouteForTask(_ store.CodexTaskID, _ store.WorkKind, model string) (routing.RouteDecision, error) {
+func (r *modelAdmissionRouter) RouteForTask(_ store.TaskID, _ store.WorkKind, model string) (routing.RouteDecision, error) {
 	r.model = model
 	return routing.RouteDecision{AccountName: r.account, Credentials: accounts.Credentials{AccessToken: "test", AccountID: "test"}}, nil
 }
-func (r *modelAdmissionRouter) ReportUnsupportedModel(_ store.CodexTaskID, _ store.AccountName, _ string) bool {
+func (r *modelAdmissionRouter) ReportUnsupportedModel(_ store.TaskID, _ store.AccountName, _ string) bool {
 	r.unsupported++
 	return !r.declineUnsupported
 }
-func (r *modelAdmissionRouter) ReportExhaustedTurn(_ store.CodexTaskID, _ store.AccountName, _ time.Time) string {
+func (r *modelAdmissionRouter) ReportExhaustedTurn(_ store.TaskID, _ store.AccountName, _ time.Time) string {
 	return ""
 }
 
@@ -197,7 +197,7 @@ func TestHTTPModelRoutingPreservesOriginalBody(t *testing.T) {
 			origin, _ := url.Parse(upstream.URL)
 			router := &modelAdmissionRouter{account: "account-1"}
 			capability := strings.Repeat("a", 43)
-			handler, err := CreateCodexTrafficRelayHandler(RelayHandlerOptions{UpstreamOrigin: origin, ClientCapability: capability, TaskRouter: router, CompletionLedger: &unusedHTTPRejectionLedger{}})
+			handler, err := CreateTrafficRelayHandler(RelayHandlerOptions{UpstreamOrigin: origin, ClientCapability: capability, TaskRouter: router, CompletionLedger: &unusedHTTPRejectionLedger{}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -229,7 +229,7 @@ func TestHTTPUnsupportedModelReconnectRequiresAlternative(t *testing.T) {
 			origin, _ := url.Parse(upstream.URL)
 			router := &modelAdmissionRouter{account: "account-3", declineUnsupported: !alternative}
 			capability := strings.Repeat("a", 43)
-			handler, err := CreateCodexTrafficRelayHandler(RelayHandlerOptions{UpstreamOrigin: origin, ClientCapability: capability, TaskRouter: router, CompletionLedger: &unusedHTTPRejectionLedger{}})
+			handler, err := CreateTrafficRelayHandler(RelayHandlerOptions{UpstreamOrigin: origin, ClientCapability: capability, TaskRouter: router, CompletionLedger: &unusedHTTPRejectionLedger{}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -267,7 +267,7 @@ func TestModelCatalogueUsesIndependentRouteAndPreservesProviderBytes(t *testing.
 	origin, _ := url.Parse(upstream.URL)
 	capability := strings.Repeat("a", 43)
 	router := &modelAdmissionRouter{account: "task-account"}
-	handler, err := CreateCodexTrafficRelayHandler(RelayHandlerOptions{UpstreamOrigin: origin, ClientCapability: capability, TaskRouter: router, CompletionLedger: &unusedHTTPRejectionLedger{}})
+	handler, err := CreateTrafficRelayHandler(RelayHandlerOptions{UpstreamOrigin: origin, ClientCapability: capability, TaskRouter: router, CompletionLedger: &unusedHTTPRejectionLedger{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +306,7 @@ func TestStreamingRequestAccountsForSSEWithMissingOrSynthesizedContentType(t *te
 			origin, _ := url.Parse(upstream.URL)
 			ledger := &recordedHTTPCompletion{}
 			capability := strings.Repeat("a", 43)
-			handler, err := CreateCodexTrafficRelayHandler(RelayHandlerOptions{UpstreamOrigin: origin, ClientCapability: capability, TaskRouter: &modelAdmissionRouter{account: "account-1"}, CompletionLedger: ledger})
+			handler, err := CreateTrafficRelayHandler(RelayHandlerOptions{UpstreamOrigin: origin, ClientCapability: capability, TaskRouter: &modelAdmissionRouter{account: "account-1"}, CompletionLedger: ledger})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -328,9 +328,13 @@ func TestStreamingRequestAccountsForSSEWithMissingOrSynthesizedContentType(t *te
 				t.Fatalf("completion count = %d", len(ledger.records))
 			}
 			record := ledger.records[0]
-			if record.CodexTaskID != "task-http" || record.AccountName != "account-1" || record.InputTokens != 13631 || record.CachedInputTokens != 9984 || record.CacheWriteInputTokens == nil || *record.CacheWriteInputTokens != 0 || record.OutputTokens != 5 {
+			if record.TaskID != "task-http" || record.AccountName != "account-1" || record.InputTokens != 13631 || record.CachedInputTokens != 9984 || record.CacheWriteInputTokens == nil || *record.CacheWriteInputTokens != 0 || record.OutputTokens != 5 {
 				t.Fatalf("incorrect completion: %+v", record)
 			}
 		})
 	}
+}
+
+func (r *modelAdmissionRouter) RouteForProviderTask(id store.TaskID, kind store.WorkKind, model string, _ accounts.Provider, _ store.TaskID) (routing.RouteDecision, error) {
+	return r.RouteForTask(id, kind, model)
 }

@@ -47,7 +47,7 @@ func AnalyseAllowance(sample AllowanceSample, state AccountState, asOf time.Time
 	var matched *ReportedWindow
 	for index := range sample.Windows {
 		window := sample.Windows[index]
-		if time.Duration(window.DurationSeconds)*time.Second != wantDuration {
+		if window.ModelID != "" || window.ModelName != "" || time.Duration(window.DurationSeconds)*time.Second != wantDuration {
 			continue
 		}
 		if matched != nil {

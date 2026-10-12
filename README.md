@@ -1,6 +1,6 @@
 # Codex Switch
 
-Use several ChatGPT accounts in Codex as one pool, without ever logging out.
+Use several ChatGPT or Claude accounts as one pool, without ever logging out.
 
 <img src="docs/images/menu-demo.png" alt="The Codex Switch menu cycling through Today, 7 Days and 30 Days, in API-equivalent cost and then in tokens, with account emails hidden" width="344">
 
@@ -17,7 +17,7 @@ pool usage across accounts.
 
 Codex Switch is a transparent proxy. You stay logged in to your main ChatGPT
 account everywhere, and Codex Switch spreads the work across all your accounts
-behind the scenes.
+behind the scenes. Claude Code and Pi can pool Claude subscriptions the same way.
 
 Ironically, Claude Opus 5.5 is what finally let me ship it.
 
@@ -47,6 +47,7 @@ It is macOS only, you build it from source, and so far it has one user: me.
 
 - Codex (the app, the CLI and sub-agents) and [Pi](https://github.com/badlogic/pi-mono)
   all point at one local URL.
+- Claude Code and Pi use the same proxy for Claude subscriptions.
 - A new task goes to whichever account has the most weekly allowance left.
 - A task stays on its account, so its prompt cache stays warm.
 - When an account runs out, the task moves to another account on its next turn.
@@ -74,9 +75,9 @@ free account that can't run the model I use, so the work goes to the other two.
 
 <img src="docs/images/menu-panel.png" alt="The full menu for Today in API-equivalent cost, with emails hidden and task names blurred" width="344">
 
-Account totals come from OpenAI's own daily usage report for each account, so
-they include work done on other machines. Task totals come from the Codex and Pi
-session logs on your Mac.
+ChatGPT account totals come from OpenAI's own daily usage report, so they
+include work done on other machines. Claude totals come from completed replies
+through the proxy. Task names come from the clients' session logs on your Mac.
 
 ## Install
 
@@ -85,9 +86,12 @@ The easy way: paste this into Codex or Claude Code and let it do the work.
 ```text
 Install Codex Switch from https://github.com/joshp123/codex-switch on this Mac.
 Read its README first. Clone it, run deploy/install.sh, then help me sign in
-each of my ChatGPT accounts with `codex-switch login` (I'll do the browser
-part). Add the line from `codex-switch print-codex-config` to the top of
-~/.codex/config.toml, and to Pi's models.json if I use Pi. Finish by running
+each of my ChatGPT accounts with `codex-switch login` and Claude accounts with
+`codex-switch login --claude` (I'll do the browser part). Configure only the
+clients I use: `print-codex-config` for Codex and Pi's openai-codex provider;
+`print-claude-config` for Claude Code's settings.json env;
+`print-claude-config --pi` for Pi's anthropic provider. Merge the printed
+settings into the existing files without replacing other settings. Finish with
 `codex-switch status` and show me that every account is available.
 ```
 
@@ -96,7 +100,7 @@ The only thing you do yourself is sign in to each account in the browser.
 ### Doing it by hand
 
 You need macOS 14 or later, Go 1.24 or later, Xcode 16 or later (for the menu
-app), Codex, and at least two ChatGPT subscriptions.
+app), your coding client, and at least two subscriptions for the provider you use.
 
 **1. Install.**
 
@@ -122,8 +126,8 @@ codex-switch accounts
 ```
 
 ```text
-account-1	you@example.com
-account-2	you+work@example.com
+account-1	ChatGPT	you@example.com
+account-2	ChatGPT	you+work@example.com
 ```
 
 **3. Point Codex at it.** `deploy/install.sh` prints one line (and
@@ -165,20 +169,82 @@ and which accounts recent tasks went to. The log at
 `~/Library/Application Support/codex-switch/proxy.log` records every assignment,
 move, wait and rejected request. It never records prompts or responses.
 
+### Claude subscriptions
+
+Sign in once per Claude account:
+
+```sh
+codex-switch login --claude
+codex-switch login --claude
+codex-switch accounts
+```
+
+Claude sign-in opens Anthropic's subscription login. Paste the code from the
+browser back into the command. Codex Switch stores and refreshes the tokens in
+its own data folder. It leaves Claude Code's login and keychain alone.
+
+For Claude Code, run:
+
+```sh
+codex-switch print-claude-config
+```
+
+Merge the printed `env` entries into `~/.claude/settings.json`, keeping your
+other settings:
+
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:2455/client/<private key>/anthropic",
+    "ANTHROPIC_AUTH_TOKEN": "codex-switch",
+    "ENABLE_TOOL_SEARCH": "true"
+  }
+}
+```
+
+Restart Claude Code. `ENABLE_TOOL_SEARCH` keeps MCP tool search enabled through
+the proxy, as described in [Claude Code's environment settings](https://code.claude.com/docs/en/env-vars).
+Claude Code disables Remote Control when it uses a custom API address.
+
+For Pi, run `codex-switch print-claude-config --pi` and merge the printed
+`anthropic` provider into `~/.pi/agent/models.json`:
+
+```json
+{
+  "providers": {
+    "anthropic": {
+      "baseUrl": "http://127.0.0.1:2455/client/<private key>/anthropic",
+      "apiKey": "sk-ant-oat01-codex-switch"
+    }
+  }
+}
+```
+
+The dummy key selects Pi's Claude subscription protocol; the proxy replaces it
+with the chosen account's token. If Pi has a saved Anthropic login, its
+credentials take precedence. Use Pi's `/logout` for Anthropic so it uses the
+pool entry. Keep any Claude system-prompt extension you normally use enabled.
+See [Pi's model settings](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/models.md).
+
+Claude limits show the five-hour session, the week, and each model's weekly
+window. A model-specific limit applies to that model; other models can keep
+using the account. Forked sessions stay with their parent's account while it
+can serve the requested model, preserving the prompt cache.
+
 ## How routing works
 
 - New tasks go to the account with the most weekly allowance left. Every
   sub-agent counts as its own task.
-- A task stays on its account until OpenAI says that account has run out. Its
-  next request then goes to another account.
-- If OpenAI rejects a request before any work starts, Codex retries it like it
-  normally would, and the retry lands on another account. The proxy never
-  resends anything itself.
+- A task stays on its account until its provider says that account has run out.
+  Its next request then goes to another account.
+- If a provider rejects a request before any work starts, the client retries
+  as usual, and the retry lands on another account. The proxy never resends
+  anything itself.
 - If no account can run the model you asked for, the request waits until one
   can. The proxy never swaps your model for a different one.
 
-Add an account any time with `codex-switch login`, and remove one with
-`codex-switch remove account-2`. No restart needed.
+Add an account any time with `codex-switch login` or `login --claude`, and
+remove one with `codex-switch remove account-2`. No restart needed.
 
 ## How updates work
 
@@ -206,9 +272,10 @@ deploy/deploy.sh back \
 
 ## Uninstall
 
-First point Codex back at OpenAI: delete the `openai_base_url` line from
-`~/.codex/config.toml`, and the `openai-codex` provider from Pi's
-`models.json`, then restart them. Then:
+First point your clients back at their providers: delete `openai_base_url` from
+`~/.codex/config.toml`; remove the three Claude `env` entries above from
+`~/.claude/settings.json`; remove the `openai-codex` and `anthropic` pool
+entries from Pi's `models.json`, then restart the clients. Then:
 
 ```sh
 deploy/uninstall.sh
@@ -223,7 +290,7 @@ move that folder to the Trash to remove them too.
 
 | | What it is | Lines of code |
 | --- | --- | ---: |
-| **Codex Switch** | Account pool, menu bar app, per-task usage, updates that don't drop work | **about 8,500** (Go and Swift) |
+| **Codex Switch** | Account pool, menu bar app, per-task usage, updates that don't drop work | **about 10,700** (Go and Swift) |
 | [codex-lb](https://github.com/Soju06/codex-lb) | Account pool with a web dashboard; retries and replays requests inside the proxy | about 226,000 (Python and TypeScript) |
 | [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) | Gateway for lots of AI providers, translating between their APIs | about 232,000 (Go) |
 | [opencodex](https://github.com/lidge-jun/opencodex) | Proxy from Codex and Claude Code to any model provider | about 504,000 (TypeScript) |
@@ -231,12 +298,13 @@ move that folder to the Trash to remove them too.
 The small `auth.json` switchers are simpler, but they switch accounts by
 restarting Codex, which kills every running agent.
 
-Codex Switch is small because it does one thing: pool ChatGPT accounts for one
-person on one Mac. Everything else is left to Codex and Pi. It has six direct
+Codex Switch is small because it does one thing: pool subscription accounts for
+one person on one Mac. Everything else is left to the clients. It has six direct
 dependencies.
 
 Line counts exclude tests, generated and vendored code, comments and blank
-lines, measured with [scc](https://github.com/boyter/scc) on 11 October 2026.
+lines. Codex Switch was measured with [scc](https://github.com/boyter/scc) on
+12 October 2026; the alternatives were measured on 11 October 2026.
 
 ## Local data
 

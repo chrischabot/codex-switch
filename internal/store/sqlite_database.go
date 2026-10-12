@@ -28,7 +28,7 @@ func OpenStoreDatabase(databasePath string) (*StoreDatabase, error) {
 		sqlDatabase.Close()
 		return nil, fmt.Errorf("create store database schema: %w", err)
 	}
-	if err := addCacheWriteInputTokensColumn(sqlDatabase); err != nil {
+	if err := addCompletedResponseColumns(sqlDatabase); err != nil {
 		sqlDatabase.Close()
 		return nil, fmt.Errorf("update completed response schema: %w", err)
 	}
@@ -39,22 +39,21 @@ func OpenStoreDatabase(databasePath string) (*StoreDatabase, error) {
 	return &StoreDatabase{sqlDatabase: sqlDatabase}, nil
 }
 
-func addCacheWriteInputTokensColumn(sqlDatabase *sql.DB) error {
+func addCompletedResponseColumns(sqlDatabase *sql.DB) error {
 	// Serialize the check and addition when proxy generations start together.
 	if _, err := sqlDatabase.Exec(`BEGIN IMMEDIATE`); err != nil {
 		return err
 	}
 	defer sqlDatabase.Exec(`ROLLBACK`)
-	var columnExists bool
-	if err := sqlDatabase.QueryRow(`SELECT EXISTS (
-    SELECT 1 FROM pragma_table_info('completed_responses')
-    WHERE name = 'cache_write_input_tokens'
-)`).Scan(&columnExists); err != nil {
-		return err
-	}
-	if !columnExists {
-		if _, err := sqlDatabase.Exec(`ALTER TABLE completed_responses ADD COLUMN cache_write_input_tokens INTEGER`); err != nil {
+	for _, column := range []string{"cache_write_input_tokens", "cost_nano_usd"} {
+		var columnExists bool
+		if err := sqlDatabase.QueryRow(`SELECT EXISTS (SELECT 1 FROM pragma_table_info('completed_responses') WHERE name = ?)`, column).Scan(&columnExists); err != nil {
 			return err
+		}
+		if !columnExists {
+			if _, err := sqlDatabase.Exec(`ALTER TABLE completed_responses ADD COLUMN ` + column + ` INTEGER`); err != nil {
+				return err
+			}
 		}
 	}
 	_, err := sqlDatabase.Exec(`COMMIT`)
@@ -73,6 +72,12 @@ func (database *StoreDatabase) CloseStoreDatabase() error {
 }
 
 const storeDatabaseSchema = `
+CREATE TABLE IF NOT EXISTS prompt_cache_affinity (
+    prefix_hash TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    seen_at_unix_nano INTEGER NOT NULL
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS model_request_observation (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     started_at_unix_nano INTEGER NOT NULL
@@ -117,7 +122,8 @@ CREATE TABLE IF NOT EXISTS completed_responses (
     cache_write_input_tokens INTEGER,
     output_tokens INTEGER NOT NULL,
     reasoning_tokens INTEGER NOT NULL,
-    completed_at_unix_nano INTEGER NOT NULL
+    completed_at_unix_nano INTEGER NOT NULL,
+    cost_nano_usd INTEGER
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS completed_responses_completed_at

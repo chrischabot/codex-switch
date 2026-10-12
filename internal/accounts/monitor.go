@@ -24,22 +24,25 @@ const (
 
 // AccountRoutingFact keeps provider eligibility and its matching credentials in one selection unit.
 type AccountRoutingFact struct {
-	AccountName       store.AccountName
-	Credentials       Credentials
-	AccountState      AccountState
-	AccountStateCause error
-	AllowanceSample   AllowanceSample
-	RefreshedAt       time.Time
+	Provider           Provider
+	ClaudeRestrictions map[string]ClaudeRestriction
+	AccountName        store.AccountName
+	Credentials        Credentials
+	AccountState       AccountState
+	AccountStateCause  error
+	AllowanceSample    AllowanceSample
+	RefreshedAt        time.Time
 	// Nil means the catalogue has not been observed; an empty slice means no models.
 	SupportedModelSlugs []string
 	// ModelListCause is why the latest model-list read failed; nil after a successful read.
 	ModelListCause error
 }
 
-// Monitor watches every account in the pool: its credentials, what OpenAI
-// reports about its allowance, and which models it may use. Routing reads the
+// Monitor watches every account in the pool: its credentials, provider-reported
+// allowances and model availability. Routing reads the
 // latest facts without waiting on the network.
 type Monitor struct {
+	claudeOrigin    *url.URL
 	dataDirectory   string
 	usageURL        string
 	modelsURL       string
@@ -66,6 +69,7 @@ type monitoredAccount struct {
 // that codexExecutable's version of Codex would see.
 func NewMonitor(dataDirectory string, upstreamOrigin *url.URL, codexExecutable string, httpClient *http.Client, storeDatabase *store.StoreDatabase) *Monitor {
 	return &Monitor{
+		claudeOrigin:    &url.URL{Scheme: "https", Host: "api.anthropic.com"},
 		dataDirectory:   dataDirectory,
 		usageURL:        upstreamOrigin.ResolveReference(&url.URL{Path: "/backend-api/wham/usage"}).String(),
 		modelsURL:       upstreamOrigin.ResolveReference(&url.URL{Path: "/backend-api/codex/models"}).String(),
@@ -120,7 +124,7 @@ func (monitor *Monitor) startDueReads(ctx context.Context, reads *sync.WaitGroup
 	monitor.mutex.Lock()
 	defer monitor.mutex.Unlock()
 	for _, account := range pool {
-		monitored := monitor.monitoredAccountLocked(store.AccountName(account.Name))
+		monitored := monitor.monitoredAccountLocked(store.AccountName(account.Name), account.Provider)
 		if monitored.reading || time.Since(monitored.lastReadStarted) < interval {
 			continue
 		}
@@ -135,7 +139,12 @@ func (monitor *Monitor) startDueReads(ctx context.Context, reads *sync.WaitGroup
 }
 
 func (monitor *Monitor) readAccount(ctx context.Context, account PoolAccount, monitored *monitoredAccount, scheduled AccountRoutingFact) {
-	read := monitor.observeAccount(ctx, account, monitored.savedLogin, scheduled)
+	var read AccountRoutingFact
+	if account.Provider == ProviderClaude {
+		read = monitor.observeClaudeAccount(ctx, account, monitored.savedLogin, scheduled)
+	} else {
+		read = monitor.observeAccount(ctx, account, monitored.savedLogin, scheduled)
+	}
 	monitor.mutex.Lock()
 	latest := monitored.fact
 	read = keepRequestPathObservations(read, scheduled, latest)
@@ -152,6 +161,11 @@ func (monitor *Monitor) readAccount(ctx context.Context, account PoolAccount, mo
 // was in flight: credentials it refreshed after a 401, a model OpenAI
 // rejected, and a sign-in OpenAI demanded. They are newer than the read.
 func keepRequestPathObservations(read, scheduled, latest AccountRoutingFact) AccountRoutingFact {
+	if read.Provider == ProviderClaude {
+		read.AllowanceSample = mergeClaudeAllowance(read.AllowanceSample, latest.AllowanceSample)
+		read.ClaudeRestrictions = mergeClaudeRestrictions(read.ClaudeRestrictions, latest.ClaudeRestrictions)
+		updateClaudeSharedState(&read, time.Now())
+	}
 	if latest.Credentials != scheduled.Credentials {
 		read.Credentials = latest.Credentials
 	}
@@ -210,11 +224,12 @@ func (monitor *Monitor) RefreshAccountCredentialsAfterUnauthorized(accountName s
 	if err != nil {
 		return err
 	}
-	if !slices.ContainsFunc(pool, func(account PoolAccount) bool { return store.AccountName(account.Name) == accountName }) {
+	index := slices.IndexFunc(pool, func(account PoolAccount) bool { return store.AccountName(account.Name) == accountName })
+	if index < 0 {
 		return fmt.Errorf("account %s is not in the pool", accountName)
 	}
 	monitor.mutex.Lock()
-	monitored := monitor.monitoredAccountLocked(accountName)
+	monitored := monitor.monitoredAccountLocked(accountName, pool[index].Provider)
 	monitor.mutex.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), accountReadTimeout)
 	refreshed, refreshErr := monitored.savedLogin.RefreshAfterUnauthorized(ctx, rejected)
@@ -234,10 +249,13 @@ func (monitor *Monitor) RefreshAccountCredentialsAfterUnauthorized(accountName s
 	return nil
 }
 
-func (monitor *Monitor) monitoredAccountLocked(accountName store.AccountName) *monitoredAccount {
+func (monitor *Monitor) monitoredAccountLocked(accountName store.AccountName, providers ...Provider) *monitoredAccount {
 	monitored, known := monitor.accounts[accountName]
 	if !known {
 		monitored = &monitoredAccount{savedLogin: newSavedLogin(filepath.Join(monitor.dataDirectory, string(accountName)), monitor.httpClient)}
+		if len(providers) > 0 {
+			monitored.savedLogin.provider = providers[0]
+		}
 		monitor.accounts[accountName] = monitored
 	}
 	return monitored

@@ -10,6 +10,7 @@ type taskMetadata struct {
 	ParentTaskID     string
 	ForkedFromTaskID string
 	CreatedAt        time.Time
+	Title            string
 }
 
 type tokenUsage struct {

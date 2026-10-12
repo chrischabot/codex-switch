@@ -10,9 +10,9 @@ import (
 	"github.com/joshp123/codex-switch/internal/taskidentity"
 )
 
-func taskIdentityForRequest(request *http.Request) store.CodexTaskID {
-	if taskID := strings.TrimSpace(request.Header.Get(codexTaskIDHeader)); taskID != "" {
-		return store.CodexTaskID(taskID)
+func taskIdentityForRequest(request *http.Request) store.TaskID {
+	if taskID := strings.TrimSpace(request.Header.Get(taskIDHeader)); taskID != "" {
+		return store.TaskID(taskID)
 	}
 	if request.Header.Get("Originator") != "pi" || workKindForRequest(request) != store.ModelTurnWorkKind {
 		return ""
@@ -24,21 +24,21 @@ func taskIdentityForRequest(request *http.Request) store.CodexTaskID {
 	if sessionID == "" {
 		return ""
 	}
-	return store.CodexTaskID(taskidentity.PiSession(sessionID))
+	return store.TaskID(taskidentity.PiSession(sessionID))
 }
 
 // forkSourceTaskForRequest is the task a Codex fork was made from, for example
 // the task a suggested next message is drafted for. Codex names it in the turn
 // metadata it sends with every request and WebSocket handshake; other work
 // has none.
-func forkSourceTaskForRequest(request *http.Request) store.CodexTaskID {
+func forkSourceTaskForRequest(request *http.Request) store.TaskID {
 	var metadata struct {
 		ForkedFromThreadID string `json:"forked_from_thread_id"`
 	}
 	if json.Unmarshal([]byte(request.Header.Get("X-Codex-Turn-Metadata")), &metadata) != nil {
 		return ""
 	}
-	return store.CodexTaskID(strings.TrimSpace(metadata.ForkedFromThreadID))
+	return store.TaskID(strings.TrimSpace(metadata.ForkedFromThreadID))
 }
 
 // clientNameForRequest names the sending client in log lines, as the client
@@ -56,9 +56,9 @@ func clientNameForRequest(request *http.Request) string {
 
 // describeModelRequest names a routed model request in log lines: its task, the
 // client that sent it and the account serving it.
-func describeModelRequest(codexTaskID store.CodexTaskID, client string, accountName store.AccountName) string {
-	work := "task " + string(codexTaskID)
-	if codexTaskID == "" {
+func describeModelRequest(taskID store.TaskID, client string, accountName store.AccountName) string {
+	work := "task " + string(taskID)
+	if taskID == "" {
 		work = "request without a task ID"
 	}
 	if accountName == "" {

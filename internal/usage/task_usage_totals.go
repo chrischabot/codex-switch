@@ -114,6 +114,12 @@ func (ledger *UsageLedger) readAccountDailyUsage(pool []accounts.PoolAccount, co
 	}
 	daily := make(map[accountDay]usageAmount)
 	for _, account := range pool {
+		if account.Provider == accounts.ProviderClaude {
+			for date, amount := range local[account.Name] {
+				daily[accountDay{account.Name, date}] = amount
+			}
+			continue
+		}
 		openAITokens := make(map[string]int64)
 		for _, bucket := range histories[account.AccountID].Buckets {
 			openAITokens[bucket.StartDate] = bucket.Tokens
@@ -202,6 +208,11 @@ func (ledger *UsageLedger) readLocalCompletions(ctx context.Context, start, now 
 	if err != nil {
 		return nil, nil, err
 	}
+	claudeMetadata, err := claudeTaskMetadata(responses)
+	if err != nil {
+		return nil, nil, err
+	}
+	metadata = append(metadata, claudeMetadata...)
 	completions, err := reconcileCompletions(native, responses)
 	if err != nil {
 		return nil, nil, err

@@ -22,6 +22,55 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type Provider int32
+
+const (
+	Provider_PROVIDER_UNSPECIFIED Provider = 0
+	Provider_PROVIDER_CHATGPT     Provider = 1
+	Provider_PROVIDER_CLAUDE      Provider = 2
+)
+
+// Enum value maps for Provider.
+var (
+	Provider_name = map[int32]string{
+		0: "PROVIDER_UNSPECIFIED",
+		1: "PROVIDER_CHATGPT",
+		2: "PROVIDER_CLAUDE",
+	}
+	Provider_value = map[string]int32{
+		"PROVIDER_UNSPECIFIED": 0,
+		"PROVIDER_CHATGPT":     1,
+		"PROVIDER_CLAUDE":      2,
+	}
+)
+
+func (x Provider) Enum() *Provider {
+	p := new(Provider)
+	*p = x
+	return p
+}
+
+func (x Provider) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Provider) Descriptor() protoreflect.EnumDescriptor {
+	return file_menu_snapshot_proto_enumTypes[0].Descriptor()
+}
+
+func (Provider) Type() protoreflect.EnumType {
+	return &file_menu_snapshot_proto_enumTypes[0]
+}
+
+func (x Provider) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Provider.Descriptor instead.
+func (Provider) EnumDescriptor() ([]byte, []int) {
+	return file_menu_snapshot_proto_rawDescGZIP(), []int{0}
+}
+
 type AccountState int32
 
 const (
@@ -64,11 +113,11 @@ func (x AccountState) String() string {
 }
 
 func (AccountState) Descriptor() protoreflect.EnumDescriptor {
-	return file_menu_snapshot_proto_enumTypes[0].Descriptor()
+	return file_menu_snapshot_proto_enumTypes[1].Descriptor()
 }
 
 func (AccountState) Type() protoreflect.EnumType {
-	return &file_menu_snapshot_proto_enumTypes[0]
+	return &file_menu_snapshot_proto_enumTypes[1]
 }
 
 func (x AccountState) Number() protoreflect.EnumNumber {
@@ -77,7 +126,7 @@ func (x AccountState) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use AccountState.Descriptor instead.
 func (AccountState) EnumDescriptor() ([]byte, []int) {
-	return file_menu_snapshot_proto_rawDescGZIP(), []int{0}
+	return file_menu_snapshot_proto_rawDescGZIP(), []int{1}
 }
 
 type ReportingPeriodKind int32
@@ -116,11 +165,11 @@ func (x ReportingPeriodKind) String() string {
 }
 
 func (ReportingPeriodKind) Descriptor() protoreflect.EnumDescriptor {
-	return file_menu_snapshot_proto_enumTypes[1].Descriptor()
+	return file_menu_snapshot_proto_enumTypes[2].Descriptor()
 }
 
 func (ReportingPeriodKind) Type() protoreflect.EnumType {
-	return &file_menu_snapshot_proto_enumTypes[1]
+	return &file_menu_snapshot_proto_enumTypes[2]
 }
 
 func (x ReportingPeriodKind) Number() protoreflect.EnumNumber {
@@ -129,7 +178,7 @@ func (x ReportingPeriodKind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ReportingPeriodKind.Descriptor instead.
 func (ReportingPeriodKind) EnumDescriptor() ([]byte, []int) {
-	return file_menu_snapshot_proto_rawDescGZIP(), []int{1}
+	return file_menu_snapshot_proto_rawDescGZIP(), []int{2}
 }
 
 type MenuSnapshot struct {
@@ -510,7 +559,8 @@ type Account struct {
 	UnavailableReason string `protobuf:"bytes,8,opt,name=unavailable_reason,json=unavailableReason,proto3" json:"unavailable_reason,omitempty"`
 	// The account's plan offers the model Codex is configured to use, so it is
 	// part of the pool for current work even while its allowance is used up.
-	OffersConfiguredModel bool `protobuf:"varint,9,opt,name=offers_configured_model,json=offersConfiguredModel,proto3" json:"offers_configured_model,omitempty"`
+	OffersConfiguredModel bool     `protobuf:"varint,9,opt,name=offers_configured_model,json=offersConfiguredModel,proto3" json:"offers_configured_model,omitempty"`
+	Provider              Provider `protobuf:"varint,10,opt,name=provider,proto3,enum=codex_switch.menu.Provider" json:"provider,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -608,6 +658,13 @@ func (x *Account) GetOffersConfiguredModel() bool {
 	return false
 }
 
+func (x *Account) GetProvider() Provider {
+	if x != nil {
+		return x.Provider
+	}
+	return Provider_PROVIDER_UNSPECIFIED
+}
+
 type AllowanceObservation struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
 	ObservedAt            *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
@@ -689,6 +746,9 @@ type AllowanceWindow struct {
 	PeriodSeconds int64                  `protobuf:"varint,1,opt,name=period_seconds,json=periodSeconds,proto3" json:"period_seconds,omitempty"`
 	UsedPercent   float64                `protobuf:"fixed64,2,opt,name=used_percent,json=usedPercent,proto3" json:"used_percent,omitempty"`
 	ResetAt       *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=reset_at,json=resetAt,proto3" json:"reset_at,omitempty"`
+	// Empty for a window shared by all models.
+	ModelId       string `protobuf:"bytes,4,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelName     string `protobuf:"bytes,5,opt,name=model_name,json=modelName,proto3" json:"model_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -742,6 +802,20 @@ func (x *AllowanceWindow) GetResetAt() *timestamppb.Timestamp {
 		return x.ResetAt
 	}
 	return nil
+}
+
+func (x *AllowanceWindow) GetModelId() string {
+	if x != nil {
+		return x.ModelId
+	}
+	return ""
+}
+
+func (x *AllowanceWindow) GetModelName() string {
+	if x != nil {
+		return x.ModelName
+	}
+	return ""
 }
 
 type CompletedTask struct {
@@ -1094,7 +1168,7 @@ const file_menu_snapshot_proto_rawDesc = "" +
 	"successful\x18\x02 \x01(\x03R\n" +
 	"successful\x12\x16\n" +
 	"\x06failed\x18\x03 \x01(\x03R\x06failed\x12 \n" +
-	"\vinterrupted\x18\x04 \x01(\x03R\vinterrupted\"\xe9\x02\n" +
+	"\vinterrupted\x18\x04 \x01(\x03R\vinterrupted\"\xa2\x03\n" +
 	"\aAccount\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12\x12\n" +
@@ -1104,7 +1178,9 @@ const file_menu_snapshot_proto_rawDesc = "" +
 	"\x0eaccount_number\x18\x06 \x01(\rR\raccountNumber\x12\x16\n" +
 	"\x06usable\x18\a \x01(\bR\x06usable\x12-\n" +
 	"\x12unavailable_reason\x18\b \x01(\tR\x11unavailableReason\x126\n" +
-	"\x17offers_configured_model\x18\t \x01(\bR\x15offersConfiguredModel\"\xa9\x02\n" +
+	"\x17offers_configured_model\x18\t \x01(\bR\x15offersConfiguredModel\x127\n" +
+	"\bprovider\x18\n" +
+	" \x01(\x0e2\x1b.codex_switch.menu.ProviderR\bprovider\"\xa9\x02\n" +
 	"\x14AllowanceObservation\x12;\n" +
 	"\vobserved_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"observedAt\x12\x18\n" +
@@ -1112,11 +1188,14 @@ const file_menu_snapshot_proto_rawDesc = "" +
 	"\rlimit_reached\x18\x03 \x01(\bR\flimitReached\x12<\n" +
 	"\awindows\x18\x04 \x03(\v2\".codex_switch.menu.AllowanceWindowR\awindows\x12;\n" +
 	"\x17available_reset_credits\x18\x05 \x01(\rH\x00R\x15availableResetCredits\x88\x01\x01B\x1a\n" +
-	"\x18_available_reset_credits\"\x92\x01\n" +
+	"\x18_available_reset_credits\"\xcc\x01\n" +
 	"\x0fAllowanceWindow\x12%\n" +
 	"\x0eperiod_seconds\x18\x01 \x01(\x03R\rperiodSeconds\x12!\n" +
 	"\fused_percent\x18\x02 \x01(\x01R\vusedPercent\x125\n" +
-	"\breset_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\aresetAt\"\x9b\x02\n" +
+	"\breset_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\aresetAt\x12\x19\n" +
+	"\bmodel_id\x18\x04 \x01(\tR\amodelId\x12\x1d\n" +
+	"\n" +
+	"model_name\x18\x05 \x01(\tR\tmodelName\"\x9b\x02\n" +
 	"\rCompletedTask\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12!\n" +
 	"\faccount_keys\x18\x02 \x03(\tR\vaccountKeys\x12\x19\n" +
@@ -1145,7 +1224,11 @@ const file_menu_snapshot_proto_rawDesc = "" +
 	"accountKey\x12\x16\n" +
 	"\x06tokens\x18\x02 \x01(\x03R\x06tokens\x12'\n" +
 	"\rcost_nano_usd\x18\x03 \x01(\x03H\x00R\vcostNanoUsd\x88\x01\x01B\x10\n" +
-	"\x0e_cost_nano_usd*\xd6\x01\n" +
+	"\x0e_cost_nano_usd*O\n" +
+	"\bProvider\x12\x18\n" +
+	"\x14PROVIDER_UNSPECIFIED\x10\x00\x12\x14\n" +
+	"\x10PROVIDER_CHATGPT\x10\x01\x12\x13\n" +
+	"\x0fPROVIDER_CLAUDE\x10\x02*\xd6\x01\n" +
 	"\fAccountState\x12\x1d\n" +
 	"\x19ACCOUNT_STATE_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13ACCOUNT_STATE_READY\x10\x01\x12\x19\n" +
@@ -1171,57 +1254,59 @@ func file_menu_snapshot_proto_rawDescGZIP() []byte {
 	return file_menu_snapshot_proto_rawDescData
 }
 
-var file_menu_snapshot_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_menu_snapshot_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
 var file_menu_snapshot_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_menu_snapshot_proto_goTypes = []any{
-	(AccountState)(0),             // 0: codex_switch.menu.AccountState
-	(ReportingPeriodKind)(0),      // 1: codex_switch.menu.ReportingPeriodKind
-	(*MenuSnapshot)(nil),          // 2: codex_switch.menu.MenuSnapshot
-	(*AccountDay)(nil),            // 3: codex_switch.menu.AccountDay
-	(*ProxyActivity)(nil),         // 4: codex_switch.menu.ProxyActivity
-	(*ProxyAccountActivity)(nil),  // 5: codex_switch.menu.ProxyAccountActivity
-	(*ModelRequestCounts)(nil),    // 6: codex_switch.menu.ModelRequestCounts
-	(*Account)(nil),               // 7: codex_switch.menu.Account
-	(*AllowanceObservation)(nil),  // 8: codex_switch.menu.AllowanceObservation
-	(*AllowanceWindow)(nil),       // 9: codex_switch.menu.AllowanceWindow
-	(*CompletedTask)(nil),         // 10: codex_switch.menu.CompletedTask
-	(*Connection)(nil),            // 11: codex_switch.menu.Connection
-	(*ReportingPeriod)(nil),       // 12: codex_switch.menu.ReportingPeriod
-	(*TaskUsageReport)(nil),       // 13: codex_switch.menu.TaskUsageReport
-	(*AccountTotal)(nil),          // 14: codex_switch.menu.AccountTotal
-	(*timestamppb.Timestamp)(nil), // 15: google.protobuf.Timestamp
+	(Provider)(0),                 // 0: codex_switch.menu.Provider
+	(AccountState)(0),             // 1: codex_switch.menu.AccountState
+	(ReportingPeriodKind)(0),      // 2: codex_switch.menu.ReportingPeriodKind
+	(*MenuSnapshot)(nil),          // 3: codex_switch.menu.MenuSnapshot
+	(*AccountDay)(nil),            // 4: codex_switch.menu.AccountDay
+	(*ProxyActivity)(nil),         // 5: codex_switch.menu.ProxyActivity
+	(*ProxyAccountActivity)(nil),  // 6: codex_switch.menu.ProxyAccountActivity
+	(*ModelRequestCounts)(nil),    // 7: codex_switch.menu.ModelRequestCounts
+	(*Account)(nil),               // 8: codex_switch.menu.Account
+	(*AllowanceObservation)(nil),  // 9: codex_switch.menu.AllowanceObservation
+	(*AllowanceWindow)(nil),       // 10: codex_switch.menu.AllowanceWindow
+	(*CompletedTask)(nil),         // 11: codex_switch.menu.CompletedTask
+	(*Connection)(nil),            // 12: codex_switch.menu.Connection
+	(*ReportingPeriod)(nil),       // 13: codex_switch.menu.ReportingPeriod
+	(*TaskUsageReport)(nil),       // 14: codex_switch.menu.TaskUsageReport
+	(*AccountTotal)(nil),          // 15: codex_switch.menu.AccountTotal
+	(*timestamppb.Timestamp)(nil), // 16: google.protobuf.Timestamp
 }
 var file_menu_snapshot_proto_depIdxs = []int32{
-	15, // 0: codex_switch.menu.MenuSnapshot.generated_at:type_name -> google.protobuf.Timestamp
-	7,  // 1: codex_switch.menu.MenuSnapshot.accounts:type_name -> codex_switch.menu.Account
-	11, // 2: codex_switch.menu.MenuSnapshot.connection:type_name -> codex_switch.menu.Connection
-	12, // 3: codex_switch.menu.MenuSnapshot.reporting_periods:type_name -> codex_switch.menu.ReportingPeriod
-	4,  // 4: codex_switch.menu.MenuSnapshot.proxy_activity:type_name -> codex_switch.menu.ProxyActivity
-	3,  // 5: codex_switch.menu.MenuSnapshot.account_days:type_name -> codex_switch.menu.AccountDay
-	15, // 6: codex_switch.menu.AccountDay.started_at:type_name -> google.protobuf.Timestamp
-	15, // 7: codex_switch.menu.ProxyActivity.started_at:type_name -> google.protobuf.Timestamp
-	15, // 8: codex_switch.menu.ProxyActivity.ended_at:type_name -> google.protobuf.Timestamp
-	5,  // 9: codex_switch.menu.ProxyActivity.accounts:type_name -> codex_switch.menu.ProxyAccountActivity
-	10, // 10: codex_switch.menu.ProxyActivity.tasks:type_name -> codex_switch.menu.CompletedTask
-	15, // 11: codex_switch.menu.ProxyActivity.requests_started_at:type_name -> google.protobuf.Timestamp
-	6,  // 12: codex_switch.menu.ProxyAccountActivity.request_counts:type_name -> codex_switch.menu.ModelRequestCounts
-	0,  // 13: codex_switch.menu.Account.state:type_name -> codex_switch.menu.AccountState
-	8,  // 14: codex_switch.menu.Account.allowance:type_name -> codex_switch.menu.AllowanceObservation
-	15, // 15: codex_switch.menu.AllowanceObservation.observed_at:type_name -> google.protobuf.Timestamp
-	9,  // 16: codex_switch.menu.AllowanceObservation.windows:type_name -> codex_switch.menu.AllowanceWindow
-	15, // 17: codex_switch.menu.AllowanceWindow.reset_at:type_name -> google.protobuf.Timestamp
-	15, // 18: codex_switch.menu.CompletedTask.last_completed_at:type_name -> google.protobuf.Timestamp
-	1,  // 19: codex_switch.menu.ReportingPeriod.kind:type_name -> codex_switch.menu.ReportingPeriodKind
-	15, // 20: codex_switch.menu.ReportingPeriod.started_at:type_name -> google.protobuf.Timestamp
-	15, // 21: codex_switch.menu.ReportingPeriod.ended_at:type_name -> google.protobuf.Timestamp
-	14, // 22: codex_switch.menu.ReportingPeriod.accounts:type_name -> codex_switch.menu.AccountTotal
-	13, // 23: codex_switch.menu.ReportingPeriod.task_usage:type_name -> codex_switch.menu.TaskUsageReport
-	10, // 24: codex_switch.menu.TaskUsageReport.tasks:type_name -> codex_switch.menu.CompletedTask
-	25, // [25:25] is the sub-list for method output_type
-	25, // [25:25] is the sub-list for method input_type
-	25, // [25:25] is the sub-list for extension type_name
-	25, // [25:25] is the sub-list for extension extendee
-	0,  // [0:25] is the sub-list for field type_name
+	16, // 0: codex_switch.menu.MenuSnapshot.generated_at:type_name -> google.protobuf.Timestamp
+	8,  // 1: codex_switch.menu.MenuSnapshot.accounts:type_name -> codex_switch.menu.Account
+	12, // 2: codex_switch.menu.MenuSnapshot.connection:type_name -> codex_switch.menu.Connection
+	13, // 3: codex_switch.menu.MenuSnapshot.reporting_periods:type_name -> codex_switch.menu.ReportingPeriod
+	5,  // 4: codex_switch.menu.MenuSnapshot.proxy_activity:type_name -> codex_switch.menu.ProxyActivity
+	4,  // 5: codex_switch.menu.MenuSnapshot.account_days:type_name -> codex_switch.menu.AccountDay
+	16, // 6: codex_switch.menu.AccountDay.started_at:type_name -> google.protobuf.Timestamp
+	16, // 7: codex_switch.menu.ProxyActivity.started_at:type_name -> google.protobuf.Timestamp
+	16, // 8: codex_switch.menu.ProxyActivity.ended_at:type_name -> google.protobuf.Timestamp
+	6,  // 9: codex_switch.menu.ProxyActivity.accounts:type_name -> codex_switch.menu.ProxyAccountActivity
+	11, // 10: codex_switch.menu.ProxyActivity.tasks:type_name -> codex_switch.menu.CompletedTask
+	16, // 11: codex_switch.menu.ProxyActivity.requests_started_at:type_name -> google.protobuf.Timestamp
+	7,  // 12: codex_switch.menu.ProxyAccountActivity.request_counts:type_name -> codex_switch.menu.ModelRequestCounts
+	1,  // 13: codex_switch.menu.Account.state:type_name -> codex_switch.menu.AccountState
+	9,  // 14: codex_switch.menu.Account.allowance:type_name -> codex_switch.menu.AllowanceObservation
+	0,  // 15: codex_switch.menu.Account.provider:type_name -> codex_switch.menu.Provider
+	16, // 16: codex_switch.menu.AllowanceObservation.observed_at:type_name -> google.protobuf.Timestamp
+	10, // 17: codex_switch.menu.AllowanceObservation.windows:type_name -> codex_switch.menu.AllowanceWindow
+	16, // 18: codex_switch.menu.AllowanceWindow.reset_at:type_name -> google.protobuf.Timestamp
+	16, // 19: codex_switch.menu.CompletedTask.last_completed_at:type_name -> google.protobuf.Timestamp
+	2,  // 20: codex_switch.menu.ReportingPeriod.kind:type_name -> codex_switch.menu.ReportingPeriodKind
+	16, // 21: codex_switch.menu.ReportingPeriod.started_at:type_name -> google.protobuf.Timestamp
+	16, // 22: codex_switch.menu.ReportingPeriod.ended_at:type_name -> google.protobuf.Timestamp
+	15, // 23: codex_switch.menu.ReportingPeriod.accounts:type_name -> codex_switch.menu.AccountTotal
+	14, // 24: codex_switch.menu.ReportingPeriod.task_usage:type_name -> codex_switch.menu.TaskUsageReport
+	11, // 25: codex_switch.menu.TaskUsageReport.tasks:type_name -> codex_switch.menu.CompletedTask
+	26, // [26:26] is the sub-list for method output_type
+	26, // [26:26] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_menu_snapshot_proto_init() }
@@ -1238,7 +1323,7 @@ func file_menu_snapshot_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_menu_snapshot_proto_rawDesc), len(file_menu_snapshot_proto_rawDesc)),
-			NumEnums:      2,
+			NumEnums:      3,
 			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   0,

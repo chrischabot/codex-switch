@@ -72,6 +72,11 @@ func serveRelay(tcpListenAddress string) {
 	}
 
 	accountMonitor := accountapi.NewMonitor(dataDir(), upstreamOrigin, codexstate.FindCodexExecutable(), &http.Client{Timeout: 30 * time.Second}, storeDatabase)
+	claudeUpstreamOrigin, err := url.Parse("https://api.anthropic.com")
+	if err != nil {
+		log.Fatal(err)
+	}
+	accountMonitor.SetClaudeUpstreamOrigin(claudeUpstreamOrigin)
 	usageLedger, err := usage.OpenUsageLedger(storeDatabase, dataDir(), &http.Client{Timeout: 15 * time.Second})
 	if err != nil {
 		log.Fatal(err)
@@ -84,12 +89,15 @@ func serveRelay(tcpListenAddress string) {
 	}
 	defer func() { stopFacts(); background.Wait() }()
 	taskRouter := routing.CreateTaskRouter(storeDatabase, accountMonitor)
-	relayHandler, err := relay.CreateCodexTrafficRelayHandler(relay.RelayHandlerOptions{
-		UpstreamOrigin:   upstreamOrigin,
-		ClientCapability: capability,
-		TaskRouter:       taskRouter,
-		CompletionLedger: storeDatabase,
-		RequestCounters:  storeDatabase,
+	relayHandler, err := relay.CreateTrafficRelayHandler(relay.RelayHandlerOptions{
+		UpstreamOrigin:       upstreamOrigin,
+		ClaudeUpstreamOrigin: claudeUpstreamOrigin,
+		AccountObserver:      accountMonitor,
+		CacheAffinity:        storeDatabase,
+		ClientCapability:     capability,
+		TaskRouter:           taskRouter,
+		CompletionLedger:     storeDatabase,
+		RequestCounters:      storeDatabase,
 	})
 	if err != nil {
 		log.Fatal(err)

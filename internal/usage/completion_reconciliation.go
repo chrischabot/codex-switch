@@ -28,7 +28,7 @@ func reconcileCompletions(native []sessionUsageObservation, responses []store.Co
 	firstResponseByTask := make(map[string]time.Time)
 	for _, response := range responses {
 		byResponseID[response.CompletedResponseID] = response
-		taskID := string(response.CodexTaskID)
+		taskID := string(response.TaskID)
 		if first := firstResponseByTask[taskID]; first.IsZero() || response.CompletedAt.Before(first) {
 			firstResponseByTask[taskID] = response.CompletedAt
 		}
@@ -72,15 +72,24 @@ func reconcileCompletions(native []sessionUsageObservation, responses []store.Co
 		}
 		completion.Fast = mode == harnessFast
 		completion.Cost = apiEquivalentPrice(completion.Model, mode, usage)
+		if response, found := byResponseID[responseID]; found && response.CostNanoUSD != nil {
+			cost := nanoUSD(*response.CostNanoUSD)
+			completion.Cost = &cost
+		}
 		completions = append(completions, completion)
 	}
 	for _, response := range responses {
 		if matched[response.CompletedResponseID] {
 			continue
 		}
-		usage := tokenUsage{InputTokens: response.InputTokens, CachedInputTokens: response.CachedInputTokens, OutputTokens: response.OutputTokens, ReasoningOutputTokens: response.ReasoningTokens}
+		usage := tokenUsage{InputTokens: response.InputTokens, CachedInputTokens: response.CachedInputTokens, CacheWriteInputTokens: response.CacheWriteInputTokens, OutputTokens: response.OutputTokens, ReasoningOutputTokens: response.ReasoningTokens}
 		mode := harnessMode(response.HarnessMode)
-		completions = append(completions, reconciledCompletion{TaskID: string(response.CodexTaskID), At: response.CompletedAt, AccountName: response.AccountName, Model: response.ModelSlug, Tokens: response.InputTokens + response.OutputTokens, Cost: apiEquivalentPrice(response.ModelSlug, mode, usage), Fast: mode == harnessFast, ResponseID: response.CompletedResponseID})
+		cost := apiEquivalentPrice(response.ModelSlug, mode, usage)
+		if response.CostNanoUSD != nil {
+			price := nanoUSD(*response.CostNanoUSD)
+			cost = &price
+		}
+		completions = append(completions, reconciledCompletion{TaskID: string(response.TaskID), At: response.CompletedAt, AccountName: response.AccountName, Model: response.ModelSlug, Tokens: response.InputTokens + response.OutputTokens, Cost: cost, Fast: mode == harnessFast, ResponseID: response.CompletedResponseID})
 	}
 	return completions, nil
 }
