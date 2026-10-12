@@ -66,6 +66,27 @@ process, the real Codex and Pi clients, real accounts on a cheap model, a real
 blue-green update, and the real menu app on screen. A test that only checks the
 code against itself proves nothing.
 
+## Before you call work done: get a review that would catch you
+
+A passing build, your own checks, and anything you built to test the work
+(stand-in servers, fixtures, renders from made-up data) are not evidence that
+it is done. Before you say it is done or ask the owner to approve it:
+
+1. Commission one reviewer from the other model family: Claude Opus through Pi
+   if you are GPT, GPT-6.1 Sol through the Codex CLI if you are Claude.
+2. Give it only the full project steering (everything in
+   `.project-private/steering/`, not just the current thread), the owner's
+   engineering principles, and access to your branch and the running system.
+   Give it none of your summary, claims, findings, screenshots or success
+   criteria.
+3. Ask it one question: would the owner accept this as it is, and if not, what
+   would he object to first? It must use the product the way he would: real
+   clients, real accounts on a cheap model, the real app on screen.
+4. Pass its verdict to the owner word for word. Questions it raises for the
+   owner go to the owner; do not answer them yourself. If the verdict is "not
+   ready", fix what it found, then start a fresh reviewer with the same inputs;
+   never ask a reviewer to check its own suggestions.
+
 ## Live system
 
 Never interrupt running work. Deploy the proxy only through `deploy/deploy.sh`;
