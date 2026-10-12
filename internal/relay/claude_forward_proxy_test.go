@@ -218,41 +218,48 @@ func TestClaudeForwardProxyTunnelsOtherHostsWithoutDecrypting(t *testing.T) {
 	}
 }
 
-func TestClaudeForwardProxyDrainFinishesAdmittedStreamAndTunnel(t *testing.T) {
-	finishStream := make(chan struct{})
+func TestClaudeForwardProxyDrainProtectsOnlyModelWorkPastGrace(t *testing.T) {
+	finishModel := make(chan struct{})
+	var finishOnce sync.Once
+	finish := func() { finishOnce.Do(func() { close(finishModel) }) }
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "text/event-stream")
 		io.WriteString(writer, ": stream admitted\n\n")
 		writer.(http.Flusher).Flush()
-		<-finishStream
-		io.WriteString(writer, claudeForwardResponse)
+		if request.Method == "POST" && request.URL.Path == "/v1/messages" {
+			<-finishModel
+			io.WriteString(writer, claudeForwardResponse)
+		} else {
+			<-request.Context().Done()
+		}
 	}))
 	defer upstream.Close()
-	proxy, server, client, _, _, _ := startTestClaudeForwardProxy(t, upstream)
+	defer finish()
+	proxy, server, client, _, ledger, _ := startTestClaudeForwardProxy(t, upstream)
 	request, _ := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", strings.NewReader(`{"model":"claude-haiku-5-5","stream":true}`))
-	response, err := client.Do(request)
+	modelResponse, err := client.Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer response.Body.Close()
+	defer modelResponse.Body.Close()
+	otherResponse, err := client.Get("https://api.anthropic.com/v1/code/sessions/session-test/worker/events/stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer otherResponse.Body.Close()
+	otherClosed := make(chan error, 1)
+	go func() { _, err := io.ReadAll(otherResponse.Body); otherClosed <- err }()
 
-	echo, err := net.Listen("tcp", "127.0.0.1:0")
+	peer, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer echo.Close()
-	uploadedAfterEOF := make(chan string, 1)
+	defer peer.Close()
 	go func() {
-		connection, err := echo.Accept()
+		connection, err := peer.Accept()
 		if err == nil {
 			defer connection.Close()
-			connection.SetDeadline(time.Now().Add(5 * time.Second))
-			first := make([]byte, len("still working"))
-			_, _ = io.ReadFull(connection, first)
-			_, _ = connection.Write(first)
-			_ = connection.(*net.TCPConn).CloseWrite()
-			remaining, _ := io.ReadAll(connection)
-			uploadedAfterEOF <- string(remaining)
+			_, _ = io.Copy(connection, connection)
 		}
 	}()
 	tunnel, err := net.Dial("tcp", strings.TrimPrefix(server.URL, "http://"))
@@ -261,55 +268,44 @@ func TestClaudeForwardProxyDrainFinishesAdmittedStreamAndTunnel(t *testing.T) {
 	}
 	defer tunnel.Close()
 	tunnel.SetDeadline(time.Now().Add(5 * time.Second))
-	fmt.Fprintf(tunnel, "CONNECT %s HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: Basic %s\r\n\r\n", echo.Addr(), echo.Addr(), base64.StdEncoding.EncodeToString([]byte("codex-switch:"+forwardProxyCapability)))
+	fmt.Fprintf(tunnel, "CONNECT %s HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: Basic %s\r\n\r\n", peer.Addr(), peer.Addr(), base64.StdEncoding.EncodeToString([]byte("codex-switch:"+forwardProxyCapability)))
 	reader := bufio.NewReader(tunnel)
 	connected, err := http.ReadResponse(reader, &http.Request{Method: "CONNECT"})
 	if err != nil || connected.StatusCode != 200 {
 		t.Fatalf("CONNECT failed: %v", err)
 	}
+	tunnelClosed := make(chan error, 1)
+	go func() { _, err := io.ReadAll(reader); tunnelClosed <- err }()
+
+	proxy.drainConnectionsWithin(100 * time.Millisecond)
 	if err := server.Config.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	proxy.DrainDecryptedConnections()
 	proxy.relay.BeginRelayDrain()
 	drained := make(chan error, 1)
 	go func() { drained <- proxy.relay.WaitForRelayDrain(context.Background()) }()
-	select {
-	case <-drained:
-		t.Fatal("drain discarded admitted work")
-	default:
-	}
-	if _, err := tunnel.Write([]byte("still working")); err != nil {
-		t.Fatal(err)
-	}
-	reply := make([]byte, len("still working"))
-	if _, err := io.ReadFull(reader, reply); err != nil || string(reply) != "still working" {
-		t.Fatalf("admitted opaque tunnel was interrupted: %v", err)
-	}
-	if remaining, err := io.ReadAll(reader); err != nil || len(remaining) != 0 {
-		t.Fatalf("remote half-close did not reach the client: %v", err)
-	}
-	close(finishStream)
-	body, err := io.ReadAll(response.Body)
-	if err != nil || string(body) != ": stream admitted\n\n"+claudeForwardResponse {
-		t.Fatalf("admitted stream interrupted: %v %q", err, body)
-	}
-	select {
-	case <-drained:
-		t.Fatal("drain lost the opaque tunnel")
-	default:
-	}
-	if _, err := tunnel.Write([]byte("upload after remote EOF")); err != nil {
-		t.Fatalf("remote half-close interrupted the upload: %v", err)
-	}
-	_ = tunnel.(*net.TCPConn).CloseWrite()
-	select {
-	case uploaded := <-uploadedAfterEOF:
-		if uploaded != "upload after remote EOF" {
-			t.Fatalf("remote half-close lost upload bytes: %q", uploaded)
+	for _, closed := range []<-chan error{otherClosed, tunnelClosed} {
+		select {
+		case err := <-closed:
+			if timeout, ok := err.(net.Error); ok && timeout.Timeout() {
+				t.Fatalf("non-model connection timed out instead of closing: %v", err)
+			}
+			if time.Now().Before(proxy.drainDeadline) {
+				t.Fatal("non-model connection was cut before its grace expired")
+			}
+		case <-time.After(time.Second):
+			t.Fatal("non-model connection survived its grace")
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("remote half-close blocked the upload")
+	}
+	select {
+	case <-drained:
+		t.Fatal("drain cut the model response after the grace period")
+	default:
+	}
+	finish()
+	body, err := io.ReadAll(modelResponse.Body)
+	if err != nil || string(body) != ": stream admitted\n\n"+claudeForwardResponse {
+		t.Fatalf("model stream did not finish intact past the grace: %v %q", err, body)
 	}
 	select {
 	case err := <-drained:
@@ -317,6 +313,11 @@ func TestClaudeForwardProxyDrainFinishesAdmittedStreamAndTunnel(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("finished connections did not drain")
+		t.Fatal("completed model work did not drain")
+	}
+	ledger.mutex.Lock()
+	defer ledger.mutex.Unlock()
+	if len(ledger.records) != 1 {
+		t.Fatal("model response lost its completion record")
 	}
 }

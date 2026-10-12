@@ -145,24 +145,20 @@ func serveRelay(tcpListenAddress string) {
 
 	select {
 	case <-stopping:
-		// Drain order matters. WebSockets start closing first, so their next
-		// requests reach the new process while Shutdown closes the listener
-		// and idle keep-alive connections and waits for HTTP and SSE handlers.
-		// Only then does the relay wait for the remaining WebSockets. A
-		// response in progress has no deadline: the product promise is that
-		// it finishes.
+		// Start the grace period before Shutdown waits for direct API work.
+		// Model responses have no deadline; other Claude connections do.
 		drainStarted := time.Now()
-		log.Printf("process %d stopping: it accepts no new requests and finishes the requests it admitted", os.Getpid())
+		log.Printf("process %d stopping: it accepts no new requests and finishes model work in progress", os.Getpid())
 		relayHandler.CloseWebSocketsOnceIdle()
+		forwardProxy.DrainConnections()
 		if err := server.Shutdown(context.Background()); err != nil {
 			log.Printf("process %d: closing the listener failed: %v", os.Getpid(), err)
 		}
-		forwardProxy.DrainDecryptedConnections()
 		relayHandler.BeginRelayDrain()
 		if err := relayHandler.WaitForRelayDrain(context.Background()); err != nil {
 			log.Printf("process %d: waiting for admitted connections failed: %v", os.Getpid(), err)
 		}
-		log.Printf("process %d stopped after %s: all admitted requests finished", os.Getpid(), time.Since(drainStarted).Round(time.Second))
+		log.Printf("process %d stopped after %s: all admitted model work finished and connections closed", os.Getpid(), time.Since(drainStarted).Round(time.Second))
 	case err := <-serveFailed:
 		if err != nil && err != http.ErrServerClosed {
 			log.Fatal(err)

@@ -12,8 +12,13 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"sort"
+	"strings"
 	"sync"
+	"time"
 )
+
+const claudeConnectionDrainGrace = 60 * time.Second
 
 // ClaudeForwardProxy handles CONNECT on the same listener as the private API.
 // Only Anthropic model POSTs enter the account pool; all other traffic keeps
@@ -26,8 +31,20 @@ type ClaudeForwardProxy struct {
 	capabilityPath string
 	passthrough    *httputil.ReverseProxy
 	mutex          sync.Mutex
-	servers        map[*http.Server]struct{}
-	draining       bool
+	connections    map[*claudeProxyConnection]struct{}
+	drainDeadline  time.Time
+}
+
+type claudeProxyConnection struct {
+	client          net.Conn
+	clientAddress   string
+	upstream        net.Conn
+	cancelDial      context.CancelFunc
+	host            string
+	server          *http.Server
+	modelInProgress bool
+	lastRequest     string
+	closing         bool
 }
 
 func CreateClaudeForwardProxy(dataDirectory, capability string, trafficRelay *TrafficRelayHandler, next http.Handler) (*ClaudeForwardProxy, error) {
@@ -45,7 +62,7 @@ func CreateClaudeForwardProxy(dataDirectory, capability string, trafficRelay *Tr
 		relay: trafficRelay, next: next, certificate: certificate,
 		proxyAuth:      "Basic " + base64.StdEncoding.EncodeToString([]byte("codex-switch:"+capability)),
 		capabilityPath: "/client/" + capability + "/anthropic",
-		servers:        make(map[*http.Server]struct{}),
+		connections:    make(map[*claudeProxyConnection]struct{}),
 		passthrough: &httputil.ReverseProxy{
 			Rewrite: func(request *httputil.ProxyRequest) {
 				request.SetURL(trafficRelay.claudeUpstreamOrigin)
@@ -82,13 +99,29 @@ func (proxy *ClaudeForwardProxy) ServeHTTP(writer http.ResponseWriter, request *
 	}
 	proxy.relay.beginActiveRelayRequest()
 	defer proxy.relay.finishActiveRelayRequest()
+	dialContext, cancelDial := context.WithCancel(request.Context())
+	defer cancelDial()
+	tracked := &claudeProxyConnection{clientAddress: request.RemoteAddr, host: request.Host, cancelDial: cancelDial, lastRequest: "TLS handshake"}
+	proxy.mutex.Lock()
+	proxy.connections[tracked] = struct{}{}
+	if !proxy.drainDeadline.IsZero() && !time.Now().Before(proxy.drainDeadline) {
+		proxy.closeConnectionForUpdate(tracked)
+	}
+	proxy.mutex.Unlock()
+	defer func() {
+		proxy.mutex.Lock()
+		delete(proxy.connections, tracked)
+		proxy.mutex.Unlock()
+	}()
 
 	var upstream net.Conn
 	if request.Host != "api.anthropic.com:443" {
 		var err error
-		upstream, err = (&net.Dialer{}).DialContext(request.Context(), "tcp", request.Host)
+		upstream, err = (&net.Dialer{}).DialContext(dialContext, "tcp", request.Host)
 		if err != nil {
-			log.Printf("Claude tunnel to %s failed: %v", request.Host, err)
+			if dialContext.Err() == nil {
+				log.Printf("Claude tunnel to %s failed: %v", request.Host, err)
+			}
 			http.Error(writer, "upstream service unavailable", http.StatusBadGateway)
 			return
 		}
@@ -100,6 +133,12 @@ func (proxy *ClaudeForwardProxy) ServeHTTP(writer http.ResponseWriter, request *
 		return
 	}
 	defer connection.Close()
+	proxy.mutex.Lock()
+	tracked.client, tracked.upstream = connection, upstream
+	if tracked.closing {
+		proxy.closeConnectionForUpdate(tracked)
+	}
+	proxy.mutex.Unlock()
 	if _, err := buffered.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
 		return
 	}
@@ -126,19 +165,32 @@ func (proxy *ClaudeForwardProxy) ServeHTTP(writer http.ResponseWriter, request *
 		<-finished
 		return
 	}
-	proxy.serveDecryptedConnection(client)
+	proxy.serveDecryptedConnection(client, tracked)
 }
 
-func (proxy *ClaudeForwardProxy) serveDecryptedConnection(connection net.Conn) {
+func (proxy *ClaudeForwardProxy) serveDecryptedConnection(connection net.Conn, tracked *claudeProxyConnection) {
 	listener := &singleTunnelListener{connection: connection, closed: make(chan struct{}), stopAccept: make(chan struct{})}
 	listener.connection = tls.Server(&closeTrackedTunnelConnection{Conn: connection, listener: listener}, &tls.Config{
 		Certificates: []tls.Certificate{proxy.certificate}, MinVersion: tls.VersionTLS12,
 		NextProtos: []string{"http/1.1"},
 	})
-	server := &http.Server{Handler: http.HandlerFunc(proxy.serveAnthropicRequest)}
+	server := &http.Server{
+		Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			proxy.serveAnthropicRequest(writer, request, tracked)
+		}),
+		ConnState: func(_ net.Conn, state http.ConnState) {
+			// These states follow the final HTTP response flush. A handler defer
+			// would expose the last buffered model bytes to the grace timer.
+			if state == http.StateIdle || state == http.StateClosed {
+				proxy.mutex.Lock()
+				tracked.modelInProgress = false
+				proxy.mutex.Unlock()
+			}
+		},
+	}
 	proxy.mutex.Lock()
-	proxy.servers[server] = struct{}{}
-	draining := proxy.draining
+	tracked.server = server
+	draining := !proxy.drainDeadline.IsZero()
 	proxy.mutex.Unlock()
 	if draining {
 		go server.Shutdown(context.Background())
@@ -149,13 +201,19 @@ func (proxy *ClaudeForwardProxy) serveDecryptedConnection(connection net.Conn) {
 	// Serve returns on listener close during Shutdown, before admitted HTTP
 	// work finishes. The connection closes only after that work (or an upgrade).
 	<-listener.closed
-	proxy.mutex.Lock()
-	delete(proxy.servers, server)
-	proxy.mutex.Unlock()
 }
 
-func (proxy *ClaudeForwardProxy) serveAnthropicRequest(writer http.ResponseWriter, request *http.Request) {
-	if request.Method == http.MethodPost && request.URL.Path == "/v1/messages" {
+func (proxy *ClaudeForwardProxy) serveAnthropicRequest(writer http.ResponseWriter, request *http.Request, tracked *claudeProxyConnection) {
+	modelRequest := request.Method == http.MethodPost && request.URL.Path == "/v1/messages"
+	proxy.mutex.Lock()
+	if tracked.closing {
+		proxy.mutex.Unlock()
+		return
+	}
+	tracked.modelInProgress = modelRequest
+	tracked.lastRequest = request.Method + " " + request.URL.Path
+	proxy.mutex.Unlock()
+	if modelRequest {
 		forwarded := request.Clone(request.Context())
 		forwarded.URL.Path = proxy.capabilityPath + request.URL.Path
 		if request.URL.RawPath != "" {
@@ -167,14 +225,69 @@ func (proxy *ClaudeForwardProxy) serveAnthropicRequest(writer http.ResponseWrite
 	proxy.passthrough.ServeHTTP(writer, request)
 }
 
-// DrainDecryptedConnections closes idle HTTP connections; active requests and
-// opaque tunnels finish on their admitting process before its relay drain ends.
-func (proxy *ClaudeForwardProxy) DrainDecryptedConnections() {
+// DrainConnections gives non-model connections one fixed grace period. HTTP
+// shutdown closes idle connections now and model connections after their reply.
+func (proxy *ClaudeForwardProxy) DrainConnections() {
+	proxy.drainConnectionsWithin(claudeConnectionDrainGrace)
+}
+
+func (proxy *ClaudeForwardProxy) drainConnectionsWithin(grace time.Duration) {
 	proxy.mutex.Lock()
 	defer proxy.mutex.Unlock()
-	proxy.draining = true
-	for server := range proxy.servers {
-		go server.Shutdown(context.Background())
+	if !proxy.drainDeadline.IsZero() {
+		return
+	}
+	proxy.drainDeadline = time.Now().Add(grace)
+	models, otherAnthropic := 0, 0
+	tunnels := make(map[string]int)
+	for connection := range proxy.connections {
+		if connection.host != "api.anthropic.com:443" {
+			tunnels[connection.host]++
+		} else if connection.modelInProgress {
+			models++
+		} else {
+			otherAnthropic++
+		}
+		if connection.server != nil {
+			go connection.server.Shutdown(context.Background())
+		}
+	}
+	var tunnelSummary []string
+	for host, count := range tunnels {
+		tunnelSummary = append(tunnelSummary, fmt.Sprintf("%s (%d)", host, count))
+	}
+	sort.Strings(tunnelSummary)
+	if len(tunnelSummary) == 0 {
+		tunnelSummary = []string{"none"}
+	}
+	log.Printf("Claude connections stopping: model requests in progress %d; other Anthropic connections %d; tunnels %s; non-model connections have %s to finish", models, otherAnthropic, strings.Join(tunnelSummary, ", "), grace)
+	time.AfterFunc(grace, func() {
+		proxy.mutex.Lock()
+		defer proxy.mutex.Unlock()
+		for connection := range proxy.connections {
+			if !connection.modelInProgress {
+				proxy.closeConnectionForUpdate(connection)
+			}
+		}
+	})
+}
+
+// The caller holds mutex, so model admission cannot race a grace-period close.
+func (proxy *ClaudeForwardProxy) closeConnectionForUpdate(connection *claudeProxyConnection) {
+	if !connection.closing {
+		connection.closing = true
+		if connection.host == "api.anthropic.com:443" {
+			log.Printf("Claude Anthropic connection from %s (%s) closes for the update after the grace period with no model request in progress; the client reconnects", connection.clientAddress, connection.lastRequest)
+		} else {
+			log.Printf("Claude tunnel to %s from %s closes for the update after the grace period; the client reconnects on its next request", connection.host, connection.clientAddress)
+		}
+	}
+	connection.cancelDial()
+	if connection.client != nil {
+		_ = connection.client.Close()
+	}
+	if connection.upstream != nil {
+		_ = connection.upstream.Close()
 	}
 }
 
