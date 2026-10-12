@@ -85,7 +85,7 @@ func describeAllowanceWindows(sample AllowanceSample) string {
 		} else if window.ModelID != "" {
 			label += " (" + window.ModelID + ")"
 		}
-		windows = append(windows, fmt.Sprintf("%s %g%% used, %g%% free, resets %s",
+		windows = append(windows, fmt.Sprintf("%s %.0f%% used, %.0f%% free, resets %s",
 			label, window.UsedPercent, 100-window.UsedPercent,
 			window.ResetsAt.Local().Format("Mon 2 Jan 15:04")))
 	}

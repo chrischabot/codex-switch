@@ -111,7 +111,7 @@ func writeCurrentStatus(output io.Writer, snapshot *menupb.MenuSnapshot) {
 			if model != "" {
 				label += " · " + oneLine(model)
 			}
-			fmt.Fprintf(output, "  %-8s %.1f%% used · %.1f%% free", label, window.UsedPercent, 100-window.UsedPercent)
+			fmt.Fprintf(output, "  %-8s %.0f%% used · %.0f%% free", label, window.UsedPercent, 100-window.UsedPercent)
 			if window.ResetAt != nil {
 				fmt.Fprintf(output, " · resets %s", window.ResetAt.AsTime().Local().Format("Mon 2 Jan 15:04"))
 			}
