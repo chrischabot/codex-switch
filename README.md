@@ -209,9 +209,7 @@ Codex Switch creates a local certificate authority in its data directory. Only
 Claude Code trusts it, through `NODE_EXTRA_CA_CERTS`; it is never added to the
 macOS keychain or system trust store. The forward proxy decrypts requests to
 `api.anthropic.com` and sends only `POST /v1/messages` through the pool. All other
-hosts pass through as encrypted tunnels. To switch from an older Codex Switch
-setup, remove its `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` and
-`ENABLE_TOOL_SEARCH` entries before adding the two entries above.
+hosts pass through as encrypted tunnels.
 
 For Pi, run `codex-switch print-claude-config --pi` and merge the printed
 `anthropic` provider into `~/.pi/agent/models.json`:

@@ -7,3 +7,4 @@
 .devenv/
 .env
 **/auth.json
+__pycache__/
