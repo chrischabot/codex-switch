@@ -131,7 +131,11 @@ func serveRelay(tcpListenAddress string) {
 		log.Fatalf("publish the menu snapshot URL: %v", err)
 	}
 
-	server := &http.Server{Handler: snapshots.serveOrRelay(capability, deployStatusOrRelay(capability, relayHandler))}
+	forwardProxy, err := relay.CreateClaudeForwardProxy(dataDir(), capability, relayHandler, snapshots.serveOrRelay(capability, deployStatusOrRelay(capability, relayHandler)))
+	if err != nil {
+		log.Fatal(err)
+	}
+	server := &http.Server{Handler: forwardProxy}
 	serveFailed := make(chan error, 1)
 	go func() { serveFailed <- server.Serve(listener) }()
 
@@ -153,9 +157,10 @@ func serveRelay(tcpListenAddress string) {
 		if err := server.Shutdown(context.Background()); err != nil {
 			log.Printf("process %d: closing the listener failed: %v", os.Getpid(), err)
 		}
+		forwardProxy.DrainDecryptedConnections()
 		relayHandler.BeginRelayDrain()
 		if err := relayHandler.WaitForRelayDrain(context.Background()); err != nil {
-			log.Printf("process %d: waiting for admitted WebSocket work failed: %v", os.Getpid(), err)
+			log.Printf("process %d: waiting for admitted connections failed: %v", os.Getpid(), err)
 		}
 		log.Printf("process %d stopped after %s: all admitted requests finished", os.Getpid(), time.Since(drainStarted).Round(time.Second))
 	case err := <-serveFailed:

@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/joshp123/codex-switch/internal/clientcapability"
+	"github.com/joshp123/codex-switch/internal/relay"
 )
 
 // printClaudeConfigCommand prints settings to merge into the chosen client's
@@ -35,9 +36,8 @@ func printClaudeConfigCommand(args []string) {
 	var configuration any = struct {
 		Env map[string]string `json:"env"`
 	}{Env: map[string]string{
-		"ANTHROPIC_BASE_URL":   baseURL,
-		"ANTHROPIC_AUTH_TOKEN": "codex-switch",
-		"ENABLE_TOOL_SEARCH":   "true",
+		"HTTPS_PROXY":         relay.ClaudeProxyURL(*address, capability),
+		"NODE_EXTRA_CA_CERTS": relay.ClaudeProxyCAPath(dataDirectory),
 	}}
 	if *pi {
 		type provider struct {
@@ -47,6 +47,8 @@ func printClaudeConfigCommand(args []string) {
 		configuration = struct {
 			Providers map[string]provider `json:"providers"`
 		}{Providers: map[string]provider{"anthropic": {BaseURL: baseURL, APIKey: "sk-ant-oat01-codex-switch"}}}
+	} else if _, err := relay.CreateClaudeProxyCertificate(dataDirectory); err != nil {
+		log.Fatal(err)
 	}
 	encoded, err := json.MarshalIndent(configuration, "", "  ")
 	if err != nil {

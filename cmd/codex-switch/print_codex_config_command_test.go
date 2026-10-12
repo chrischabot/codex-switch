@@ -98,8 +98,8 @@ func TestPrintedClaudeClientSettingsUseOnePrivatePoolAddress(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantURL := "http://127.0.0.1:52359/client/" + capability + "/anthropic"
-	if settings.Env["ANTHROPIC_BASE_URL"] != wantURL || settings.Env["ANTHROPIC_AUTH_TOKEN"] == "" || settings.Env["ENABLE_TOOL_SEARCH"] != "true" {
-		t.Fatalf("Claude Code settings omit the pool address, gateway authentication or MCP tool search: %s", claudeSettings)
+	if len(settings.Env) != 2 || settings.Env["HTTPS_PROXY"] != "http://codex-switch:"+capability+"@127.0.0.1:52359" || settings.Env["NODE_EXTRA_CA_CERTS"] != filepath.Join(dataDirectory, "claude-proxy-ca.pem") {
+		t.Fatalf("Claude Code settings must contain only the forward proxy and its CA: %s", claudeSettings)
 	}
 	piSettings := runPrintConfigProcess(t, dataDirectory, "print-claude-config", "--pi", "--listen", "127.0.0.1:52359")
 	var pi struct {

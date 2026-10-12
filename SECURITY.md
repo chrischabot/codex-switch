@@ -6,6 +6,7 @@ Treat these as credentials:
 
 - ChatGPT and Claude access, refresh and identity tokens
 - the private URL key (`client-capability`) and any URL containing it
+- the Claude proxy authority private key (`claude-proxy-authority.pem`)
 - account IDs and email addresses
 - files under `~/Library/Application Support/codex-switch`
 - private client configuration, tasks, prompts and responses

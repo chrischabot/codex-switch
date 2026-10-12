@@ -17,7 +17,7 @@ pool usage across accounts.
 
 Codex Switch is a transparent proxy. You stay logged in to your main ChatGPT
 account everywhere, and Codex Switch spreads the work across all your accounts
-behind the scenes. Claude Code and Pi can pool Claude subscriptions the same way.
+behind the scenes. The Claude app, Claude Code and Pi can pool Claude subscriptions too.
 
 Ironically, Claude Opus 5.5 is what finally let me ship it.
 
@@ -47,7 +47,7 @@ It is macOS only, you build it from source, and so far it has one user: me.
 
 - Codex (the app, the CLI and sub-agents) and [Pi](https://github.com/badlogic/pi-mono)
   all point at one local URL.
-- Claude Code and Pi use the same proxy for Claude subscriptions.
+- The Claude app's Code tab, Claude Code and Pi use the same pool for Claude subscriptions.
 - A new task goes to whichever account has the most weekly allowance left.
 - A task stays on its account, so its prompt cache stays warm.
 - When an account runs out, the task moves to another account on its next turn.
@@ -183,7 +183,7 @@ Claude sign-in opens Anthropic's subscription login. Paste the code from the
 browser back into the command. Codex Switch stores and refreshes the tokens in
 its own data folder. It leaves Claude Code's login and keychain alone.
 
-For Claude Code, run:
+For the Claude app's Code tab and Claude Code, run:
 
 ```sh
 codex-switch print-claude-config
@@ -195,16 +195,23 @@ other settings:
 ```json
 {
   "env": {
-    "ANTHROPIC_BASE_URL": "http://127.0.0.1:2455/client/<private key>/anthropic",
-    "ANTHROPIC_AUTH_TOKEN": "codex-switch",
-    "ENABLE_TOOL_SEARCH": "true"
+    "HTTPS_PROXY": "http://codex-switch:<private key>@127.0.0.1:2455",
+    "NODE_EXTRA_CA_CERTS": "<data directory>/claude-proxy-ca.pem"
   }
 }
 ```
 
-Restart Claude Code. `ENABLE_TOOL_SEARCH` keeps MCP tool search enabled through
-the proxy, as described in [Claude Code's environment settings](https://code.claude.com/docs/en/env-vars).
-Claude Code disables Remote Control when it uses a custom API address.
+Restart the Claude app or Claude Code. Keep Claude signed in to your normal
+account. Model requests use the pool; settings, plugins and Remote Control use
+your own sign-in. The API address stays at `https://api.anthropic.com`.
+
+Codex Switch creates a local certificate authority in its data directory. Only
+Claude Code trusts it, through `NODE_EXTRA_CA_CERTS`; it is never added to the
+macOS keychain or system trust store. The forward proxy decrypts requests to
+`api.anthropic.com` and sends only `POST /v1/messages` through the pool. All other
+hosts pass through as encrypted tunnels. To switch from an older Codex Switch
+setup, remove its `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` and
+`ENABLE_TOOL_SEARCH` entries before adding the two entries above.
 
 For Pi, run `codex-switch print-claude-config --pi` and merge the printed
 `anthropic` provider into `~/.pi/agent/models.json`:
@@ -273,7 +280,7 @@ deploy/deploy.sh back \
 ## Uninstall
 
 First point your clients back at their providers: delete `openai_base_url` from
-`~/.codex/config.toml`; remove the three Claude `env` entries above from
+`~/.codex/config.toml`; remove the two Claude `env` entries above from
 `~/.claude/settings.json`; remove the `openai-codex` and `anthropic` pool
 entries from Pi's `models.json`, then restart the clients. Then:
 
