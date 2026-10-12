@@ -25,6 +25,15 @@ context must be able to run the product, read its output and logs, and find and
 fix a problem; the repository will be published, so every commit must be
 publishable. Later, not now: Claude support and server-side use.
 
+## Hard rule: no hedging in the product
+
+The owner, 1 August: if an agent is unsure how something works and adds a flag,
+an information bar, a caveat, a "maybe", a range, a minimum or maximum, or any
+other hedge to the UI, "you know it's completely fucked and the product's got
+off track". The same goes for logs, status output and docs. A hedge means the
+data or the mechanism is not understood yet: find the source of truth and fix
+it, or remove the feature.
+
 ## Where the truth lives
 
 | Question | Source |
