@@ -27,8 +27,10 @@ type PoolAccount struct {
 	OrganizationID string
 	Plan           string
 	// Name is the directory name, such as account-3, and Index its number.
-	Name  string
-	Index int
+	Name           string
+	Index          int
+	DisplayName    string
+	ProviderNumber int
 	// ID identifies the subscription user within its provider.
 	ID string
 	// AccountID is the immutable subscription identity. For ChatGPT it is sent
@@ -66,6 +68,9 @@ func ReadPool(dataDirectory string) ([]PoolAccount, error) {
 		result = append(result, account)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Index < result[j].Index })
+	for index := range result {
+		result[index].DisplayName, result[index].ProviderNumber = AccountDisplayName(result, result[index].Name)
+	}
 	return result, nil
 }
 
@@ -133,4 +138,22 @@ func decodeIDTokenIdentity(token string) (string, string, error) {
 		userID = claims.Auth.UserID
 	}
 	return claims.Email, userID, nil
+}
+
+// AccountDisplayName derives a name and provider-local number from pool order.
+// A key outside the current pool belongs to a removed account.
+func AccountDisplayName(pool []PoolAccount, key string) (string, int) {
+	numbers := map[Provider]int{}
+	for _, account := range pool {
+		numbers[account.Provider]++
+		if account.Name == key {
+			provider := "Codex"
+			if account.Provider == ProviderClaude {
+				provider = "Claude"
+			}
+			number := numbers[account.Provider]
+			return fmt.Sprintf("%s %d", provider, number), number
+		}
+	}
+	return "removed account", 0
 }

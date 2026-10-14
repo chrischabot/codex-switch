@@ -47,7 +47,7 @@ func (handler *TrafficRelayHandler) observeClaudeRejection(request *routedRelayR
 		// The next request chooses from the whole pool. No rejected request is replayed.
 		response.Header.Set("Retry-After", "1")
 		response.Header.Set("X-Should-Retry", "true")
-		log.Printf("%s: Anthropic limited %s; the client's next request uses available capacity", describeModelRequest(request.taskID, request.client, request.routeDecision.AccountName), request.modelSlug)
+		log.Printf("%s: Anthropic limited %s; the client's next request uses available capacity", describeModelRequest(request.taskID, request.client, request.routeDecision.DisplayName), request.modelSlug)
 	case http.StatusUnauthorized:
 		handler.taskRouter.ReportUnauthorizedTurn(request.routeDecision.AccountName, request.routeDecision.Credentials)
 		response.StatusCode = http.StatusServiceUnavailable
@@ -55,7 +55,7 @@ func (handler *TrafficRelayHandler) observeClaudeRejection(request *routedRelayR
 		response.Header.Set("Retry-After", "1")
 		response.Header.Set("X-Should-Retry", "true")
 	default:
-		log.Printf("%s: Anthropic answered %s with HTTP %d", describeModelRequest(request.taskID, request.client, request.routeDecision.AccountName), request.modelSlug, response.StatusCode)
+		log.Printf("%s: Anthropic answered %s with HTTP %d", describeModelRequest(request.taskID, request.client, request.routeDecision.DisplayName), request.modelSlug, response.StatusCode)
 	}
 	return nil
 }

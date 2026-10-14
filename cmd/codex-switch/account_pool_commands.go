@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"strings"
 
 	accountapi "github.com/joshp123/codex-switch/internal/accounts"
 	"github.com/joshp123/codex-switch/internal/codexstate"
@@ -15,14 +14,29 @@ func loginCommand(args []string) {
 	codex := flags.String("codex", codexstate.FindCodexExecutable(), "official Codex executable")
 	claude := flags.Bool("claude", false, "sign in to a Claude subscription account")
 	_ = flags.Parse(args)
-	if flags.NArg() > 1 || (flags.NArg() == 1 && !strings.HasPrefix(flags.Arg(0), "account-")) {
-		log.Fatal("usage: codex-switch login [--claude] [account-N]")
+	if flags.NArg() > 1 {
+		log.Fatal("usage: codex-switch login [--claude] [account-N | \"Codex N\" | \"Claude N\"]")
 	}
 	target := flags.Arg(0)
 	if target == "" {
 		fmt.Println("Sign in to the account you want to add")
 	} else {
-		fmt.Printf("Sign in again to %s\n", target)
+		pool, err := accountapi.ReadPool(dataDir())
+		if err != nil {
+			log.Fatal(err)
+		}
+		found := false
+		for _, account := range pool {
+			if target == account.Name || target == account.DisplayName {
+				target = account.Name
+				fmt.Printf("Sign in again to %s\n", account.DisplayName)
+				found = true
+				break
+			}
+		}
+		if !found {
+			log.Fatalf("unknown account %s", target)
+		}
 	}
 	var published accountapi.PoolAccount
 	var err error
@@ -34,11 +48,16 @@ func loginCommand(args []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	pool, err := accountapi.ReadPool(dataDir())
+	if err != nil {
+		log.Fatal(err)
+	}
+	displayName, _ := accountapi.AccountDisplayName(pool, published.Name)
 	if target != "" {
-		fmt.Printf("Updated %s  %s\n", published.Name, published.Email)
+		fmt.Printf("Updated %s  %s\n", displayName, published.Email)
 		return
 	}
-	fmt.Printf("Added %s  %s\n", published.Name, published.Email)
+	fmt.Printf("Added %s  %s\n", displayName, published.Email)
 }
 
 func accountsCommand(args []string) {
@@ -54,21 +73,17 @@ func accountsCommand(args []string) {
 		return
 	}
 	for _, account := range pool {
-		provider := "ChatGPT"
-		if account.Provider == accountapi.ProviderClaude {
-			provider = "Claude"
-		}
-		fmt.Printf("%s\t%s\t%s\n", account.Name, provider, account.Email)
+		fmt.Printf("%s\t%s\t%s\n", account.DisplayName, account.Name, account.Email)
 	}
 }
 
 func removeCommand(args []string) {
-	if len(args) != 1 || !strings.HasPrefix(args[0], "account-") {
-		log.Fatal("usage: codex-switch remove account-N")
+	if len(args) != 1 {
+		log.Fatal("usage: codex-switch remove account-N | \"Codex N\" | \"Claude N\"")
 	}
 	removed, removedPins, err := accountapi.RemoveAccount(dataDir(), args[0])
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("Removed %s (%s) and %d thread pins.\n", removed.Name, removed.Email, removedPins)
+	fmt.Printf("Removed %s (%s) and %d thread pins.\n", removed.DisplayName, removed.Email, removedPins)
 }

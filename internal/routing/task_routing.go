@@ -19,6 +19,7 @@ var ErrNoAvailableAccount = errors.New("no account can take this work")
 // RouteDecision carries credentials with the account identity so the relay cannot mix accounts.
 type RouteDecision struct {
 	AccountName store.AccountName
+	DisplayName string
 	Credentials accounts.Credentials
 	// Assignment is empty when model work stays on its pinned account. Otherwise it
 	// says, in product terms, which account now serves the work and why; the relay
@@ -72,7 +73,7 @@ func (router *TaskRouter) RouteForProviderTask(taskID store.TaskID, workKind sto
 		} else if pinnedAccountProblem, err = router.accountUnavailableReason(fact, modelSlug); err != nil {
 			return RouteDecision{}, err
 		} else if pinnedAccountProblem == "" {
-			return RouteDecision{AccountName: pin.AccountName, Credentials: fact.Credentials}, nil
+			return RouteDecision{AccountName: pin.AccountName, DisplayName: fact.DisplayName, Credentials: fact.Credentials}, nil
 		}
 	}
 
@@ -93,7 +94,7 @@ func (router *TaskRouter) RouteForProviderTask(taskID store.TaskID, workKind sto
 						return RouteDecision{}, err
 					}
 					if winner.AccountName == parentPin.AccountName {
-						return RouteDecision{AccountName: parentPin.AccountName, Credentials: parentFact.Credentials, Assignment: "fork keeps its parent's account " + string(parentPin.AccountName)}, nil
+						return RouteDecision{AccountName: parentPin.AccountName, DisplayName: parentFact.DisplayName, Credentials: parentFact.Credentials, Assignment: "fork keeps its parent's account " + parentFact.DisplayName}, nil
 					}
 					return router.RouteForProviderTask(taskID, workKind, modelSlug, provider, parentTaskID)
 				}
@@ -109,7 +110,7 @@ func (router *TaskRouter) RouteForProviderTask(taskID store.TaskID, workKind sto
 		return RouteDecision{}, fmt.Errorf("%w: %s", ErrNoAvailableAccount, router.describeUnavailableAccounts(facts, modelSlug))
 	}
 
-	decision := RouteDecision{AccountName: selected.AccountName, Credentials: selected.Credentials}
+	decision := RouteDecision{AccountName: selected.AccountName, DisplayName: selected.DisplayName, Credentials: selected.Credentials}
 	if workKind != store.ModelTurnWorkKind {
 		return decision, nil
 	}
@@ -126,7 +127,7 @@ func (router *TaskRouter) RouteForProviderTask(taskID store.TaskID, workKind sto
 		if !moved {
 			return router.RouteForProviderTask(taskID, workKind, modelSlug, provider, parentTaskID)
 		}
-		decision.Assignment = fmt.Sprintf("moved from %s (%s) to %s", pin.AccountName, pinnedAccountProblem, choice)
+		decision.Assignment = fmt.Sprintf("moved from %s (%s) to %s", router.accountDisplayName(pin.AccountName), pinnedAccountProblem, choice)
 		return decision, nil
 	}
 	winner, err := router.storeDatabase.PinTaskAccountIfAbsent(store.TaskAccountPin{
@@ -147,7 +148,7 @@ func (router *TaskRouter) RouteForProviderTask(taskID store.TaskID, workKind sto
 func (router *TaskRouter) ReportExhaustedTurn(taskID store.TaskID, servedAccountName store.AccountName, resetsAt time.Time) string {
 	outcome, err := router.reportExhaustedTaskPin(taskID, servedAccountName, resetsAt)
 	if err != nil {
-		return fmt.Sprintf("%s hit its usage limit%s; could not move the task: %v", servedAccountName, resetSuffix(resetsAt), err)
+		return fmt.Sprintf("%s hit its usage limit%s; could not move the task: %v", router.accountDisplayName(servedAccountName), resetSuffix(resetsAt), err)
 	}
 	return outcome
 }
@@ -155,12 +156,12 @@ func (router *TaskRouter) ReportExhaustedTurn(taskID store.TaskID, servedAccount
 // ReportUnauthorizedTurn refreshes rejected credentials for the client's next request without replaying the failed turn.
 func (router *TaskRouter) ReportUnauthorizedTurn(servedAccountName store.AccountName, rejectedCredentials accounts.Credentials) {
 	if err := router.accountFacts.RefreshAccountCredentialsAfterUnauthorized(servedAccountName, rejectedCredentials); err != nil {
-		log.Printf("%s: the provider rejected its login and refreshing it failed: %v", servedAccountName, err)
+		log.Printf("%s: the provider rejected its login and refreshing it failed: %v", router.accountDisplayName(servedAccountName), err)
 	}
 }
 
 func (router *TaskRouter) reportExhaustedTaskPin(taskID store.TaskID, servedAccountName store.AccountName, resetsAt time.Time) (string, error) {
-	limitReached := fmt.Sprintf("%s hit its usage limit%s", servedAccountName, resetSuffix(resetsAt))
+	limitReached := fmt.Sprintf("%s hit its usage limit%s", router.accountDisplayName(servedAccountName), resetSuffix(resetsAt))
 	if err := router.storeDatabase.RecordAccountReportedReset(servedAccountName, resetsAt, router.currentTime().UTC()); err != nil {
 		return "", err
 	}
@@ -220,9 +221,9 @@ func (router *TaskRouter) selectAccountWithMostWeeklyCapacity(facts []accounts.A
 func (router *TaskRouter) describeChoice(selected accounts.AccountRoutingFact, modelSlug string) string {
 	weeklyFreePercent, reported := router.weeklyAllowanceLeft(selected, modelSlug)
 	if !reported {
-		return fmt.Sprintf("%s, which reports no weekly allowance", selected.AccountName)
+		return fmt.Sprintf("%s, which reports no weekly allowance", selected.DisplayName)
 	}
-	return fmt.Sprintf("%s, which has the most weekly allowance left (%.1f%%)", selected.AccountName, weeklyFreePercent)
+	return fmt.Sprintf("%s, which has the most weekly allowance left (%.1f%%)", selected.DisplayName, weeklyFreePercent)
 }
 
 func (router *TaskRouter) describeUnavailableAccounts(facts []accounts.AccountRoutingFact, modelSlug string) string {
@@ -235,7 +236,7 @@ func (router *TaskRouter) describeUnavailableAccounts(facts []accounts.AccountRo
 		if err != nil {
 			problem = err.Error()
 		}
-		problems = append(problems, string(fact.AccountName)+" "+problem)
+		problems = append(problems, fact.DisplayName+" "+problem)
 	}
 	return strings.Join(problems, "; ")
 }
@@ -315,7 +316,7 @@ func (router *TaskRouter) RouteForModelCatalogue() (RouteDecision, error) {
 		router.accountFacts.RequestAccountRoutingFactsRefresh()
 		return RouteDecision{}, ErrNoAvailableAccount
 	}
-	return RouteDecision{AccountName: selected.AccountName, Credentials: selected.Credentials}, nil
+	return RouteDecision{AccountName: selected.AccountName, DisplayName: selected.DisplayName, Credentials: selected.Credentials}, nil
 }
 
 // ReadAccountAvailability uses the same rule as admission. An empty reason means
@@ -349,4 +350,15 @@ func availabilityModel(fact accounts.AccountRoutingFact, codexModel string) stri
 		return ""
 	}
 	return codexModel
+}
+
+func (router *TaskRouter) accountDisplayName(key store.AccountName) string {
+	facts, err := router.accountFacts.ReadAccountRoutingFacts()
+	if err != nil {
+		return "account"
+	}
+	if fact, found := factForAccount(facts, key); found {
+		return fact.DisplayName
+	}
+	return "removed account"
 }

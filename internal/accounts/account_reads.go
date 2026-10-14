@@ -93,7 +93,7 @@ func (monitor *Monitor) readAllowanceSample(ctx context.Context, account PoolAcc
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		statusError := fmt.Errorf("wham/usage returned HTTP %d for %s", response.StatusCode, account.Name)
+		statusError := fmt.Errorf("wham/usage returned HTTP %d for %s", response.StatusCode, account.DisplayName)
 		if response.StatusCode == http.StatusUnauthorized {
 			return AllowanceSample{}, fmt.Errorf("%w: %v", errWhamUsageUnauthorized, statusError)
 		}
@@ -118,7 +118,7 @@ func (monitor *Monitor) readAllowanceSample(ctx context.Context, account PoolAcc
 			ObservedAt:        sample.ObservedAt,
 			UsedPercent:       *window.UsedPercent,
 		}); err != nil {
-			log.Printf("%s: could not record its allowance window: %v", account.Name, err)
+			log.Printf("%s: could not record its allowance window: %v", account.DisplayName, err)
 		}
 	}
 	return sample, nil

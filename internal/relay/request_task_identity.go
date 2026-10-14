@@ -56,7 +56,7 @@ func clientNameForRequest(request *http.Request) string {
 
 // describeModelRequest names a routed model request in log lines: its task, the
 // client that sent it and the account serving it.
-func describeModelRequest(taskID store.TaskID, client string, accountName store.AccountName) string {
+func describeModelRequest(taskID store.TaskID, client string, accountName string) string {
 	work := "task " + string(taskID)
 	if taskID == "" {
 		work = "request without a task ID"
