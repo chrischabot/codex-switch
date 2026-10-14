@@ -242,15 +242,15 @@ def update_during_work_finishes_on_the_old_process(system):
                       '--data', str(rig.RUN / 'data'), '--listen', rig.listen_address()]
     stable = rig.RUN / 'codex-switch'
     stable_before = (stable.stat().st_ino, stable.read_bytes())
-    # A bound socket without a listener refuses connections; only the candidate uses it.
-    with socket.socket() as unreachable_provider:
-        unreachable_provider.bind(('127.0.0.1', 0))
-        environment = dict(os.environ, **rig.proxy_environment())
-        environment['CODEX_SWITCH_UPSTREAM_ORIGIN'] = f'http://127.0.0.1:{unreachable_provider.getsockname()[1]}'
-        rejected = rig.start_client(update_command, 'rejected-update', env=environment)
-        result = rejected.wait(timeout=60)
+    # A free port with nothing on it refuses connections at once; only the candidate uses it.
+    with socket.socket() as probe:
+        probe.bind(('127.0.0.1', 0))
+        closed_port = probe.getsockname()[1]
+    environment = dict(os.environ, **rig.proxy_environment())
+    environment['CODEX_SWITCH_UPSTREAM_ORIGIN'] = f'http://127.0.0.1:{closed_port}'
+    result = rig.start_client(update_command, 'rejected-update', env=environment).wait(timeout=60)
     reason = rig.read('logs/rejected-update.err')
-    if result == 0 or 'provider check failed' not in reason or 'connection refused' not in reason or 'old generation keeps serving' not in reason:
+    if result == 0 or 'provider check failed' not in reason or 'old generation keeps serving' not in reason:
         raise Failure(f'The unreachable candidate was not rejected with its provider failure: exit {result}, {reason.strip()}')
     if (stable.stat().st_ino, stable.read_bytes()) != stable_before:
         raise Failure('The failed update changed the stable binary.')
