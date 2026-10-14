@@ -11,7 +11,7 @@ import (
 
 func printCodexConfigCommand(args []string) {
 	flags := flag.NewFlagSet("print-codex-config", flag.ExitOnError)
-	address := flags.String("listen", listenAddress, "Codex Switch loopback address")
+	address := flags.String("listen", servedListenAddress(dataDir()), "Codex Switch loopback address")
 	_ = flags.Parse(args)
 	if flags.NArg() != 0 {
 		log.Fatal("usage: codex-switch print-codex-config [--listen 127.0.0.1:PORT]")

@@ -15,7 +15,7 @@ import (
 // existing file. It never writes a Claude Code or Pi configuration.
 func printClaudeConfigCommand(args []string) {
 	flags := flag.NewFlagSet("print-claude-config", flag.ExitOnError)
-	address := flags.String("listen", listenAddress, "Codex Switch loopback address")
+	address := flags.String("listen", servedListenAddress(dataDir()), "Codex Switch loopback address")
 	pi := flags.Bool("pi", false, "print Pi's anthropic provider entry")
 	_ = flags.Parse(args)
 	if flags.NArg() != 0 {

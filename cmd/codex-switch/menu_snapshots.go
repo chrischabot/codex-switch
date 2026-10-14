@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -230,4 +231,18 @@ func menuAccountState(state accountapi.AccountState) menupb.AccountState {
 	default:
 		return menupb.AccountState_ACCOUNT_STATE_UNSPECIFIED
 	}
+}
+
+// servedListenAddress is where clients reach this installation: the address
+// its proxy last served on, or the default before it first serves.
+func servedListenAddress(dataDirectory string) string {
+	published, err := os.ReadFile(filepath.Join(dataDirectory, menuSnapshotURLFilename))
+	if err != nil {
+		return listenAddress
+	}
+	snapshotURL, err := url.Parse(strings.TrimSpace(string(published)))
+	if err != nil || validateLocalListenAddress(snapshotURL.Host) != nil {
+		return listenAddress
+	}
+	return snapshotURL.Host
 }
