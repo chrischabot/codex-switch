@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"crypto/tls"
 	"errors"
 	"io"
 	"log"
@@ -10,13 +11,19 @@ import (
 	"sync/atomic"
 )
 
-func newUpstreamTransport() *upstreamTransport {
+// NewUpstreamTransport is the one way this process reaches providers: account
+// reads, the deployment provider check and client traffic all use it, so the
+// check proves the path that serves traffic.
+func NewUpstreamTransport() http.RoundTripper {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
 	// One active request per connection. Go's HTTP/2 transport also retries
 	// PROTOCOL_ERROR, which does not prove that model work was refused.
 	transport.Protocols = new(http.Protocols)
 	transport.Protocols.SetHTTP1(true)
+	// The default TLS settings offer h2 in ALPN whatever Protocols says; a
+	// provider that accepts it then sends frames this transport cannot read.
+	transport.TLSClientConfig = &tls.Config{NextProtos: []string{"http/1.1"}}
 	return &upstreamTransport{transport: transport}
 }
 

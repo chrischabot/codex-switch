@@ -71,7 +71,8 @@ func serveRelay(tcpListenAddress string, checkProviders bool) {
 		log.Fatal(err)
 	}
 
-	accountMonitor := accountapi.NewMonitor(dataDir(), upstreamOrigin, codexstate.FindCodexExecutable(), &http.Client{Timeout: 30 * time.Second}, storeDatabase)
+	upstreamTransport := relay.NewUpstreamTransport()
+	accountMonitor := accountapi.NewMonitor(dataDir(), upstreamOrigin, codexstate.FindCodexExecutable(), &http.Client{Timeout: 30 * time.Second, Transport: upstreamTransport}, storeDatabase)
 	claudeUpstreamOrigin, err := url.Parse("https://api.anthropic.com")
 	if err != nil {
 		log.Fatal(err)
@@ -86,7 +87,7 @@ func serveRelay(tcpListenAddress string, checkProviders bool) {
 		}
 		log.Printf("process %d: provider check passed: every signed-in account's allowance was read", os.Getpid())
 	}
-	usageLedger, err := usage.OpenUsageLedger(storeDatabase, dataDir(), &http.Client{Timeout: 15 * time.Second})
+	usageLedger, err := usage.OpenUsageLedger(storeDatabase, dataDir(), &http.Client{Timeout: 15 * time.Second, Transport: upstreamTransport})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -101,6 +102,7 @@ func serveRelay(tcpListenAddress string, checkProviders bool) {
 	relayHandler, err := relay.CreateTrafficRelayHandler(relay.RelayHandlerOptions{
 		UpstreamOrigin:       upstreamOrigin,
 		ClaudeUpstreamOrigin: claudeUpstreamOrigin,
+		HTTPTransport:        upstreamTransport,
 		AccountObserver:      accountMonitor,
 		CacheAffinity:        storeDatabase,
 		ClientCapability:     capability,

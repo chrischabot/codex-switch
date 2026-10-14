@@ -109,7 +109,7 @@ func CreateTrafficRelayHandler(options RelayHandlerOptions) (*TrafficRelayHandle
 
 	upstreamTransport := options.HTTPTransport
 	if upstreamTransport == nil {
-		upstreamTransport = newUpstreamTransport()
+		upstreamTransport = NewUpstreamTransport()
 	}
 	relayHandler := &TrafficRelayHandler{
 		taskRouter:           options.TaskRouter,
