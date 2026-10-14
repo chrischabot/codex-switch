@@ -27,6 +27,7 @@ type AccountRoutingFact struct {
 	Provider           Provider
 	ClaudeRestrictions map[string]ClaudeRestriction
 	AccountName        store.AccountName
+	DisplayName        string
 	Credentials        Credentials
 	AccountState       AccountState
 	AccountStateCause  error
@@ -148,6 +149,7 @@ func (monitor *Monitor) readAccount(ctx context.Context, account PoolAccount, mo
 	monitor.mutex.Lock()
 	latest := monitored.fact
 	read = keepRequestPathObservations(read, scheduled, latest)
+	read.DisplayName = account.DisplayName
 	availabilityChange := describeAccountAvailabilityChange(latest, read, account.Email)
 	monitored.fact = read
 	monitored.reading = false
@@ -192,7 +194,9 @@ func (monitor *Monitor) ReadAccountRoutingFacts() ([]AccountRoutingFact, error) 
 	for _, account := range pool {
 		monitored, known := monitor.accounts[store.AccountName(account.Name)]
 		if known && monitored.fact.Credentials.AccountID == account.AccountID {
-			facts = append(facts, monitored.fact)
+			fact := monitored.fact
+			fact.DisplayName = account.DisplayName
+			facts = append(facts, fact)
 		}
 	}
 	return facts, nil
@@ -226,7 +230,7 @@ func (monitor *Monitor) RefreshAccountCredentialsAfterUnauthorized(accountName s
 	}
 	index := slices.IndexFunc(pool, func(account PoolAccount) bool { return store.AccountName(account.Name) == accountName })
 	if index < 0 {
-		return fmt.Errorf("account %s is not in the pool", accountName)
+		return fmt.Errorf("account is no longer in the pool")
 	}
 	monitor.mutex.Lock()
 	monitored := monitor.monitoredAccountLocked(accountName, pool[index].Provider)

@@ -230,7 +230,7 @@ func (handler *TrafficRelayHandler) serveAuthenticatedTraffic(response http.Resp
 			}
 		}
 		if err == nil {
-			log.Printf("%s stopped waiting after %s", describeModelRequest(taskID, client, routeDecision.AccountName), time.Since(waitStarted).Round(time.Second))
+			log.Printf("%s stopped waiting after %s", describeModelRequest(taskID, client, routeDecision.DisplayName), time.Since(waitStarted).Round(time.Second))
 		}
 	}
 	if err != nil {
@@ -250,6 +250,7 @@ func (handler *TrafficRelayHandler) serveAuthenticatedTraffic(response http.Resp
 	forwardedRequest := request.Clone(context.WithValue(request.Context(), relayRequestContextKey{}, routedRequest))
 	if workKind == store.ModelTurnWorkKind {
 		observer := newTerminalResponseObserver(taskID, client, routeDecision.AccountName, handler.taskRouter, handler.completionLedger)
+		observer.accountDisplayName = routeDecision.DisplayName
 		if provider == accounts.ProviderClaude {
 			observer.claudeUsage = usage.NewClaudeResponseUsage(modelSlug, serviceTier, inferenceGeo)
 		}
@@ -358,7 +359,7 @@ func (handler *TrafficRelayHandler) createBytePreservingReverseProxy() *httputil
 		},
 		ErrorHandler: func(response http.ResponseWriter, request *http.Request, err error) {
 			routedRequest := request.Context().Value(relayRequestContextKey{}).(*routedRelayRequest)
-			subject := describeModelRequest(routedRequest.taskID, routedRequest.client, routedRequest.routeDecision.AccountName)
+			subject := describeModelRequest(routedRequest.taskID, routedRequest.client, routedRequest.routeDecision.DisplayName)
 			switch {
 			case errors.Is(err, errUpstreamRejectedBeforeAdmission):
 				// Logged when the rejection was observed.

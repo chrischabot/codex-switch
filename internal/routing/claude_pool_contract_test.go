@@ -3,6 +3,7 @@ package routing
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,11 +30,15 @@ func TestClaudePlacementForkAndNextRequestLimitKeepProviderAndModel(t *testing.T
 			AllowanceSample: accounts.AllowanceSample{Windows: []accounts.ReportedWindow{{DurationSeconds: 7 * 86400, UsedPercent: float64(index * 20), ResetsAt: now.Add(time.Hour)}}},
 		})
 	}
+	pool := []accounts.PoolAccount{{Name: "account-1"}, {Name: "account-2", Provider: accounts.ProviderClaude}, {Name: "account-3", Provider: accounts.ProviderClaude}}
+	for index := range facts {
+		facts[index].DisplayName, _ = accounts.AccountDisplayName(pool, string(facts[index].AccountName))
+	}
 	router := CreateTaskRouter(database, facts)
 	route := func(task, parent store.TaskID, model string, want store.AccountName) {
 		t.Helper()
 		decision, err := router.RouteForProviderTask(task, store.ModelTurnWorkKind, model, accounts.ProviderClaude, parent)
-		if err != nil || decision.AccountName != want {
+		if err != nil || decision.AccountName != want || decision.DisplayName == "" || strings.Contains(decision.Assignment, "account-") {
 			t.Fatalf("route %s: account=%s, error=%v; want %s", task, decision.AccountName, err, want)
 		}
 	}

@@ -21,14 +21,15 @@ type terminalResponseObserver struct {
 	taskID      store.TaskID
 	// forkSourceTaskID is the task a Codex fork was made from. Its responses
 	// count toward that task, as the fork has no name or history of its own.
-	forkSourceTaskID store.TaskID
-	client           string
-	accountName      store.AccountName
-	taskRouter       TaskRouter
-	completionLedger CompletionLedger
-	activeResponses  int
-	admittedRequests int
-	modelSlug        string
+	forkSourceTaskID   store.TaskID
+	client             string
+	accountName        store.AccountName
+	accountDisplayName string
+	taskRouter         TaskRouter
+	completionLedger   CompletionLedger
+	activeResponses    int
+	admittedRequests   int
+	modelSlug          string
 	// serviceTier is the speed the client requested. OpenAI's completed
 	// response reports "default" even for Fast work it bills as Fast.
 	serviceTier     string
@@ -210,7 +211,7 @@ func (observer *terminalResponseObserver) logProviderFailure(providerError *prov
 }
 
 func (observer *terminalResponseObserver) describe() string {
-	return describeModelRequest(observer.taskID, observer.client, observer.accountName)
+	return describeModelRequest(observer.taskID, observer.client, observer.accountDisplayName)
 }
 
 func (observer *terminalResponseObserver) logReadError(err error) {

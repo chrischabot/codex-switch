@@ -20,6 +20,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/joshp123/codex-switch/internal/clientcapability"
+	"github.com/joshp123/codex-switch/internal/store"
 )
 
 func TestProxyProcessHTTPStartsAuthenticatesAndForwards(t *testing.T) {
@@ -30,14 +31,53 @@ func TestProxyProcessHTTPStartsAuthenticatesAndForwards(t *testing.T) {
 	account := writeAccountFixture(
 		t, filepath.Join(data, "account-1"), "http-user", "http-user@example.test", processAccessToken("http-user"),
 	)
+	writeAccountFixture(t, filepath.Join(data, "account-10"), "signed-out", "signed-out@example.test", "")
+	claudeHome := filepath.Join(data, "account-4")
+	if err := os.MkdirAll(claudeHome, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(claudeHome, "auth.json"), []byte(`{"provider":"claude","account_id":"claude-user","organization_id":"organization","email":"claude@example.test","plan":"Max 20x"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
 	turn := processTurn{
 		marker: "http-smoke", task: "018f0000-0000-7000-8000-000000000201", inputTokens: 101,
 	}
 	upstream := newRecordingUpstream(t, map[string]int64{turn.marker: turn.inputTokens})
-	proxy := startRealBinaryProxy(t, binary, data, upstream.URL)
+	proxy := startRealBinaryProxy(t, binary, data, upstream.URL, "CODEX_HOME="+root, "PI_CODING_AGENT_SESSION_DIR="+root, "CLAUDE_CONFIG_DIR="+root)
 	proveUnauthenticatedClientCannotReachUpstream(t, proxy.address, upstream.dispatches)
 	sendProcessTurn(t, proxy.authenticatedAddress(), turn)
 	upstream.waitForUsageReads(t, 1)
+	snapshot, err := fetchMenuSnapshot(data)
+	deadline := time.Now().Add(10 * time.Second)
+	for err != nil && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+		snapshot, err = fetchMenuSnapshot(data)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Accounts) != 3 {
+		t.Fatalf("snapshot accounts: %v", snapshot.Accounts)
+	}
+	for index, wantNumber := range []uint32{1, 1, 2} {
+		if snapshot.Accounts[index].AccountNumber != wantNumber {
+			t.Fatalf("snapshot account %s has number %d, want %d", snapshot.Accounts[index].Key, snapshot.Accounts[index].AccountNumber, wantNumber)
+		}
+	}
+	command := exec.Command(binary, "status")
+	command.Env = append(os.Environ(), "CODEX_SWITCH_DATA_DIR="+data)
+	statusOutput, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("status: %v\n%s", err, statusOutput)
+	}
+	if strings.Contains(string(statusOutput), "account-") {
+		t.Fatalf("status exposes a storage key: %s", statusOutput)
+	}
+	for _, name := range []string{"Codex 1", "Claude 1", "Codex 2"} {
+		if !bytes.Contains(statusOutput, []byte(name)) {
+			t.Fatalf("status omits %s: %s", name, statusOutput)
+		}
+	}
 	proxy.stop(t)
 
 	select {
@@ -49,6 +89,52 @@ func TestProxyProcessHTTPStartsAuthenticatesAndForwards(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("upstream did not receive the HTTP turn")
 	}
+	logBytes, err := os.ReadFile(proxyLogPath(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxyLog := string(logBytes)
+	for _, name := range []string{"Codex 1 (http-user@example.test, pro): available", "Claude 1 (claude@example.test, Max 20x): signed out", "Codex 2 (signed-out@example.test): signed out", "new task assigned to Codex 1"} {
+		if !strings.Contains(proxyLog, name) {
+			t.Fatalf("log omits %s: %s", name, proxyLog)
+		}
+	}
+	if strings.Contains(proxyLog, "account-") {
+		t.Fatalf("log exposes a storage key: %s", proxyLog)
+	}
+	t.Log(proxyLog)
+	command = exec.Command(binary, "accounts")
+	command.Env = append(os.Environ(), "CODEX_SWITCH_DATA_DIR="+data)
+	listed, err := command.CombinedOutput()
+	if err != nil || !bytes.Contains(listed, []byte("Claude 1\taccount-4\t")) || !bytes.Contains(listed, []byte("Codex 2\taccount-10\t")) {
+		t.Fatalf("accounts: %v\n%s", err, listed)
+	}
+	database, err := store.OpenStoreDatabase(filepath.Join(data, "codex-switch.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin, found, err := database.ReadTaskAccountPin(store.TaskID(turn.task))
+	database.CloseStoreDatabase()
+	if err != nil || !found || pin.AccountName != "account-1" {
+		t.Fatalf("storage pin changed: %v, %v, %v", pin, found, err)
+	}
+	// Keep the test's discarded credentials in its temporary directory.
+	trashExecutable := filepath.Join(root, "trash")
+	if err := os.WriteFile(trashExecutable, []byte("#!/bin/sh\nexec /bin/mv \"$1\" \"$CODEX_SWITCH_TEST_TRASH\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{"Claude 1", "account-10"} {
+		command = exec.Command(binary, "remove", target)
+		command.Env = append(os.Environ(), "CODEX_SWITCH_DATA_DIR="+data, "PATH="+root+":"+os.Getenv("PATH"), "CODEX_SWITCH_TEST_TRASH="+filepath.Join(root, target))
+		output, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("remove %s: %v\n%s", target, err, output)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(data, "account-1", "auth.json")); err != nil {
+		t.Fatalf("remove changed another account: %v", err)
+	}
+
 }
 
 func TestProxyProcessReusesWebSocket(t *testing.T) {

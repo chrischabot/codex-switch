@@ -15,13 +15,13 @@ func (router *TaskRouter) routeClaudeMetadata(facts []accounts.AccountRoutingFac
 		}
 		if pinned {
 			if fact, present := factForAccount(facts, pin.AccountName); present && accountCredentialsUsable(fact.Credentials) && fact.AccountState != accounts.AccountSignInRequired {
-				return RouteDecision{AccountName: fact.AccountName, Credentials: fact.Credentials}, nil
+				return RouteDecision{AccountName: fact.AccountName, DisplayName: fact.DisplayName, Credentials: fact.Credentials}, nil
 			}
 		}
 	}
 	for _, fact := range facts {
 		if accountCredentialsUsable(fact.Credentials) && fact.AccountState != accounts.AccountSignInRequired {
-			return RouteDecision{AccountName: fact.AccountName, Credentials: fact.Credentials}, nil
+			return RouteDecision{AccountName: fact.AccountName, DisplayName: fact.DisplayName, Credentials: fact.Credentials}, nil
 		}
 	}
 	router.accountFacts.RequestAccountRoutingFactsRefresh()

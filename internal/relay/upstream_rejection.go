@@ -18,7 +18,7 @@ import (
 // model, moves its task and becomes a retryable error for Codex; the proxy never
 // resends the request itself. Every other rejection reaches the client unchanged.
 func (handler *TrafficRelayHandler) observeRejectedResponse(routedRequest *routedRelayRequest, upstreamResponse *http.Response) error {
-	subject := describeModelRequest(routedRequest.taskID, routedRequest.client, routedRequest.routeDecision.AccountName)
+	subject := describeModelRequest(routedRequest.taskID, routedRequest.client, routedRequest.routeDecision.DisplayName)
 	if routedRequest.workKind != store.ModelTurnWorkKind {
 		// Read only the start of the body for the reason, then hand the client
 		// every byte unchanged.

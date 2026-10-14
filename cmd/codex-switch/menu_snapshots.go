@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -198,7 +198,7 @@ func readServingMenuSnapshot(dataDirectory string, router *routing.TaskRouter, m
 	for _, fact := range facts {
 		identity := identities[fact.AccountName]
 		sample := fact.AllowanceSample
-		account := &menupb.Account{Key: string(fact.AccountName), AccountNumber: uint32(identity.Index), Email: identity.Email, Plan: sample.Plan, State: menuAccountState(fact.AccountState), Usable: unavailableReasons[fact.AccountName] == "", UnavailableReason: unavailableReasons[fact.AccountName], OffersConfiguredModel: modelSlug == "" || slices.Contains(fact.SupportedModelSlugs, modelSlug)}
+		account := &menupb.Account{Key: string(fact.AccountName), AccountNumber: uint32(identity.ProviderNumber), Email: identity.Email, Plan: sample.Plan, State: menuAccountState(fact.AccountState), Usable: unavailableReasons[fact.AccountName] == "", UnavailableReason: unavailableReasons[fact.AccountName], OffersConfiguredModel: modelSlug == "" || slices.Contains(fact.SupportedModelSlugs, modelSlug)}
 		account.Provider = menupb.Provider_PROVIDER_CHATGPT
 		if identity.Provider == accountapi.ProviderClaude {
 			account.Provider = menupb.Provider_PROVIDER_CLAUDE

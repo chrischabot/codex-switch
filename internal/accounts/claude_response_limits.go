@@ -105,7 +105,7 @@ func (monitor *Monitor) ObserveClaudeResponse(name store.AccountName, model stri
 				latestReset = reset
 			}
 		}
-		log.Printf("%s: Claude limit for %s; available after %s", name, model, latestReset.Local().Format("Mon 2 Jan 15:04"))
+		log.Printf("%s: Claude limit for %s; available after %s", fact.DisplayName, model, latestReset.Local().Format("Mon 2 Jan 15:04"))
 	} else if status >= 200 && status < 300 {
 		clearClaudeRestrictionsFromSample(&fact, incoming)
 	}
@@ -113,7 +113,7 @@ func (monitor *Monitor) ObserveClaudeResponse(name store.AccountName, model stri
 	monitored.fact = fact
 	monitor.mutex.Unlock()
 	if err := monitor.saveClaudeAllowanceCache(string(name), claudeAllowanceCache{Sample: fact.AllowanceSample, Restrictions: fact.ClaudeRestrictions}); err != nil {
-		log.Printf("%s: could not save Claude limits: %v", name, err)
+		log.Printf("%s: could not save Claude limits: %v", fact.DisplayName, err)
 	}
 }
 

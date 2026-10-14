@@ -80,7 +80,7 @@ func (monitor *Monitor) observeClaudeAccount(parent context.Context, account Poo
 		}
 		cache.Sample, cache.Restrictions = fact.AllowanceSample, fact.ClaudeRestrictions
 		if saveErr := monitor.saveClaudeAllowanceCache(account.Name, cache); saveErr != nil {
-			log.Printf("%s: could not save Claude allowance: %v", account.Name, saveErr)
+			log.Printf("%s: could not save Claude allowance: %v", account.DisplayName, saveErr)
 		}
 	}
 	updateClaudeSharedState(&fact, time.Now())

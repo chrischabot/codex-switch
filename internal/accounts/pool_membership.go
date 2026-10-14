@@ -74,7 +74,7 @@ func publishLogin(dataDirectory, staging, accountName string, signedIn PoolAccou
 			if signedIn.Provider == ProviderClaude {
 				providerName = "Claude"
 			}
-			return PoolAccount{}, fmt.Errorf("the browser signed in to a different %s account; %s was not changed", providerName, accountName)
+			return PoolAccount{}, fmt.Errorf("the browser signed in to a different %s account; %s was not changed", providerName, selected.DisplayName)
 		}
 		active := filepath.Join(dataDirectory, accountName)
 		if err := withAuthLock(active, func() error {
@@ -180,7 +180,7 @@ func RemoveAccount(dataDirectory, accountName string) (PoolAccount, int64, error
 			return err
 		}
 		for index := range pool {
-			if pool[index].Name == accountName {
+			if pool[index].Name == accountName || pool[index].DisplayName == accountName {
 				selected = &pool[index]
 				break
 			}

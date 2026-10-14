@@ -127,9 +127,9 @@ func (ledger *UsageLedger) readAccountDailyUsage(pool []accounts.PoolAccount, co
 		accountCredits := credits[account.AccountID]
 		value, agreeing := dollarsPerPercent(accountCredits, localStandardCost[account.Name])
 		if value > 0 {
-			ledger.logOnChange("value/"+account.Name, fmt.Sprintf("%s: OpenAI's busiest day in the last 30 days is worth $%.2f at API prices, agreed by %d model-days served only through this Mac", account.Name, value/1e7, agreeing))
+			ledger.logOnChange("value/"+account.Name, fmt.Sprintf("%s: OpenAI's busiest day in the last 30 days is worth $%.2f at API prices, agreed by %d model-days served only through this Mac", account.DisplayName, value/1e7, agreeing))
 		} else if len(accountCredits) > 0 {
-			ledger.logOnChange("value/"+account.Name, fmt.Sprintf("%s: cannot price the use OpenAI reports from elsewhere: fewer than two model-days in the last 30 days were served only through this Mac", account.Name))
+			ledger.logOnChange("value/"+account.Name, fmt.Sprintf("%s: cannot price the use OpenAI reports from elsewhere: fewer than two model-days in the last 30 days were served only through this Mac", account.DisplayName))
 		}
 		for date, amount := range accountDailyUsage(openAITokens, openAIDailyCost(accountCredits, value), local[account.Name]) {
 			daily[accountDay{account.Name, date}] = amount

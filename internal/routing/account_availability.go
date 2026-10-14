@@ -21,7 +21,7 @@ func (router *TaskRouter) accountUnavailableReason(fact accounts.AccountRoutingF
 		if fact.Provider == accounts.ProviderClaude {
 			command += "--claude "
 		}
-		return "signed out; run: " + command + string(fact.AccountName), nil
+		return "signed out; run: " + command + fmt.Sprintf("%q", fact.DisplayName), nil
 	case !accountCredentialsUsable(fact.Credentials) || fact.AccountState == accounts.AccountCredentialsUnavailable:
 		return withCause("cannot read its saved login", fact.AccountStateCause), nil
 	case fact.Provider != accounts.ProviderClaude && fact.AccountState == accounts.AccountLimited:
@@ -51,7 +51,7 @@ func (router *TaskRouter) accountUnavailableReason(fact accounts.AccountRoutingF
 		}
 		if cleared {
 			log.Printf("%s can take new work again: OpenAI's allowance reading at %s shows it is no longer limited",
-				fact.AccountName, fact.AllowanceSample.ObservedAt.Local().Format("15:04:05"))
+				fact.DisplayName, fact.AllowanceSample.ObservedAt.Local().Format("15:04:05"))
 		}
 	}
 	resetsAt, exhausted, err := router.storeDatabase.ReadAccountReportedReset(fact.AccountName)

@@ -14,6 +14,7 @@ func TestStreamCloseReportsOnlyUnfinishedModelWork(t *testing.T) {
 	log.SetOutput(&diagnostics)
 	t.Cleanup(func() { log.SetOutput(previousOutput) })
 	observer := newTerminalResponseObserver("task-1", "test-client", "account-2", nil, &recordedHTTPCompletion{})
+	observer.accountDisplayName = "Codex 2"
 	observer.modelSlug = "astra"
 	observer.logReadError(io.EOF)
 	if diagnostics.Len() != 0 {
@@ -21,7 +22,7 @@ func TestStreamCloseReportsOnlyUnfinishedModelWork(t *testing.T) {
 	}
 	observer.observeStructuredEvent([]byte(`{"type":"response.created"}`))
 	observer.logReadError(io.EOF)
-	for _, context := range []string{"OpenAI closed the stream before the astra response completed", "task task-1 from test-client on account-2"} {
+	for _, context := range []string{"OpenAI closed the stream before the astra response completed", "task task-1 from test-client on Codex 2"} {
 		if !strings.Contains(diagnostics.String(), context) {
 			t.Fatalf("interruption has no %s: %s", context, diagnostics.String())
 		}

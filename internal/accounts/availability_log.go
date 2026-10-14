@@ -20,7 +20,7 @@ func describeAccountAvailabilityChange(previous, current AccountRoutingFact, ema
 	if !firstObservation && !stateChanged && !modelListChanged && !allowanceReadChanged && !modelListReadChanged {
 		return ""
 	}
-	identity := string(current.AccountName)
+	identity := current.DisplayName
 	details := []string{}
 	for _, detail := range []string{email, current.AllowanceSample.Plan} {
 		if detail != "" {
@@ -41,9 +41,9 @@ func describeAccountAvailabilityChange(previous, current AccountRoutingFact, ema
 			state = "Claude reports its usage limit reached"
 		}
 	case AccountSignInRequired:
-		state = fmt.Sprintf("signed out (%v); run: codex-switch login %s", current.AccountStateCause, current.AccountName)
+		state = fmt.Sprintf("signed out (%v); run: codex-switch login %q", current.AccountStateCause, current.DisplayName)
 		if current.Provider == ProviderClaude {
-			state = fmt.Sprintf("signed out (%v); run: codex-switch login --claude %s", current.AccountStateCause, current.AccountName)
+			state = fmt.Sprintf("signed out (%v); run: codex-switch login --claude %q", current.AccountStateCause, current.DisplayName)
 		}
 	case AccountCredentialsUnavailable:
 		state = fmt.Sprintf("cannot read its saved login: %v", current.AccountStateCause)
