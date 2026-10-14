@@ -4,7 +4,8 @@
 Builds the proxy from this working tree and runs it under a private launchd job
 on a spare port, with its own data directory and copies of the account logins.
 Drives the official Codex client and, if installed, Pi on Luna at low effort
-against real OpenAI. A gateway between the proxy and OpenAI simulates exhausted
+against real OpenAI, and Claude Code on Haiku through the HTTPS proxy to Anthropic.
+A gateway between the proxy and OpenAI simulates exhausted
 accounts; the model work itself is real. Prints what the system did for each outcome and
 leaves nothing running. Evidence stays in .project-private/system-test.
 """
@@ -58,19 +59,23 @@ class System:
 
 def main():
     began = time.monotonic()
-    results, leftovers = [], []
+    results, leftovers, outcomes = [], [], OUTCOMES
     signal.signal(signal.SIGTERM, stop)
     try:
         accounts = rig.prepare()
+        if not rig.CLAUDE_ACCOUNT:
+            outcomes = [outcome for outcome in OUTCOMES if outcome != claude_works_through_the_https_proxy]
         print(f'Codex Switch system test: {len(accounts)} accounts, {rig.MODEL} at low effort.')
         print(f'Codex: {rig.CODEX}. ' + (f'Pi: {rig.PI}.' if rig.PI else 'Pi is not on PATH, so Pi is not tested.'), flush=True)
+        print(f'Claude Code: {rig.CLAUDE}, Haiku at low effort.' if rig.CLAUDE_ACCOUNT
+              else f'SKIP Claude Code: {rig.CLAUDE_SKIP_REASON}.', flush=True)
         rig.build()
         system = System(accounts)
         system.apply()  # before the proxy's first allowance read
         rig.start_gateway()
         system.base = rig.start_proxy()
         print(f'Proxy build {rig.deploy_status()["revision"][:12]} is serving under launchd on {rig.listen_address()}.\n', flush=True)
-        for outcome in OUTCOMES:
+        for outcome in outcomes:
             results.append(run_outcome(outcome, system))
     except Failure as failure:
         print(f'The system did not start: {failure}')
@@ -80,9 +85,9 @@ def main():
         leftovers = rig.clean_up()
     print('Nothing is left running.' if not leftovers else 'STILL RUNNING: ' + '; '.join(leftovers))
     passed = sum(results)
-    print(f'{passed} of {len(OUTCOMES)} outcomes held, in {format_duration(time.monotonic() - began)}. '
+    print(f'{passed} of {len(outcomes)} outcomes held, in {format_duration(time.monotonic() - began)}. '
           f'Evidence: {rig.RUN.relative_to(rig.REPO)}')
-    raise SystemExit(0 if passed == len(OUTCOMES) and not leftovers else 1)
+    raise SystemExit(0 if passed == len(outcomes) and not leftovers else 1)
 
 
 def stop(signal_number, frame):
@@ -157,6 +162,30 @@ def request_without_task_id_is_served(system):
                 usage['output_tokens_details']['reasoning_tokens'])
     system.records.append(('request without a task ID', '', lambda: [received], lambda: rig.forwarded_requests(thread='', session='', client='')))
     return f'A streamed request with no task ID got a complete answer from {best}, which had the most weekly allowance left. No task was pinned.'
+
+
+def claude_works_through_the_https_proxy(system):
+    """Claude Code gets a reply through the HTTPS proxy, on the Claude account, recorded once with its tokens"""
+    session = str(uuid.uuid4())
+    result = rig.run_claude(session)
+    reply = result.get('result', '').strip()
+    if result.get('is_error') or not reply:
+        raise Failure(f'Claude Code did not return a reply: {result.get("result")!r}.')
+    task = 'claude:code:' + session
+    placement = [line for line in rig.proxy_log().splitlines() if task in line and 'new task assigned to Claude ' in line]
+    if len(placement) != 1 or rig.pinned_account(task) != rig.CLAUDE_ACCOUNT:
+        raise Failure(f'Claude Code replied, but its task has {len(placement)} Claude placement lines and is pinned to '
+                      f'{rig.pinned_account(task)}, not {rig.CLAUDE_ACCOUNT}.')
+    usage = result['usage']
+    received = (usage['input_tokens'] + usage.get('cache_read_input_tokens', 0) + usage.get('cache_creation_input_tokens', 0),
+                usage.get('cache_read_input_tokens', 0), usage['output_tokens'], 0)
+    rows = rig.database_rows(task)
+    if rows != [(rig.CLAUDE_ACCOUNT, *received)] or received[0] <= 0 or received[2] <= 0:
+        raise Failure(f'Claude Code received tokens {received}; the proxy recorded {rows}.')
+    system.records.append(('Claude Code task', task, lambda: [received], None))
+    return (f'Claude Code replied {reply!r} through HTTPS_PROXY and NODE_EXTRA_CA_CERTS, using Haiku at low effort against\n'
+            'api.anthropic.com over TLS. Its task was placed on the Claude account and its response was recorded once,\n'
+            f'with {received[0]} input tokens ({received[1]} cached) and {received[2]} output tokens.')
 
 
 def exhausted_task_moves_on_its_next_turn(system):
@@ -309,9 +338,10 @@ def every_response_recorded_once(system):
         if recorded != received:
             problems.append(f'{label}: the client received {len(received)} responses and the proxy recorded {len(recorded)}. '
                             f'Tokens (input, cached, output, reasoning): client {received}, proxy {recorded}.')
-        recorded_accounts, forwarded_accounts = [row[0] for row in rows], [account for account, _ in forwarded_requests()]
-        if recorded_accounts != forwarded_accounts:
-            problems.append(f'{label}: recorded on {recorded_accounts}, sent to OpenAI on {forwarded_accounts}.')
+        if forwarded_requests:
+            recorded_accounts, forwarded_accounts = [row[0] for row in rows], [account for account, _ in forwarded_requests()]
+            if recorded_accounts != forwarded_accounts:
+                problems.append(f'{label}: recorded on {recorded_accounts}, sent to OpenAI on {forwarded_accounts}.')
     unexplained = rig.database_row_count() - total
     if unexplained:
         problems.append(f'The proxy recorded {unexplained} responses that belong to no task this test ran.')
@@ -343,7 +373,8 @@ def format_duration(seconds):
     return f'{minutes}m {seconds:02d}s'
 
 
-OUTCOMES = [new_work_goes_to_the_most_allowance_left, request_without_task_id_is_served, exhausted_task_moves_on_its_next_turn,
+OUTCOMES = [new_work_goes_to_the_most_allowance_left, claude_works_through_the_https_proxy, request_without_task_id_is_served,
+            exhausted_task_moves_on_its_next_turn,
             goal_continues_when_an_account_returns, update_during_work_finishes_on_the_old_process, every_response_recorded_once]
 
 if __name__ == '__main__':

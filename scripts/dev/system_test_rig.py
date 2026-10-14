@@ -2,6 +2,7 @@
 launchd, the gateway to real OpenAI, the official clients, and readers for the
 evidence each of them leaves."""
 import base64
+from datetime import datetime
 import hashlib
 import json
 import os
@@ -25,6 +26,12 @@ LIVE_DATA = Path.home() / 'Library/Application Support/codex-switch'
 DESKTOP_CODEX = Path('/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex')
 CODEX = str(DESKTOP_CODEX) if DESKTOP_CODEX.exists() else shutil.which('codex')
 PI = shutil.which('pi')  # None when Pi is not installed; the test then runs without it
+CLAUDE_DESKTOP = Path.home() / 'Library/Application Support/Claude/claude-code'
+CLAUDE_VERSIONS = sorted(CLAUDE_DESKTOP.glob('*/**/claude.app/Contents/MacOS/claude'),
+                         key=lambda path: tuple(map(int, path.relative_to(CLAUDE_DESKTOP).parts[0].split('.'))))
+CLAUDE = str(CLAUDE_VERSIONS[-1]) if CLAUDE_VERSIONS else shutil.which('claude')
+CLAUDE_ACCOUNT = None
+CLAUDE_SKIP_REASON = 'no Claude account is signed in' if CLAUDE else 'Claude Code is not installed'
 MODEL = 'gpt-6-luna'
 LABEL = 'dev.codex-switch.system-test'
 # Pi has no ChatGPT login of its own here: it needs a JWT-shaped key with a
@@ -43,28 +50,39 @@ class Failure(Exception):
 
 def prepare():
     """Creates a fresh run directory with copies of the account logins."""
+    global CLAUDE_ACCOUNT, CLAUDE_SKIP_REASON
     os.umask(0o077)  # logins, logs and the proxy's data stay private to this user
     if not CODEX:
         raise Failure('Codex is not installed: neither the desktop app nor `codex` on PATH.')
     if RUN.exists():
         subprocess.run(['trash', str(RUN)], check=True)
-    for part in ('home', 'work', 'data', 'logs', 'pi'):
+    for part in ('home', 'work', 'data', 'logs', 'pi', 'claude'):
         (RUN / part).mkdir(parents=True)
     accounts = []
     for source in sorted(LIVE_DATA.glob('account-*/auth.json')):
         auth = json.loads(source.read_text())
         if auth.get('provider') == 'claude':
-            continue  # the rig drives Codex and Pi on ChatGPT accounts
-        claims = json.loads(base64.urlsafe_b64decode(auth['tokens']['access_token'].split('.')[1] + '==='))
-        if claims['exp'] < time.time() + 3600:
-            raise Failure(f'{source.parent.name} needs a fresh login before the system test.')
+            if not CLAUDE or CLAUDE_ACCOUNT or not all(auth.get(field) for field in
+                    ('access_token', 'refresh_token', 'expires_at', 'account_id', 'organization_id', 'email')):
+                continue
+            if datetime.fromisoformat(auth['expires_at'].replace('Z', '+00:00')).timestamp() <= time.time() + 3600:
+                CLAUDE_SKIP_REASON = 'the signed-in Claude token expires within an hour'
+                continue
+            auth['refresh_token'] = 'system-test-no-refresh'
+        else:
+            claims = json.loads(base64.urlsafe_b64decode(auth['tokens']['access_token'].split('.')[1] + '==='))
+            if claims['exp'] < time.time() + 3600:
+                raise Failure(f'{source.parent.name} needs a fresh login before the system test.')
+            auth['tokens']['refresh_token'] = 'system-test-no-refresh'
         # Only access tokens are copied: a refresh here would rotate the live
         # proxy's refresh token and sign the live proxy out.
-        auth['tokens']['refresh_token'] = 'system-test-no-refresh'
         target = RUN / 'data' / source.parent.name / 'auth.json'
         target.parent.mkdir()
         target.write_text(json.dumps(auth))
-        accounts.append(source.parent.name)
+        if auth.get('provider') == 'claude':
+            CLAUDE_ACCOUNT = source.parent.name
+        else:
+            accounts.append(source.parent.name)
     if len(accounts) < 2:
         raise Failure('The system test needs at least two signed-in accounts.')
     (RUN / 'home/auth.json').write_text((RUN / 'data' / accounts[0] / 'auth.json').read_text())
@@ -228,6 +246,28 @@ def finish_pi(name, process, timeout=300):
 
 def run_pi(name, prompt, session):
     return finish_pi(name, start_pi(name, prompt, session))
+
+
+def run_claude(session):
+    """Claude Code through the two printed proxy settings, to real Anthropic over TLS."""
+    environment = {name: value for name, value in client_environment().items()
+                   if not name.upper().startswith(('CLAUDE_', 'ANTHROPIC_'))
+                   and not name.upper().endswith('_PROXY')
+                   and name not in ('NODE_EXTRA_CA_CERTS', 'NODE_TLS_REJECT_UNAUTHORIZED')}
+    environment.update(HOME=str(RUN / 'claude'), CLAUDE_CONFIG_DIR=str(RUN / 'claude'),
+                       CODEX_SWITCH_DATA_DIR=str(RUN / 'data'))
+    settings = subprocess.run([str(RUN / 'codex-switch'), 'print-claude-config', '--listen', listen_address()],
+                              env=environment, capture_output=True, text=True, check=True)
+    environment.update(json.loads(settings.stdout)['env'])
+    auth = json.loads((RUN / 'data' / CLAUDE_ACCOUNT / 'auth.json').read_text())
+    environment['CLAUDE_CODE_OAUTH_TOKEN'] = auth['access_token']
+    process = start_client([CLAUDE, '-p', 'Reply with the word ready only.', '--model', 'haiku', '--effort', 'low',
+                            '--output-format', 'json', '--session-id', session, '--tools', '',
+                            '--setting-sources', '', '--strict-mcp-config'], 'claude', env=environment)
+    if process.wait(timeout=180):
+        raise Failure(f'Claude Code exited with status {process.returncode}: {read("logs/claude.err")[-400:]} '
+                      f'{read("logs/claude.out")[-400:]}')
+    return json.loads(read('logs/claude.out'))
 
 
 def pi_task_id(session):
