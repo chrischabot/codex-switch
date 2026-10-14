@@ -53,6 +53,8 @@ def prepare():
     accounts = []
     for source in sorted(LIVE_DATA.glob('account-*/auth.json')):
         auth = json.loads(source.read_text())
+        if auth.get('provider') == 'claude':
+            continue  # the rig drives Codex and Pi on ChatGPT accounts
         claims = json.loads(base64.urlsafe_b64decode(auth['tokens']['access_token'].split('.')[1] + '==='))
         if claims['exp'] < time.time() + 3600:
             raise Failure(f'{source.parent.name} needs a fresh login before the system test.')
