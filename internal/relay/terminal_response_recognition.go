@@ -229,11 +229,15 @@ func (observer *terminalResponseObserver) logReadError(err error) {
 	}
 	switch {
 	case errors.Is(err, io.EOF):
-		log.Printf("%s: OpenAI closed the stream before the %s response completed", observer.describe(), modelSlug)
+		provider := "OpenAI"
+		if observer.claudeUsage != nil {
+			provider = "Anthropic"
+		}
+		log.Printf("%s: %s closed the stream before the %s response completed; the proxy did not resend it", observer.describe(), provider, modelSlug)
 	case errors.Is(err, context.Canceled):
 		log.Printf("%s: the client closed the stream before the %s response completed", observer.describe(), modelSlug)
 	default:
-		log.Printf("%s: reading the %s response stream failed: %v", observer.describe(), modelSlug, err)
+		log.Printf("%s: reading the %s response stream failed: %v; the proxy did not resend it", observer.describe(), modelSlug, err)
 	}
 }
 

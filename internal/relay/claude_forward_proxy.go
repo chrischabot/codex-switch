@@ -53,7 +53,11 @@ func CreateClaudeForwardProxy(dataDirectory, capability string, trafficRelay *Tr
 		return nil, err
 	}
 	passthroughTransport := trafficRelay.upstreamTransport
-	if transport, ok := passthroughTransport.(*http.Transport); ok {
+	if transport, ok := passthroughTransport.(*upstreamTransport); ok {
+		copy := transport.transport.Clone()
+		copy.DisableCompression = true
+		passthroughTransport = &upstreamTransport{transport: copy}
+	} else if transport, ok := passthroughTransport.(*http.Transport); ok {
 		copy := transport.Clone()
 		copy.DisableCompression = true
 		passthroughTransport = copy
@@ -75,7 +79,7 @@ func CreateClaudeForwardProxy(dataDirectory, capability string, trafficRelay *Tr
 			Transport: passthroughTransport, FlushInterval: -1,
 			ErrorHandler: func(writer http.ResponseWriter, request *http.Request, err error) {
 				if request.Context().Err() == nil {
-					log.Printf("Claude account request %s %s could not reach Anthropic: %v", request.Method, request.URL.Path, err)
+					log.Printf("Claude account request %s %s failed: %v; the proxy did not resend this attempt", request.Method, request.URL.Path, err)
 				}
 				http.Error(writer, "upstream service unavailable", http.StatusBadGateway)
 			},

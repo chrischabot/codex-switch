@@ -109,7 +109,7 @@ func CreateTrafficRelayHandler(options RelayHandlerOptions) (*TrafficRelayHandle
 
 	upstreamTransport := options.HTTPTransport
 	if upstreamTransport == nil {
-		upstreamTransport = http.DefaultTransport.(*http.Transport).Clone()
+		upstreamTransport = newUpstreamTransport()
 	}
 	relayHandler := &TrafficRelayHandler{
 		taskRouter:           options.TaskRouter,
@@ -166,6 +166,16 @@ func (handler *TrafficRelayHandler) serveAuthenticatedTraffic(response http.Resp
 			return
 		}
 		request.Body = io.NopCloser(bytes.NewReader(body))
+		// A model POST is never idempotent. Without replay markers, Go uses
+		// GetBody only when a reused HTTP/1 connection wrote zero bytes.
+		request.GetBody = nil
+		_, hasIdempotencyKey := request.Header["Idempotency-Key"]
+		_, hasAlternateIdempotencyKey := request.Header["X-Idempotency-Key"]
+		if !hasIdempotencyKey && !hasAlternateIdempotencyKey {
+			request.GetBody = func() (io.ReadCloser, error) {
+				return io.NopCloser(bytes.NewReader(body)), nil
+			}
+		}
 		inspectedBody := body
 		if strings.EqualFold(strings.TrimSpace(request.Header.Get("Content-Encoding")), "zstd") {
 			decoder, err := zstd.NewReader(nil)
@@ -370,7 +380,7 @@ func (handler *TrafficRelayHandler) createBytePreservingReverseProxy() *httputil
 					log.Printf("%s: the client closed the %s request before the provider answered", subject, routedRequest.modelSlug)
 				}
 			default:
-				log.Printf("%s could not reach the provider: %v", subject, err)
+				log.Printf("%s: the upstream request failed: %v; the proxy did not resend this attempt", subject, err)
 			}
 			http.Error(response, "upstream service unavailable", http.StatusBadGateway)
 		},
