@@ -72,11 +72,7 @@ func serveRelay(tcpListenAddress string, checkProviders bool) {
 	}
 
 	accountMonitor := accountapi.NewMonitor(dataDir(), upstreamOrigin, codexstate.FindCodexExecutable(), &http.Client{Timeout: 30 * time.Second}, storeDatabase)
-	claudeUpstreamOriginValue := strings.TrimSpace(os.Getenv("CODEX_SWITCH_CLAUDE_UPSTREAM_ORIGIN"))
-	if claudeUpstreamOriginValue == "" {
-		claudeUpstreamOriginValue = "https://api.anthropic.com"
-	}
-	claudeUpstreamOrigin, err := url.Parse(claudeUpstreamOriginValue)
+	claudeUpstreamOrigin, err := url.Parse("https://api.anthropic.com")
 	if err != nil {
 		log.Fatal(err)
 	}
