@@ -38,7 +38,7 @@ var sourceModified string
 // serveRelay runs the recovered serving path: SQLite-backed pins, the one
 // routing rule, and the byte-preserving relay. The command layer owns the
 // listener and signals; the relay owns admitted work during a drain.
-func serveRelay(tcpListenAddress string) {
+func serveRelay(tcpListenAddress string, checkProviders bool) {
 	// Every generation appends to one log in the data directory, so a blue-green
 	// update keeps one timeline and the status command can name the file.
 	proxyLog, err := os.OpenFile(proxyLogPath(dataDir()), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
@@ -72,11 +72,24 @@ func serveRelay(tcpListenAddress string) {
 	}
 
 	accountMonitor := accountapi.NewMonitor(dataDir(), upstreamOrigin, codexstate.FindCodexExecutable(), &http.Client{Timeout: 30 * time.Second}, storeDatabase)
-	claudeUpstreamOrigin, err := url.Parse("https://api.anthropic.com")
+	claudeUpstreamOriginValue := strings.TrimSpace(os.Getenv("CODEX_SWITCH_CLAUDE_UPSTREAM_ORIGIN"))
+	if claudeUpstreamOriginValue == "" {
+		claudeUpstreamOriginValue = "https://api.anthropic.com"
+	}
+	claudeUpstreamOrigin, err := url.Parse(claudeUpstreamOriginValue)
 	if err != nil {
 		log.Fatal(err)
 	}
 	accountMonitor.SetClaudeUpstreamOrigin(claudeUpstreamOrigin)
+	if checkProviders {
+		if err := accountMonitor.CheckProviderAccess(context.Background()); err != nil {
+			failure := fmt.Sprintf("provider check failed: %s; old generation keeps serving", strings.ReplaceAll(err.Error(), "\n", "; "))
+			log.Printf("process %d: %s", os.Getpid(), failure)
+			fmt.Fprintln(os.Stderr, failure)
+			os.Exit(1)
+		}
+		log.Printf("process %d: provider check passed: every signed-in account's allowance was read", os.Getpid())
+	}
 	usageLedger, err := usage.OpenUsageLedger(storeDatabase, dataDir(), &http.Client{Timeout: 15 * time.Second})
 	if err != nil {
 		log.Fatal(err)
@@ -103,6 +116,16 @@ func serveRelay(tcpListenAddress string) {
 		log.Fatal(err)
 	}
 
+	codexReader, err := codexstate.DefaultReader()
+	if err != nil {
+		log.Fatal(err)
+	}
+	snapshots := &menuSnapshots{dataDirectory: dataDir(), router: taskRouter, usageLedger: usageLedger, codex: codexReader}
+	forwardProxy, err := relay.CreateClaudeForwardProxy(dataDir(), capability, relayHandler, snapshots.serveOrRelay(capability, deployStatusOrRelay(capability, relayHandler)))
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	// A generation listens only once it can route: during an update, new
 	// connections reach it as soon as it listens.
 	accountMonitor.WaitForFirstRead()
@@ -119,22 +142,14 @@ func serveRelay(tcpListenAddress string) {
 	log.Print(serving)
 	fmt.Printf("codex-switch listening on %s\ncodex-switch log: %s\n", "http://"+listener.Addr().String(), proxyLogPath(dataDir()))
 
-	codexReader, err := codexstate.DefaultReader()
-	if err != nil {
-		log.Fatal(err)
-	}
 	clientURL := "http://" + listener.Addr().String() + clientcapability.PathPrefix(capability)
-	snapshots := &menuSnapshots{dataDirectory: dataDir(), codexBaseURL: clientURL + "/backend-api/codex", router: taskRouter, usageLedger: usageLedger, codex: codexReader}
+	snapshots.codexBaseURL = clientURL + "/backend-api/codex"
 	background.Add(1)
 	go func() { defer background.Done(); snapshots.Run(factsContext) }()
 	if err := writeMenuSnapshotURL(dataDir(), clientURL+menuSnapshotEndpoint); err != nil {
 		log.Fatalf("publish the menu snapshot URL: %v", err)
 	}
 
-	forwardProxy, err := relay.CreateClaudeForwardProxy(dataDir(), capability, relayHandler, snapshots.serveOrRelay(capability, deployStatusOrRelay(capability, relayHandler)))
-	if err != nil {
-		log.Fatal(err)
-	}
 	server := &http.Server{Handler: forwardProxy}
 	serveFailed := make(chan error, 1)
 	go func() { serveFailed <- server.Serve(listener) }()

@@ -14,11 +14,12 @@ import (
 func serveCommand(args []string) {
 	flags := flag.NewFlagSet("serve", flag.ExitOnError)
 	tcpListenAddress := flags.String("listen", listenAddress, "numeric loopback address and port")
+	checkProviders := flags.Bool("check-providers", false, "verify signed-in providers before a deployment accepts traffic")
 	_ = flags.Parse(args)
 	if flags.NArg() != 0 {
-		log.Fatal("usage: codex-switch serve [--listen LOOPBACK:PORT]")
+		log.Fatal("usage: codex-switch serve [--listen LOOPBACK:PORT] [--check-providers]")
 	}
-	serveRelay(*tcpListenAddress)
+	serveRelay(*tcpListenAddress, *checkProviders)
 }
 
 // openRelayListener sets SO_REUSEPORT on every TCP generation, forever: the

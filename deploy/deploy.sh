@@ -64,21 +64,23 @@ TARGET_REVISION="$(CODEX_SWITCH_DATA_DIR=$DATA "$TARGET_BINARY" print-revision)"
 case "$TARGET_REVISION" in
   ''|unknown) echo "candidate has no source revision; build it with scripts/dev/build-proxy" >&2; exit 1 ;;
 esac
-RESTORE_BINARY="$STABLE.before-deploy"
-cp "$STABLE" "$RESTORE_BINARY"
-replace_stable "$TARGET_BINARY"
-
 # A separate session keeps the bridge alive if the deployment caller exits.
 # exec preserves this child PID for readiness checks and the later drain wait.
-CODEX_SWITCH_DATA_DIR="$DATA" python3 -c 'import os, sys; os.setsid(); os.execv(sys.argv[1], sys.argv[1:])' "$STABLE" serve --listen "$LISTEN" </dev/null >>"$DATA/deployment-bridge.log" 2>&1 &
+CODEX_SWITCH_DATA_DIR="$DATA" python3 -c 'import os, sys; os.setsid(); os.execv(sys.argv[1], sys.argv[1:])' "$TARGET_BINARY" serve --listen "$LISTEN" --check-providers </dev/null >>"$DATA/deployment-bridge.log" 2>&1 &
 BRIDGE_PID=$!
 
 # The bridge must demonstrably own new connections before the old
 # generation is signalled (closing a listener resets its queued backlog).
-# A generation listens only after reading every account once, which can take
-# tens of seconds when OpenAI is slow.
+# The candidate checks every signed-in account with a fresh provider read
+# before it listens. Failed reads exit without taking traffic.
 BRIDGE_READY=false
 for _ in $(seq 1 300); do
+  if ! kill -0 "$BRIDGE_PID" 2>/dev/null; then
+    wait "$BRIDGE_PID" 2>/dev/null || true
+    echo "candidate exited before serving; stable binary unchanged; old generation keeps serving" >&2
+    tail -n 1 "$DATA/deployment-bridge.log" >&2
+    exit 1
+  fi
   STATUS="$(deploy_status || true)"
   if [ "$(status_field "$STATUS" pid)" = "$BRIDGE_PID" ] &&
     [ "$(status_field "$STATUS" revision)" = "$TARGET_REVISION" ]; then
@@ -88,15 +90,15 @@ for _ in $(seq 1 300); do
   sleep 0.2
 done
 if [ "$BRIDGE_READY" != true ]; then
-  replace_stable "$RESTORE_BINARY"
   kill -TERM "$BRIDGE_PID" 2>/dev/null || true
   wait "$BRIDGE_PID" 2>/dev/null || true
-  echo "bridge did not take new connections; stable binary restored" >&2
+  echo "candidate did not take new connections; stable binary unchanged; old generation keeps serving" >&2
   exit 1
 fi
 if [ "$MODE" = new ]; then
-  cp "$RESTORE_BINARY" "$STABLE.previous"
+  cp "$STABLE" "$STABLE.previous"
 fi
+replace_stable "$TARGET_BINARY"
 
 # Old generation: drain admitted work and exit; the supervisor respawns the
 # stable path, which now holds the target binary.
