@@ -378,10 +378,13 @@ def weekly_used_percent():
     environment = dict(client_environment(), CODEX_SWITCH_DATA_DIR=str(RUN / 'data'))
     shown = subprocess.run([str(RUN / 'codex-switch'), 'status'], env=environment,
                            capture_output=True, text=True).stdout
+    listed = subprocess.run([str(RUN / 'codex-switch'), 'accounts'], env=environment,
+                            capture_output=True, text=True).stdout
+    key_by_name = dict(line.split('\t')[:2] for line in listed.splitlines() if '\t' in line)
     used, account = {}, None
     for line in shown.splitlines():
-        if re.match(r'account-\d+ ·', line):
-            account = line.split()[0]
+        if match := re.match(r'(Codex \d+) ·', line):
+            account = key_by_name[match[1]]
         elif account and (match := re.match(r'\s+weekly\s+([\d.]+)% used', line)):
             used[account] = float(match[1])
     return used
