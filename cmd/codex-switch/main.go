@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,9 @@ const listenAddress = "127.0.0.1:2455"
 
 func main() {
 	log.SetFlags(0)
+	// Codex Switch is the proxy: it reaches providers directly even when the
+	// shell that started it routes through it with HTTPS_PROXY.
+	http.DefaultTransport.(*http.Transport).Proxy = nil
 	command, args := selectCommand(os.Args[1:])
 	switch command {
 	case "login":
