@@ -78,12 +78,14 @@ extension CSSwitch_AllowanceWindow {
     }
 
     /// When the allowance empties if use continues at this window's average
-    /// pace so far; nil when it lasts until the reset.
+    /// pace so far; nil when it lasts until the reset. The pace is read only
+    /// once a seventh of the window has passed (a day of a week): an hour into
+    /// a week, one busy session would project the whole week.
     func runOutDate(now: Date) -> Date? {
         guard hasResetAt, usedPercent > 0, usedPercent < 100 else { return nil }
         let reset = resetAt.date
         let elapsed = now.timeIntervalSince(reset.addingTimeInterval(-TimeInterval(periodSeconds)))
-        guard elapsed > 0 else { return nil }
+        guard elapsed >= TimeInterval(periodSeconds) / 7 else { return nil }
         let runOut = now.addingTimeInterval(freePercent / usedPercent * elapsed)
         return runOut < reset ? runOut : nil
     }
