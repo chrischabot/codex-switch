@@ -71,19 +71,14 @@ struct CodexSwitchPanel: View {
                                         selectMetric: { selectedMetric = $0 }
                                     )
                                 }
-                                let providers = snapshot.providers
-                                ForEach(providers, id: \.self) { provider in
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        if providers.count > 1 {
-                                            ProviderHeader(provider: provider, total: selectedPresentation?.providerTotal(provider, metric: selectedMetric))
-                                        }
-                                        ProviderCard(
-                                            snapshot: snapshot,
-                                            provider: provider,
-                                            hideIdentity: privacyModeEnabled,
-                                            now: snapshot.generatedAt.date
-                                        )
-                                    }
+                                ForEach(snapshot.providers, id: \.self) { provider in
+                                    ProviderSection(
+                                        snapshot: snapshot,
+                                        provider: provider,
+                                        providerTotal: selectedPresentation?.providerTotal(provider, metric: selectedMetric),
+                                        hideIdentity: privacyModeEnabled,
+                                        now: snapshot.generatedAt.date
+                                    )
                                 }
                             }
                             .background {

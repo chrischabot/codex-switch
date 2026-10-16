@@ -4,8 +4,8 @@ import SwiftUI
 enum UsageTheme {
     static let panelWidth: CGFloat = 360
     static let outerInset: CGFloat = 14
-    static let sectionGap: CGFloat = 10
-    static let cardInset: CGFloat = 11
+    static let sectionGap: CGFloat = 8
+    static let cardInset: CGFloat = 10
     static let cardRadius: CGFloat = 12
     static let traySurface = Color(nsColor: .textBackgroundColor)
 

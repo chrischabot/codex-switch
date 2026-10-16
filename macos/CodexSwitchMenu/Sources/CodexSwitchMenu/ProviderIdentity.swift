@@ -84,6 +84,5 @@ struct ProviderHeader: View {
             }
         }
         .padding(.horizontal, 4)
-        .padding(.top, 4)
     }
 }

@@ -37,8 +37,11 @@ final class PanelRenderTests: XCTestCase {
                 let size = try await renderPanel(snapshot, period: .today, metric: .cost, privacy: true, dark: dark,
                                                  maximumHeight: Self.laptopHeight,
                                                  to: output.appending(path: "panel-\(state)-\(appearance).png"))
-                print("\(state) \(appearance): \(Int(size.width)) × \(Int(size.height)) pt")
-                XCTAssertLessThanOrEqual(size.height, Self.laptopHeight, "\(state) must fit the laptop screen")
+                // The panel clamps to the screen and scrolls past it; the content's own height is the proof.
+                let content = try await renderPanel(snapshot, period: .today, metric: .cost, privacy: true, dark: dark,
+                                                    maximumHeight: 4_000, to: FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).png"))
+                print("\(state) \(appearance): \(Int(size.width)) × \(Int(content.height)) pt")
+                XCTAssertLessThanOrEqual(content.height, Self.laptopHeight, "\(state) must fit the laptop screen without scrolling")
                 if state == "real" {
                     try screenRender(panel: output.appending(path: "panel-\(state)-\(appearance).png"), dark: dark,
                                      to: output.appending(path: "screen-1512x982-\(appearance).png"))

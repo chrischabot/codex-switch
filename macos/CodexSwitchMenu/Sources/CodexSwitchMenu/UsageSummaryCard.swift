@@ -18,11 +18,6 @@ struct UsageSummaryCard: View {
                     select: selectMetric
                 )
                 Spacer()
-                if let presentation, let total = presentation.total(selectedMetric) {
-                    Text(format(total, metric: selectedMetric))
-                        .font(.system(size: 18, weight: .semibold))
-                        .monospacedDigit()
-                }
             }
             UsagePeriodPicker(
                 periods: OverviewSnapshot.ReportingPeriodKind.allCases,
@@ -42,12 +37,6 @@ struct UsageSummaryCard: View {
         .cardSurface()
     }
 
-    private func format(_ amount: Int64, metric: UsageMetric) -> String {
-        switch metric {
-        case .cost: UsageFormatting.cost(amount)
-        case .tokens: UsageFormatting.tokens(amount) + " tokens"
-        }
-    }
 }
 
 /// The ring of the period's split by account, with one legend line per
@@ -62,9 +51,10 @@ private struct UsageBreakdown: View {
             HStack(spacing: 18) {
                 BreakdownRing(
                     shares: shares,
+                    total: format(total),
                     accessibilityLabel: "\(selectedMetric.title) \(format(total))"
                 )
-                VStack(alignment: .leading, spacing: 7) {
+                VStack(alignment: .leading, spacing: 4) {
                     ForEach(shares) { share in
                         HStack(spacing: 7) {
                             AccountMarker(colour: UsageTheme.accountColour(share.colourSlot))
@@ -147,6 +137,7 @@ private struct MetricMenu: View {
 
 private struct BreakdownRing: View {
     let shares: [UsagePresentation.Share]
+    let total: String
     let accessibilityLabel: String
 
     var body: some View {
@@ -158,6 +149,12 @@ private struct BreakdownRing: View {
                 )
                 .fill(UsageTheme.accountColour(arc.colourSlot))
             }
+            Text(total)
+                .font(.system(size: 17, weight: .semibold))
+                .monospacedDigit()
+                .minimumScaleFactor(0.6)
+                .lineLimit(1)
+                .padding(.horizontal, 18)
         }
         .frame(width: 96, height: 96)
         .accessibilityElement(children: .combine)

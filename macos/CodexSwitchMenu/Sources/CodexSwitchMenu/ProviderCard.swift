@@ -1,56 +1,84 @@
 import SwiftUI
 
-/// A provider's accounts in one card, organised by allowance window: one
-/// block per window with a thin row per account, so one window is read
+/// A provider's accounts, organised by allowance window: who the accounts
+/// are in one paragraph under the provider's name, then a card with one
+/// block per window and one grid row per account, so one window is read
 /// across every account at once and a new account adds one row per block.
-/// The first block also says who each account is; later blocks show only
-/// the colour and number.
-struct ProviderCard: View {
+/// Every row in every block sits on the same grid.
+struct ProviderSection: View {
     let snapshot: CSSwitch_MenuSnapshot
     let provider: CSSwitch_Provider
+    let providerTotal: String?
     let hideIdentity: Bool
     let now: Date
 
     var body: some View {
         let accounts = snapshot.accounts.filter { $0.menuProvider == provider }.sorted { $0.accountNumber < $1.accountNumber }
-        let blocks = IndicatorBlock.blocks(for: accounts, provider: provider)
-        VStack(alignment: .leading, spacing: 9) {
-            ForEach(Array(blocks.enumerated()), id: \.element.id) { index, block in
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(block.title)
-                        .font(UsageTheme.labelFont)
-                    ForEach(block.rows, id: \.account.key) { row in
-                        AllowanceRow(
-                            account: row.account,
-                            colour: snapshot.colour(of: row.account),
-                            allowance: row.window,
-                            now: now,
-                            identity: index == 0 ? (hideIdentity ? UsageFormatting.privateEmail(row.account.email) : row.account.email) : nil
-                        )
-                    }
-                    if index == 0 {
-                        ForEach(accounts.filter { !$0.offersConfiguredModel }, id: \.key) { account in
-                            OutOfPoolRow(
-                                account: account,
-                                colour: snapshot.colour(of: account),
-                                identity: hideIdentity ? UsageFormatting.privateEmail(account.email) : account.email
-                            )
+        VStack(alignment: .leading, spacing: 6) {
+            ProviderHeader(provider: provider, total: providerTotal)
+            AccountIdentities(accounts: accounts, snapshot: snapshot, hideIdentity: hideIdentity)
+                .padding(.horizontal, 4)
+            VStack(alignment: .leading, spacing: 16) {
+                ForEach(IndicatorBlock.blocks(for: accounts, provider: provider)) { block in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(block.title)
+                            .font(UsageTheme.labelFont)
+                        Grid(alignment: .leading, horizontalSpacing: AllowanceGrid.columnGap, verticalSpacing: AllowanceGrid.rowGap) {
+                            ForEach(block.rows, id: \.account.key) { row in
+                                AllowanceGridRow(
+                                    number: Int(row.account.accountNumber),
+                                    colour: snapshot.colour(of: row.account),
+                                    allowance: row.window,
+                                    now: now
+                                )
+                            }
                         }
                     }
                 }
             }
+            .padding(UsageTheme.cardInset)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .cardSurface()
         }
-        .padding(UsageTheme.cardInset)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .cardSurface()
     }
 }
 
-/// One allowance window across the provider's pool accounts.
+/// "1 josh@example.com · Pro   2 … · Pro   3 … · Free", each with its
+/// colour and any state that keeps new work off it, in the proxy's words.
+/// Wraps to more lines when the addresses need them; never cut.
+private struct AccountIdentities: View {
+    let accounts: [CSSwitch_Account]
+    let snapshot: CSSwitch_MenuSnapshot
+    let hideIdentity: Bool
+
+    var body: some View {
+        accounts.map { account in
+            let address = hideIdentity ? UsageFormatting.privateEmail(account.email) : account.email
+            // An account outside the pool for the configured model is listed by its plan alone.
+            let status = account.usable ? account.reserveStatus : account.offersConfiguredModel ? account.unavailableReason : ""
+            let detail = [address, account.planTitle, status].filter { !$0.isEmpty }.joined(separator: " · ")
+            // Narrow no-break spaces keep the dot, number and detail together.
+            return Text(Image(systemName: "circle.fill")).font(.system(size: 7)).foregroundColor(snapshot.colour(of: account))
+                + Text("\u{202F}\(account.accountNumber)\u{202F}").fontWeight(.medium)
+                + Text(detail.replacingOccurrences(of: " ", with: "\u{00A0}"))
+        }
+        .enumerated()
+        .reduce(Text("")) { paragraph, entry in entry.offset == 0 ? entry.element : paragraph + Text("   ") + entry.element }
+        .font(.system(size: 11))
+        .foregroundStyle(.secondary)
+        .lineSpacing(2)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// One allowance window across the provider's accounts. An account that
+/// cannot run the configured model has a row with nothing in it beyond its
+/// number: it is listed, not pooled.
 struct IndicatorBlock: Identifiable {
     struct Row {
         let account: CSSwitch_Account
-        let window: CSSwitch_AllowanceWindow
+        let window: CSSwitch_AllowanceWindow?
     }
 
     let id: String
@@ -58,9 +86,7 @@ struct IndicatorBlock: Identifiable {
     let rows: [Row]
 
     /// Shortest window first; a model's own limit follows the limit it sits
-    /// inside. Accounts keep their number order within every block. An
-    /// account that cannot run the configured model has no row: its
-    /// allowance is not the pool's.
+    /// inside. Accounts keep their number order within every block.
     static func blocks(for accounts: [CSSwitch_Account], provider: CSSwitch_Provider) -> [IndicatorBlock] {
         var rowsByKey: [String: [Row]] = [:]
         var windowsByKey: [String: CSSwitch_AllowanceWindow] = [:]
@@ -71,11 +97,15 @@ struct IndicatorBlock: Identifiable {
                 windowsByKey[key] = window
             }
         }
-        return windowsByKey.sorted { left, right in
+        let outOfPool = accounts.filter { !$0.offersConfiguredModel }.map { Row(account: $0, window: nil) }
+        let ordered = windowsByKey.sorted { left, right in
             (left.value.periodSeconds, left.value.modelID, left.value.modelName)
                 < (right.value.periodSeconds, right.value.modelID, right.value.modelName)
-        }.map { key, window in
-            IndicatorBlock(id: key, title: window.title(for: provider), rows: rowsByKey[key] ?? [])
+        }
+        return ordered.enumerated().map { index, entry in
+            let rows = (rowsByKey[entry.key] ?? []) + (index == 0 ? outOfPool : [])
+            return IndicatorBlock(id: entry.key, title: entry.value.title(for: provider),
+                                  rows: rows.sorted { $0.account.accountNumber < $1.account.accountNumber })
         }
     }
 }
@@ -107,6 +137,9 @@ extension CSSwitch_AllowanceWindow {
         let runOut = now.addingTimeInterval(freePercent / usedPercent * elapsed)
         return runOut < reset ? runOut : nil
     }
+
+    /// Nothing left to use before the reset.
+    var isEmpty: Bool { usedPercent >= 100 }
 }
 
 extension CSSwitch_Account {
@@ -114,146 +147,100 @@ extension CSSwitch_Account {
     var planTitle: String { plan.prefix(1).uppercased() + plan.dropFirst() }
 }
 
-/// One account's line in a window block: its colour and number, the bar,
-/// what is left, and the time that matters: a flame and how long until it
-/// hits the limit if it will, otherwise how long until it resets. In the
-/// provider's first block the row also carries the account's address and
-/// plan, and the state that keeps new work off it when there is one.
-private struct AllowanceRow: View {
-    let account: CSSwitch_Account
-    let colour: Color
-    let allowance: CSSwitch_AllowanceWindow
-    let now: Date
-    let identity: String?
-
+/// The columns every account row shares, so edges line up across blocks
+/// and providers by construction.
+enum AllowanceGrid {
+    static let columnGap: CGFloat = 8
+    static let rowGap: CGFloat = 8
+    static let rowHeight: CGFloat = 16
     static let numberWidth: CGFloat = 22
-    private static let percentWidth: CGFloat = 36
-    private static let timeWidth: CGFloat = 60
+    /// "100% left"
+    static let percentWidth: CGFloat = 52
+    static let flameWidth: CGFloat = 10
+    /// "Resets in 22d 12h"
+    static let timeWidth: CGFloat = 92
+    static let barHeight: CGFloat = 6
+    static let textFont = Font.system(size: 11)
+    static let textEmphasisFont = Font.system(size: 11, weight: .medium)
+}
+
+/// One account's line in a window block: its colour and number, the bar,
+/// what is left, and the time that matters: a red flame and "Limit in 9h
+/// 55m" if it will run out, otherwise "Resets in 44m". An empty window says
+/// so in red; a window with no room to spare is red too.
+private struct AllowanceGridRow: View {
+    let number: Int
+    let colour: Color
+    let allowance: CSSwitch_AllowanceWindow?
+    let now: Date
 
     var body: some View {
-        let runOut = allowance.runOutDate(now: now)
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 8) {
-                AccountNumber(number: Int(account.accountNumber), colour: colour)
-                AllowanceBar(
-                    freeFraction: min(max(allowance.freePercent / 100, 0), 1),
-                    runningOut: runOut != nil
-                )
-                Text(UsageFormatting.percent(allowance.freePercent))
+        let runOut = allowance?.runOutDate(now: now)
+        let isEmpty = allowance?.isEmpty ?? false
+        let isLow = isEmpty || runOut != nil || (allowance.map { $0.freePercent < 10 } ?? false)
+        GridRow {
+            HStack(spacing: 3) {
+                AccountMarker(colour: colour, size: 7)
+                Text("\(number)")
                     .font(UsageTheme.detailEmphasisFont)
                     .monospacedDigit()
-                    .lineLimit(1)
-                    .frame(width: Self.percentWidth, alignment: .trailing)
-                Group {
-                    if let runOut {
-                        HStack(spacing: 3) {
-                            Image(systemName: "flame.fill")
-                                .font(.system(size: 10))
-                                .foregroundStyle(UsageTheme.runOutColour)
-                            Text(UsageFormatting.duration(runOut.timeIntervalSince(now)))
-                        }
-                        .help(UsageFormatting.resetLabel(allowance.resetAt.date, now: now))
-                    } else if allowance.hasResetAt {
-                        Text(UsageFormatting.duration(allowance.resetAt.date.timeIntervalSince(now)))
-                    }
-                }
-                .font(UsageTheme.detailFont)
+            }
+            .frame(width: AllowanceGrid.numberWidth, alignment: .leading)
+            AllowanceBar(freeFraction: allowance.map { min(max($0.freePercent / 100, 0), 1) } ?? 0, low: isLow)
+                .frame(maxWidth: .infinity)
+            Text(allowance.map { isEmpty ? "Empty" : "\(UsageFormatting.percent($0.freePercent)) left" } ?? "")
+                .font(AllowanceGrid.textEmphasisFont)
+                .foregroundStyle(isEmpty ? AnyShapeStyle(UsageTheme.runOutColour) : AnyShapeStyle(.primary))
+                .monospacedDigit()
+                .lineLimit(1)
+                .frame(width: AllowanceGrid.percentWidth, alignment: .trailing)
+            Image(systemName: "flame.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(UsageTheme.runOutColour)
+                .opacity(runOut == nil ? 0 : 1)
+                .frame(width: AllowanceGrid.flameWidth)
+            Text(timeLabel(runOut: runOut))
+                .font(AllowanceGrid.textFont)
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
                 .lineLimit(1)
-                .frame(width: Self.timeWidth, alignment: .trailing)
-            }
-            .frame(height: 16)
-            if let identity {
-                AccountIdentityLine(identity: identity, plan: account.planTitle)
-                    .padding(.leading, Self.numberWidth + 8)
-                let status = account.usable ? account.reserveStatus : account.unavailableReason
-                if !status.isEmpty {
-                    Text(status)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .padding(.leading, Self.numberWidth + 8)
-                }
-            }
+                .frame(width: AllowanceGrid.timeWidth, alignment: .trailing)
+                .help(runOut == nil || allowance?.hasResetAt != true ? "" : UsageFormatting.resetLabel(allowance!.resetAt.date, now: now))
         }
+        .frame(height: AllowanceGrid.rowHeight)
+        .opacity(allowance == nil ? 0.5 : 1)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Account \(account.accountNumber): \(UsageFormatting.percent(allowance.freePercent)) left")
+        .accessibilityLabel(accessibilityText(runOut: runOut))
+    }
+
+    private func timeLabel(runOut: Date?) -> String {
+        guard let allowance, allowance.hasResetAt else { return "" }
+        if let runOut { return "Limit in " + UsageFormatting.duration(runOut.timeIntervalSince(now)) }
+        return UsageFormatting.resetLabel(allowance.resetAt.date, now: now)
+    }
+
+    private func accessibilityText(runOut: Date?) -> String {
+        guard let allowance else { return "Account \(number), not in the pool" }
+        let left = allowance.isEmpty ? "empty" : "\(UsageFormatting.percent(allowance.freePercent)) left"
+        return "Account \(number): \(left), \(timeLabel(runOut: runOut))"
     }
 }
 
-/// An account that cannot run the configured model: listed, greyed, with no
-/// allowance to compare.
-private struct OutOfPoolRow: View {
-    let account: CSSwitch_Account
-    let colour: Color
-    let identity: String
-
-    var body: some View {
-        HStack(spacing: 8) {
-            AccountNumber(number: Int(account.accountNumber), colour: colour)
-            AccountIdentityLine(identity: identity, plan: account.planTitle)
-            Spacer(minLength: 0)
-        }
-        .foregroundStyle(.secondary)
-        .frame(height: 16)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Account \(account.accountNumber), not in the pool")
-    }
-}
-
-/// The address and plan on one line. The address is never cut: the plan
-/// goes first, then the type shrinks a little.
-private struct AccountIdentityLine: View {
-    let identity: String
-    let plan: String
-
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            Text(plan.isEmpty ? identity : "\(identity) · \(plan)")
-                .fixedSize()
-            Text(identity)
-                .fixedSize()
-            Text(identity)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-        }
-        .font(.system(size: 11))
-        .foregroundStyle(.secondary)
-    }
-}
-
-private struct AccountNumber: View {
-    let number: Int
-    let colour: Color
-
-    var body: some View {
-        HStack(spacing: 3) {
-            AccountMarker(colour: colour, size: 7)
-            Text("\(number)")
-                .font(UsageTheme.detailEmphasisFont)
-                .monospacedDigit()
-        }
-        .frame(width: AllowanceRow.numberWidth, alignment: .leading)
-    }
-}
-
-/// Full-width capsule: blue while the window lasts to its reset, red when it will run out.
+/// Full-width capsule of what is left: blue while the window lasts to its
+/// reset, red when it is running out or nearly gone, empty when it is empty.
 private struct AllowanceBar: View {
     let freeFraction: Double
-    let runningOut: Bool
-
-    private static let height: CGFloat = 6
+    let low: Bool
 
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 Capsule().fill(.fill.secondary)
                 Capsule()
-                    .fill(runningOut ? UsageTheme.runOutColour : UsageTheme.capacityColour)
-                    .frame(width: freeFraction > 0 ? max(Self.height, geometry.size.width * freeFraction) : 0)
+                    .fill(low ? UsageTheme.runOutColour : UsageTheme.capacityColour)
+                    .frame(width: freeFraction > 0 ? max(AllowanceGrid.barHeight, geometry.size.width * freeFraction) : 0)
             }
-            .frame(height: Self.height)
+            .frame(height: AllowanceGrid.barHeight)
             .frame(maxHeight: .infinity, alignment: .center)
         }
         .accessibilityHidden(true)
