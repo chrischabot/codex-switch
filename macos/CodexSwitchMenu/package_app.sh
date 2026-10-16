@@ -44,6 +44,15 @@ if [[ $result == staged && $stage_name != CodexSwitchStage ]]; then
     display_name="Codex Switch $stage_name"
     bundle_identifier="com.josh.codex-switch-menu.stage.${(L)stage_name}"
 fi
+installation_root=${CODEX_SWITCH_INSTALL_ROOT:-}
+if [[ -n $installation_root ]]; then
+    [[ $installation_root == /* && -n ${CODEX_SWITCH_LAUNCHD_LABEL:-} && -n ${CODEX_SWITCH_LISTEN:-} ]] || {
+        print -u2 "isolated packaging requires an absolute install root, launchd label and listen address"
+        exit 2
+    }
+    display_name="Codex Switch Isolated"
+    bundle_identifier=com.josh.codex-switch-menu.isolated
+fi
 running_matching_app=$(
     /bin/ps -axo pid=,comm= | /usr/bin/awk -v executable="$destination/Contents/MacOS/CodexSwitchMenu" '$2 == executable {print $1 " " $2}'
 )
@@ -108,6 +117,11 @@ plist="$staged_app/Contents/Info.plist"
 
 /usr/bin/plutil -insert GitCommit -string "$(git -C "$repo_dir" rev-parse HEAD)" "$plist"
 /usr/bin/plutil -insert CSManagesProxy -bool $([[ $result == installed ]] && echo true || echo false) "$plist"
+if [[ -n $installation_root ]]; then
+    /usr/bin/plutil -insert CSInstallationRoot -string "$installation_root" "$plist"
+    /usr/bin/plutil -insert CSLaunchdLabel -string "$CODEX_SWITCH_LAUNCHD_LABEL" "$plist"
+    /usr/bin/plutil -insert CSListenAddress -string "$CODEX_SWITCH_LISTEN" "$plist"
+fi
 if [[ -n $public_key ]]; then
     /usr/bin/plutil -insert SUFeedURL -string "$feed_url" "$plist"
     /usr/bin/plutil -insert SUPublicEDKey -string "$public_key" "$plist"
@@ -125,7 +139,7 @@ sparkle="$staged_app/Contents/Frameworks/Sparkle.framework/Versions/B"
 /usr/bin/codesign "${sign_args[@]}" "$sparkle/Autoupdate"
 /usr/bin/codesign "${sign_args[@]}" "$sparkle/Updater.app"
 /usr/bin/codesign "${sign_args[@]}" "${sparkle:h:h}"
-/usr/bin/codesign "${sign_args[@]}" "$staged_app/Contents/Helpers/codex-switch"
+/usr/bin/codesign "${sign_args[@]}" --identifier codex-switch "$staged_app/Contents/Helpers/codex-switch"
 /usr/bin/codesign "${sign_args[@]}" "$staged_app"
 /usr/bin/codesign --verify --deep --strict "$staged_app"
 

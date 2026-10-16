@@ -35,9 +35,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let cacheFile = URL.cachesDirectory
-            .appending(path: Bundle.main.bundleIdentifier ?? "CodexSwitchMenu", directoryHint: .isDirectory)
-            .appending(path: "menu-snapshot.pb")
+        let cacheFile = launchConfiguration.installationEnvironment.isEmpty
+            ? URL.cachesDirectory
+                .appending(path: Bundle.main.bundleIdentifier ?? "CodexSwitchMenu", directoryHint: .isDirectory)
+                .appending(path: "menu-snapshot.pb")
+            : launchConfiguration.dataDirectory.appending(path: "menu-snapshot-cache.pb")
         let store = OverviewStore(
             client: SnapshotClient(dataDirectory: launchConfiguration.dataDirectory),
             cacheFile: cacheFile
@@ -47,10 +49,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             updates = UpdateController()
         }
         statusBarController = StatusBarController(store: store, updates: updates)
+        if launchConfiguration.usesManagedDataDirectory,
+           Bundle.main.object(forInfoDictionaryKey: "CSManagesProxy") as? Bool == true {
+            proxyInstallation.start(
+                dataDirectory: launchConfiguration.dataDirectory,
+                environment: launchConfiguration.installationEnvironment
+            )
+        }
         if launchConfiguration.isProduction {
-            if Bundle.main.object(forInfoDictionaryKey: "CSManagesProxy") as? Bool == true {
-                proxyInstallation.start(dataDirectory: launchConfiguration.dataDirectory)
-            }
             registerLoginItem()
         }
     }

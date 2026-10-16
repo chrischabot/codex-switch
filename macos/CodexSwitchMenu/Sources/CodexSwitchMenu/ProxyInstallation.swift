@@ -13,7 +13,7 @@ final class ProxyInstallation {
     private var process: Process?
     private var retryTask: Task<Void, Never>?
 
-    func start(dataDirectory: URL) {
+    func start(dataDirectory: URL, environment: [String: String]) {
         guard process == nil else { return }
         let resources = Bundle.main.resourceURL!
         let install = resources.appending(path: "deploy/install-proxy.sh")
@@ -33,6 +33,8 @@ final class ProxyInstallation {
             let child = Process()
             child.executableURL = URL(filePath: "/bin/sh")
             child.arguments = [install.path, proxy.path]
+            child.environment = ProcessInfo.processInfo.environment.merging(environment) { _, configured in configured }
+            child.environment?["CODEX_SWITCH_MENU_APP"] = Bundle.main.bundleURL.path
             child.standardInput = FileHandle.nullDevice
             child.standardOutput = output
             child.standardError = output
@@ -42,7 +44,7 @@ final class ProxyInstallation {
                     self?.process = nil
                     if status != 0 {
                         installationLogger.error("Proxy installation exited with status \(status); see proxy-install.log")
-                        self?.retry(dataDirectory: dataDirectory)
+                        self?.retry(dataDirectory: dataDirectory, environment: environment)
                     }
                 }
             }
@@ -50,15 +52,15 @@ final class ProxyInstallation {
             process = child
         } catch {
             installationLogger.error("Proxy installation failed: \(error.localizedDescription, privacy: .public)")
-            retry(dataDirectory: dataDirectory)
+            retry(dataDirectory: dataDirectory, environment: environment)
         }
     }
 
-    private func retry(dataDirectory: URL) {
+    private func retry(dataDirectory: URL, environment: [String: String]) {
         retryTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(60))
             guard !Task.isCancelled else { return }
-            self?.start(dataDirectory: dataDirectory)
+            self?.start(dataDirectory: dataDirectory, environment: environment)
         }
     }
 }

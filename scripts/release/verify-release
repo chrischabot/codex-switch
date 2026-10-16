@@ -32,7 +32,12 @@ proxy="$app/Contents/Helpers/codex-switch"
 for script in deploy.sh installation.sh install-proxy.sh uninstall.sh; do
   [[ -s "$app/Contents/Resources/deploy/$script" ]] || fail "bundled deploy script is missing: $script"
 done
-[[ "$(plutil -extract CFBundleIdentifier raw -o - "$info")" == com.josh.codex-switch-menu ]]
+bundle_identifier=com.josh.codex-switch-menu
+if plutil -extract CSInstallationRoot raw -o /dev/null "$info" 2>/dev/null; then
+  [[ "$allow_loopback_feed" -eq 1 ]] || fail "isolated installation cannot be published"
+  bundle_identifier+=.isolated
+fi
+[[ "$(plutil -extract CFBundleIdentifier raw -o - "$info")" == "$bundle_identifier" ]]
 [[ "$(plutil -extract GitCommit raw -o - "$info")" == "$revision" ]]
 [[ "$(plutil -extract CFBundleShortVersionString raw -o - "$info")" == "$(<"$candidate/VERSION")" ]]
 [[ "$(plutil -extract CFBundleVersion raw -o - "$info")" == "$(<"$candidate/BUILD")" ]]

@@ -16,19 +16,43 @@ enum SnapshotClientError: Error, Equatable {
 enum LaunchConfigurationError: Error, Equatable {
     case unexpectedArguments
     case relativeDataDirectory
+    case invalidInstallationConfiguration
 }
 
-/// The app reads the proxy in `~/Library/Application Support/codex-switch`, or
-/// the one named by `--data-dir ABSOLUTE_PATH`. Only the app reading that
-/// production proxy is the menu that opens at login.
+/// Bundled installation settings survive Sparkle relaunches. `--data-dir`
+/// selects an existing proxy; only the production installation opens at login.
 struct LaunchConfiguration: Equatable, Sendable {
     let dataDirectory: URL
     let isProduction: Bool
+    let usesManagedDataDirectory: Bool
+    let installationEnvironment: [String: String]
 
     init(arguments: [String]) throws {
         let productionDataDirectory = URL.applicationSupportDirectory.appending(path: "codex-switch", directoryHint: .isDirectory)
+        let root = Bundle.main.object(forInfoDictionaryKey: "CSInstallationRoot") as? String
+        let label = Bundle.main.object(forInfoDictionaryKey: "CSLaunchdLabel") as? String
+        let listen = Bundle.main.object(forInfoDictionaryKey: "CSListenAddress") as? String
+        let managedDataDirectory: URL
+        if let root, let label, let listen {
+            guard root.hasPrefix("/"), !label.isEmpty, !listen.isEmpty else {
+                throw LaunchConfigurationError.invalidInstallationConfiguration
+            }
+            managedDataDirectory = URL(filePath: root, directoryHint: .isDirectory)
+                .appending(path: "Library/Application Support/codex-switch", directoryHint: .isDirectory)
+            installationEnvironment = [
+                "HOME": root,
+                "CODEX_SWITCH_LAUNCHD_LABEL": label,
+                "CODEX_SWITCH_LISTEN": listen,
+            ]
+        } else {
+            guard root == nil, label == nil, listen == nil else {
+                throw LaunchConfigurationError.invalidInstallationConfiguration
+            }
+            managedDataDirectory = productionDataDirectory
+            installationEnvironment = [:]
+        }
         if arguments.isEmpty {
-            dataDirectory = productionDataDirectory
+            dataDirectory = managedDataDirectory
         } else {
             guard arguments.count == 2, arguments[0] == "--data-dir" else {
                 throw LaunchConfigurationError.unexpectedArguments
@@ -36,7 +60,9 @@ struct LaunchConfiguration: Equatable, Sendable {
             guard arguments[1].hasPrefix("/") else { throw LaunchConfigurationError.relativeDataDirectory }
             dataDirectory = URL(filePath: arguments[1], directoryHint: .isDirectory)
         }
-        isProduction = dataDirectory.standardizedFileURL == productionDataDirectory.standardizedFileURL
+        let readsManagedDataDirectory = dataDirectory.standardizedFileURL == managedDataDirectory.standardizedFileURL
+        usesManagedDataDirectory = readsManagedDataDirectory
+        isProduction = root == nil && readsManagedDataDirectory
     }
 }
 

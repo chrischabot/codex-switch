@@ -10,5 +10,5 @@ go build -ldflags "-X main.sourceRevision=$revision -X main.sourceModified=$modi
 # macOS pins a login item's ad hoc binary by its exact hash, so launchd refuses
 # the first restart after an update. A Developer ID signature, when this Mac has
 # one, keeps the same identity across builds.
-identity=$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -n 1)
+identity=${CODEX_SWITCH_SIGN_IDENTITY:-$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -n 1)}
 [ -z "$identity" ] || codesign --force --sign "$identity" --identifier codex-switch "$output"

@@ -96,6 +96,7 @@ else
     /usr/bin/plutil -insert ProgramArguments -string "$argument" -append "$plist"
   done
   /usr/bin/plutil -insert EnvironmentVariables -dictionary "$plist"
+  /usr/bin/plutil -insert EnvironmentVariables.HOME -string "$HOME" "$plist"
   /usr/bin/plutil -insert EnvironmentVariables.CODEX_SWITCH_DATA_DIR -string "$data" "$plist"
   /usr/bin/plutil -insert EnvironmentVariables.PATH -string "$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH" "$plist"
   /usr/bin/plutil -insert RunAtLoad -bool true "$plist"

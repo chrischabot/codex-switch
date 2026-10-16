@@ -81,17 +81,14 @@ through the proxy. Task names come from the clients' session logs on your Mac.
 
 ## Install
 
-Download [CodexSwitchMenu.zip from the latest release](https://github.com/joshp123/codex-switch/releases/latest),
-unzip it, move CodexSwitchMenu to Applications and open it. The app installs the
-proxy and starts it at login. No build tools are needed.
-
-Then paste this into Codex or Claude Code to connect your accounts and clients:
+Paste this into Codex or Claude Code:
 
 ```text
 Install Codex Switch from https://github.com/joshp123/codex-switch on this Mac.
-Read its README first. Open the installed CodexSwitchMenu app, then help me sign in
-each of my ChatGPT accounts with `codex-switch login` and Claude accounts with
-`codex-switch login --claude` (I'll do the browser part). Configure only the
+Read its README first. Download CodexSwitchMenu.zip from the latest GitHub
+Release, unzip it, move CodexSwitchMenu.app to Applications and open it. Then
+help me sign in each of my ChatGPT accounts with `codex-switch login` and Claude
+accounts with `codex-switch login --claude` (I'll do the browser part). Configure only the
 clients I use: `print-codex-config` for Codex and Pi's openai-codex provider;
 `print-claude-config` for Claude Code's settings.json env;
 `print-claude-config --pi` for Pi's anthropic provider. Merge the printed
@@ -100,6 +97,7 @@ settings into the existing files without replacing other settings. Finish with
 ```
 
 The only thing you do yourself is sign in to each account in the browser.
+The app installs the proxy and starts it at login. No build tools are needed.
 
 ### Doing it by hand
 
@@ -108,7 +106,9 @@ for the provider you use.
 
 **1. Install.**
 
-Download and open the app as above. It runs the proxy under launchd on
+Download [CodexSwitchMenu.zip from the latest release](https://github.com/joshp123/codex-switch/releases/latest),
+unzip it, move CodexSwitchMenu.app to Applications and open it.
+It runs the proxy under launchd on
 `127.0.0.1:2455`, so it starts at login and restarts if it stops. The
 `codex-switch` command goes in `~/.local/bin`, so make sure that's on your `PATH`.
 The menu app also opens at login.
