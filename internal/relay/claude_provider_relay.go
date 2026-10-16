@@ -1,6 +1,8 @@
 package relay
 
 import (
+	"bytes"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -55,7 +57,13 @@ func (handler *TrafficRelayHandler) observeClaudeRejection(request *routedRelayR
 		response.Header.Set("Retry-After", "1")
 		response.Header.Set("X-Should-Retry", "true")
 	default:
-		log.Printf("%s: Anthropic answered %s with HTTP %d", describeModelRequest(request.taskID, request.client, request.routeDecision.DisplayName), request.modelSlug, response.StatusCode)
+		// Read only the start of the body for the reason; the client gets every byte.
+		head, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		response.Body = struct {
+			io.Reader
+			io.Closer
+		}{io.MultiReader(bytes.NewReader(head), response.Body), response.Body}
+		log.Printf("%s: Anthropic answered %s with HTTP %d%s", describeModelRequest(request.taskID, request.client, request.routeDecision.DisplayName), request.modelSlug, response.StatusCode, describeRejection(response.Header, head))
 	}
 	return nil
 }
