@@ -47,6 +47,10 @@ func (router *TaskRouter) RouteForTask(taskID store.TaskID, workKind store.WorkK
 	return router.RouteForProviderTask(taskID, workKind, modelSlug, accounts.ProviderChatGPT, "")
 }
 
+// claudePromptCacheLifetime is how long Claude Code's subscription prompt cache
+// lasts. A session idle for longer has nothing warm to keep on its account.
+const claudePromptCacheLifetime = time.Hour
+
 // RouteForProviderTask uses the same placement rule for each provider. A new fork
 // first inherits its parent account when that account can serve this model.
 func (router *TaskRouter) RouteForProviderTask(taskID store.TaskID, workKind store.WorkKind, modelSlug string, provider accounts.Provider, parentTaskID store.TaskID) (RouteDecision, error) {
@@ -72,7 +76,17 @@ func (router *TaskRouter) RouteForProviderTask(taskID store.TaskID, workKind sto
 			pinnedAccountProblem = "no longer in the account pool"
 		} else if pinnedAccountProblem, err = router.accountUnavailableReason(fact, modelSlug); err != nil {
 			return RouteDecision{}, err
+		} else if provider == accounts.ProviderClaude && workKind == store.ModelTurnWorkKind &&
+			router.currentTime().Sub(pin.PinnedAt) > claudePromptCacheLifetime {
+			pinnedAccountProblem = "its prompt cache expired after an hour without requests"
 		} else if pinnedAccountProblem == "" {
+			if provider == accounts.ProviderClaude && workKind == store.ModelTurnWorkKind {
+				// The pin's time is the session's last model request, so it
+				// expires with the prompt cache.
+				if _, err := router.storeDatabase.CompareAndSwapTaskAccountPin(taskID, pin.AccountName, pin.AccountName, router.currentTime().UTC()); err != nil {
+					return RouteDecision{}, err
+				}
+			}
 			return RouteDecision{AccountName: pin.AccountName, DisplayName: fact.DisplayName, Credentials: fact.Credentials}, nil
 		}
 	}
@@ -126,6 +140,10 @@ func (router *TaskRouter) RouteForProviderTask(taskID store.TaskID, workKind sto
 		}
 		if !moved {
 			return router.RouteForProviderTask(taskID, workKind, modelSlug, provider, parentTaskID)
+		}
+		if selected.AccountName == pin.AccountName {
+			decision.Assignment = fmt.Sprintf("stays on %s (%s)", choice, pinnedAccountProblem)
+			return decision, nil
 		}
 		decision.Assignment = fmt.Sprintf("moved from %s (%s) to %s", router.accountDisplayName(pin.AccountName), pinnedAccountProblem, choice)
 		return decision, nil
