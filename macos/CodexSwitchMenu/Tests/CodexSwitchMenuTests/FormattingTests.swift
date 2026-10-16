@@ -15,15 +15,16 @@ final class FormattingTests: XCTestCase {
         XCTAssertEqual(UsageFormatting.privateEmail("account-1"), "account-1")
     }
 
-    func testTimesUntilResetAndRunOutAreRelative() throws {
+    func testResetsAreClockTimesInTheMacsFormat() throws {
         let now = try Date.ISO8601FormatStyle().parse("2026-10-11T15:00:00Z")
-        let sunday = try Date.ISO8601FormatStyle().parse("2026-10-18T05:52:00Z")
         let tonight = try Date.ISO8601FormatStyle().parse("2026-10-11T23:36:00Z")
-        let soon = try Date.ISO8601FormatStyle().parse("2026-10-11T15:12:00Z")
+        let saturday = try Date.ISO8601FormatStyle().parse("2026-10-17T05:52:00Z")
+        let november = try Date.ISO8601FormatStyle().parse("2026-11-08T11:20:00Z")
+        let utc = TimeZone(identifier: "UTC")!
 
-        XCTAssertEqual(UsageFormatting.resetLabel(sunday, now: now), "Resets in 6d 14h")
-        XCTAssertEqual(UsageFormatting.duration(tonight.timeIntervalSince(now)), "8h 36m")
-        XCTAssertEqual(UsageFormatting.duration(soon.timeIntervalSince(now)), "12m")
+        XCTAssertEqual(UsageFormatting.resetLabel(tonight, now: now, locale: locale, timeZone: utc), "Resets Sun 23:36")
+        XCTAssertEqual(UsageFormatting.resetLabel(saturday, now: now, locale: locale, timeZone: utc), "Resets Sat 05:52")
+        XCTAssertEqual(UsageFormatting.resetLabel(november, now: now, locale: locale, timeZone: utc), "Resets Sun 8 Nov")
     }
 
     func testAmountsUseThreeSignificantFigures() {

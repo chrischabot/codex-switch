@@ -3,7 +3,7 @@ import SwiftUI
 
 enum UsageTheme {
     /// Wider than OpenUsage's 360 so the bar, the thing a person scans, is the
-    /// widest part of a row even with "100% left" and "Resets in 29d 23h" beside it.
+    /// widest part of a row even with "100% left" and "Resets Wed 18:00" beside it.
     static let panelWidth: CGFloat = 420
     static let outerInset: CGFloat = 14
     static let cardRadius: CGFloat = 12
@@ -61,7 +61,7 @@ enum PanelDensity {
     var legendGap: CGFloat { self == .regular ? 5 : 2 }
     var ringSize: CGFloat { self == .regular ? 96 : 92 }
     /// Grid columns sized to the widest real strings: a dot and one digit,
-    /// "100% left", and "Resets in 29d 23h" (a flame only ever comes with the
+    /// "100% left", and "Resets Wed 18:00" (a flame only ever comes with the
     /// shorter "Limit in …").
     var columnGap: CGFloat { 6 }
     var numberWidth: CGFloat { 20 }

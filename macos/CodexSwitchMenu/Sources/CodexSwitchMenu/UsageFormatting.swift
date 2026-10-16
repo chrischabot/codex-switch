@@ -17,19 +17,15 @@ enum UsageFormatting {
         return "\(first)•••••@•••••\(suffix)"
     }
 
-    /// "Resets in 4d 17h": how long until the window refills.
-    static func resetLabel(_ date: Date, now: Date) -> String {
-        "Resets in " + duration(date.timeIntervalSince(now))
-    }
-
-    /// "4d 17h", "9h 36m", "12m": two units at the day scale, minutes below it.
-    static func duration(_ seconds: TimeInterval) -> String {
-        let minutes = max(1, Int((max(seconds, 0) / 60).rounded(.up)))
-        let days = minutes / 1_440
-        let hours = minutes % 1_440 / 60
-        if days > 0 { return "\(days)d \(hours)h" }
-        if hours > 0 { return "\(hours)h \(minutes % 60)m" }
-        return "\(minutes)m"
+    /// When the window refills, as a clock time: "Resets Sat 02:49" within
+    /// a week, "Resets Sun 8 Nov" beyond that. Weekdays, dates and the clock
+    /// follow the Mac.
+    static func resetLabel(_ date: Date, now: Date, locale: Locale = .autoupdatingCurrent, timeZone: TimeZone = .autoupdatingCurrent) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.timeZone = timeZone
+        formatter.setLocalizedDateFormatFromTemplate(date.timeIntervalSince(now) < 6 * 86_400 ? "EEEjmm" : "EEEdMMM")
+        return "Resets " + formatter.string(from: date)
     }
 
     /// "2.6", "1.0": one decimal, as the Mac formats it.
