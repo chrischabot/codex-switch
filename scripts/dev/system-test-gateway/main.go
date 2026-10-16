@@ -473,9 +473,13 @@ func loadAccountAliases(dataDirectory string) (map[string]string, error) {
 			return nil, err
 		}
 		var auth struct {
-			Tokens struct {
+			Provider string `json:"provider"`
+			Tokens   struct {
 				AccountID string `json:"account_id"`
 			} `json:"tokens"`
+		}
+		if json.Unmarshal(data, &auth) == nil && auth.Provider == "claude" {
+			continue // Claude reaches Anthropic directly, not through this gateway
 		}
 		if json.Unmarshal(data, &auth) != nil || auth.Tokens.AccountID == "" {
 			return nil, fmt.Errorf("%s has no account ID", path)

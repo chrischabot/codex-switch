@@ -424,8 +424,8 @@ def weekly_used_percent():
     key_by_name = dict(line.split('\t')[:2] for line in listed.splitlines() if '\t' in line)
     used, account = {}, None
     for line in shown.splitlines():
-        if match := re.match(r'(Codex \d+) ·', line):
-            account = key_by_name[match[1]]
+        if match := re.match(r'((Codex|Claude) \d+) ·', line):
+            account = key_by_name[match[1]] if match[2] == 'Codex' else None
         elif account and (match := re.match(r'\s+weekly\s+([\d.]+)% used', line)):
             used[account] = float(match[1])
     return used
