@@ -50,7 +50,7 @@ if [[ "$allow_loopback_feed" -eq 0 ]]; then
   [[ "$feed_url" == "$production_feed" ]] || fail "loopback candidate cannot be published"
 fi
 codesign --verify --deep --strict --verbose=2 "$app"
-codesign -dv "$app" 2>&1 | grep -q '^Authority=Developer ID Application:' || fail "app is not signed with Developer ID Application"
+codesign -dv --verbose=2 "$app" 2>&1 | grep '^Authority=Developer ID Application:' >/dev/null || fail "app is not signed with Developer ID Application"
 spctl --assess --type execute --verbose=2 "$app"
 xcrun stapler validate "$app"
 while IFS= read -r library; do
