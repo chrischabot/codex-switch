@@ -17,7 +17,10 @@ func describeAccountAvailabilityChange(previous, current AccountRoutingFact, ema
 	modelListChanged := (previous.SupportedModelSlugs == nil) != (current.SupportedModelSlugs == nil)
 	allowanceReadChanged := allowanceReadFailing(previous) != allowanceReadFailing(current)
 	modelListReadChanged := (previous.ModelListCause == nil) != (current.ModelListCause == nil)
-	if !firstObservation && !stateChanged && !modelListChanged && !allowanceReadChanged && !modelListReadChanged {
+	now := time.Now()
+	reserveReason := ReserveStatus(current, now)
+	reserveChanged := ReserveStatus(previous, now) != reserveReason
+	if !firstObservation && !stateChanged && !modelListChanged && !allowanceReadChanged && !modelListReadChanged && !reserveChanged {
 		return ""
 	}
 	identity := current.DisplayName
@@ -51,6 +54,9 @@ func describeAccountAvailabilityChange(previous, current AccountRoutingFact, ema
 		state = fmt.Sprintf("available, but its allowance could not be read: %v", current.AccountStateCause)
 	default:
 		state = "state " + string(current.AccountState)
+	}
+	if reserveReason != "" && current.AccountState.Eligible() {
+		state = reserveReason
 	}
 	line := identity + ": " + state
 	if allowanceReadFailing(current) {

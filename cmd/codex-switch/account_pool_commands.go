@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"strconv"
 
 	accountapi "github.com/joshp123/codex-switch/internal/accounts"
 	"github.com/joshp123/codex-switch/internal/codexstate"
@@ -86,4 +87,29 @@ func removeCommand(args []string) {
 		log.Fatal(err)
 	}
 	fmt.Printf("Removed %s (%s) and %d thread pins.\n", removed.DisplayName, removed.Email, removedPins)
+}
+
+func reserveCommand(args []string) {
+	const usage = "usage: codex-switch reserve <account> <soft-percent> <hard-percent>\n       codex-switch reserve <account> off"
+	if len(args) != 3 && (len(args) != 2 || args[1] != "off") {
+		log.Fatal(usage)
+	}
+	reserve := accountapi.AccountReserve{}
+	if len(args) == 3 {
+		soft, softErr := strconv.Atoi(args[1])
+		hard, hardErr := strconv.Atoi(args[2])
+		if softErr != nil || hardErr != nil {
+			log.Fatal(usage)
+		}
+		reserve = accountapi.AccountReserve{SoftPercent: soft, HardPercent: hard}
+	}
+	account, err := accountapi.SetAccountReserve(dataDir(), args[0], reserve)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if reserve == (accountapi.AccountReserve{}) {
+		fmt.Printf("%s: reserve off\n", account.DisplayName)
+	} else {
+		fmt.Printf("%s: soft reserve %d%%; hard reserve %d%%\n", account.DisplayName, reserve.SoftPercent, reserve.HardPercent)
+	}
 }

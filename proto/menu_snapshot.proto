@@ -53,6 +53,8 @@ message Account {
   // part of the pool for current work even while its allowance is used up.
   bool offers_configured_model = 9;
   Provider provider = 10;
+  // Why new work goes elsewhere while the account remains usable.
+  string reserve_status = 11;
 }
 enum Provider {
   PROVIDER_UNSPECIFIED = 0;

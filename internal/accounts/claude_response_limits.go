@@ -110,8 +110,12 @@ func (monitor *Monitor) ObserveClaudeResponse(name store.AccountName, model stri
 		clearClaudeRestrictionsFromSample(&fact, incoming)
 	}
 	updateClaudeSharedState(&fact, now)
+	availabilityChange := describeAccountAvailabilityChange(monitored.fact, fact, "")
 	monitored.fact = fact
 	monitor.mutex.Unlock()
+	if availabilityChange != "" {
+		log.Print(availabilityChange)
+	}
 	if err := monitor.saveClaudeAllowanceCache(string(name), claudeAllowanceCache{Sample: fact.AllowanceSample, Restrictions: fact.ClaudeRestrictions}); err != nil {
 		log.Printf("%s: could not save Claude limits: %v", fact.DisplayName, err)
 	}

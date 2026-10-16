@@ -199,6 +199,9 @@ func readServingMenuSnapshot(dataDirectory string, router *routing.TaskRouter, m
 		identity := identities[fact.AccountName]
 		sample := fact.AllowanceSample
 		account := &menupb.Account{Key: string(fact.AccountName), AccountNumber: uint32(identity.ProviderNumber), Email: identity.Email, Plan: sample.Plan, State: menuAccountState(fact.AccountState), Usable: unavailableReasons[fact.AccountName] == "", UnavailableReason: unavailableReasons[fact.AccountName], OffersConfiguredModel: modelSlug == "" || slices.Contains(fact.SupportedModelSlugs, modelSlug)}
+		if account.Usable {
+			account.ReserveStatus = accountapi.ReserveStatus(fact, snapshot.GeneratedAt.AsTime())
+		}
 		account.Provider = menupb.Provider_PROVIDER_CHATGPT
 		if identity.Provider == accountapi.ProviderClaude {
 			account.Provider = menupb.Provider_PROVIDER_CLAUDE

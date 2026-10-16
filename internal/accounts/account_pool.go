@@ -31,6 +31,7 @@ type PoolAccount struct {
 	Index          int
 	DisplayName    string
 	ProviderNumber int
+	Reserve        AccountReserve
 	// ID identifies the subscription user within its provider.
 	ID string
 	// AccountID is the immutable subscription identity. For ChatGPT it is sent
@@ -64,6 +65,10 @@ func ReadPool(dataDirectory string) ([]PoolAccount, error) {
 		}
 		if err != nil {
 			return nil, err
+		}
+		account.Reserve, err = readAccountReserve(filepath.Join(dataDirectory, entry.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("read %s reserve: %w", entry.Name(), err)
 		}
 		result = append(result, account)
 	}

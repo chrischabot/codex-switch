@@ -358,6 +358,9 @@ nonisolated struct CSSwitch_Account: Sendable {
 
   var provider: CSSwitch_Provider = .unspecified
 
+  /// Why new work goes elsewhere while the account remains usable.
+  var reserveStatus: String = String()
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -855,7 +858,7 @@ nonisolated extension CSSwitch_ModelRequestCounts: SwiftProtobuf.Message, SwiftP
 
 nonisolated extension CSSwitch_Account: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".Account"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}key\0\u{1}email\0\u{1}plan\0\u{1}state\0\u{1}allowance\0\u{3}account_number\0\u{1}usable\0\u{3}unavailable_reason\0\u{3}offers_configured_model\0\u{1}provider\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}key\0\u{1}email\0\u{1}plan\0\u{1}state\0\u{1}allowance\0\u{3}account_number\0\u{1}usable\0\u{3}unavailable_reason\0\u{3}offers_configured_model\0\u{1}provider\0\u{3}reserve_status\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -873,6 +876,7 @@ nonisolated extension CSSwitch_Account: SwiftProtobuf.Message, SwiftProtobuf._Me
       case 8: try { try decoder.decodeSingularStringField(value: &self.unavailableReason) }()
       case 9: try { try decoder.decodeSingularBoolField(value: &self.offersConfiguredModel) }()
       case 10: try { try decoder.decodeSingularEnumField(value: &self.provider) }()
+      case 11: try { try decoder.decodeSingularStringField(value: &self.reserveStatus) }()
       default: break
       }
     }
@@ -913,6 +917,9 @@ nonisolated extension CSSwitch_Account: SwiftProtobuf.Message, SwiftProtobuf._Me
     if self.provider != .unspecified {
       try visitor.visitSingularEnumField(value: self.provider, fieldNumber: 10)
     }
+    if !self.reserveStatus.isEmpty {
+      try visitor.visitSingularStringField(value: self.reserveStatus, fieldNumber: 11)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -927,6 +934,7 @@ nonisolated extension CSSwitch_Account: SwiftProtobuf.Message, SwiftProtobuf._Me
     if lhs.unavailableReason != rhs.unavailableReason {return false}
     if lhs.offersConfiguredModel != rhs.offersConfiguredModel {return false}
     if lhs.provider != rhs.provider {return false}
+    if lhs.reserveStatus != rhs.reserveStatus {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
