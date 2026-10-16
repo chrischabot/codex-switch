@@ -160,9 +160,8 @@ enum AllowanceGrid {
     static let numberWidth: CGFloat = 22
     /// "100% left"
     static let percentWidth: CGFloat = 52
-    static let flameWidth: CGFloat = 10
-    /// "Resets in 22d 12h"
-    static let timeWidth: CGFloat = 92
+    /// A flame and "Resets in 22d 12h"
+    static let timeWidth: CGFloat = 110
     static let barHeight: CGFloat = 6
     static let textFont = Font.system(size: 11)
     static let textEmphasisFont = Font.system(size: 11, weight: .medium)
@@ -198,17 +197,20 @@ private struct AllowanceGridRow: View {
                 .monospacedDigit()
                 .lineLimit(1)
                 .frame(width: AllowanceGrid.percentWidth, alignment: .trailing)
-            Image(systemName: "flame.fill")
-                .font(.system(size: 10))
-                .foregroundStyle(UsageTheme.runOutColour)
-                .opacity(runOut == nil ? 0 : 1)
-                .frame(width: AllowanceGrid.flameWidth)
-            Text(allowance == nil ? "Not in pool" : timeLabel(runOut: runOut))
-                .font(AllowanceGrid.textFont)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-                .lineLimit(1)
-                .frame(width: AllowanceGrid.timeWidth, alignment: .trailing)
+            // The flame sits against its "Limit in" time, not in a column of its own.
+            HStack(spacing: 3) {
+                if runOut != nil {
+                    Image(systemName: "flame.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(UsageTheme.runOutColour)
+                }
+                Text(allowance == nil ? "Not in pool" : timeLabel(runOut: runOut))
+                    .font(AllowanceGrid.textFont)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+            }
+            .frame(width: AllowanceGrid.timeWidth, alignment: .trailing)
                 .help(runOut == nil || allowance?.hasResetAt != true ? "" : UsageFormatting.resetLabel(allowance!.resetAt.date, now: now))
         }
         .frame(height: AllowanceGrid.rowHeight)

@@ -150,11 +150,11 @@ private struct BreakdownRing: View {
                 .fill(UsageTheme.accountColour(arc.colourSlot))
             }
             Text(total)
-                .font(.system(size: 17, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .monospacedDigit()
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
-                .padding(.horizontal, 18)
+                .padding(.horizontal, 24)
         }
         .frame(width: 96, height: 96)
         .accessibilityElement(children: .combine)
