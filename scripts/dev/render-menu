@@ -1,14 +1,21 @@
 #!/bin/sh
-# Render all three periods in both privacy states without opening a window.
+# Render the current panel or one-view design studies without opening a window.
 set -eu
-if [ "$#" -ne 2 ]; then
-    echo "usage: scripts/dev/render-menu SNAPSHOT.pb OUTPUT_DIRECTORY" >&2
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+    echo "usage: scripts/dev/render-menu SNAPSHOT.pb OUTPUT_DIRECTORY [one-view]" >&2
     exit 2
 fi
 repository=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 snapshot=$(cd -- "$(dirname -- "$1")" && pwd)/$(basename -- "$1")
 mkdir -p -- "$2"
 output=$(cd -- "$2" && pwd)
+filter=PanelRenderTests/testRenderRealSnapshotWithoutOpeningMenu
+if [ "${3:-}" = one-view ]; then
+    filter=OneViewDesignRenderTests/testRenderOneViewDesigns
+elif [ "$#" -eq 3 ]; then
+    echo "unknown render arrangement: $3" >&2
+    exit 2
+fi
 CODEX_SWITCH_RENDER_SNAPSHOT="$snapshot" CODEX_SWITCH_RENDER_OUTPUT="$output" \
     swift test --build-system native --package-path "$repository/macos/CodexSwitchMenu" \
-    --filter PanelRenderTests/testRenderRealSnapshotWithoutOpeningMenu
+    --filter "$filter"
