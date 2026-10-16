@@ -126,8 +126,8 @@ codex-switch accounts
 ```
 
 ```text
-account-1	ChatGPT	you@example.com
-account-2	ChatGPT	you+work@example.com
+Codex 1	account-1	you@example.com
+Codex 2	account-2	you+work@example.com
 ```
 
 **3. Point Codex at it.** `deploy/install.sh` prints one line (and
@@ -179,9 +179,9 @@ codex-switch login --claude
 codex-switch accounts
 ```
 
-Claude sign-in opens Anthropic's subscription login. Paste the code from the
-browser back into the command. Codex Switch stores and refreshes the tokens in
-its own data folder. It leaves Claude Code's login and keychain alone.
+Claude sign-in opens Anthropic's subscription login in your browser and
+finishes by itself when you approve it. Codex Switch stores and refreshes the
+tokens in its own data folder. It leaves Claude Code's login and keychain alone.
 
 For the Claude app's Code tab and Claude Code, run:
 
@@ -201,8 +201,8 @@ other settings:
 }
 ```
 
-Restart the Claude app or Claude Code. Keep Claude signed in to your normal
-account. Model requests use the pool; settings, plugins and Remote Control use
+New Claude Code sessions, including the Claude app's, pick it up straight away.
+Keep Claude signed in to your normal account. Model requests use the pool; settings, plugins and Remote Control use
 your own sign-in. The API address stays at `https://api.anthropic.com`.
 
 Codex Switch creates a local certificate authority in its data directory. Only
@@ -249,7 +249,7 @@ can serve the requested model, preserving the prompt cache.
   can. The proxy never swaps your model for a different one.
 
 Add an account any time with `codex-switch login` or `login --claude`, and
-remove one with `codex-switch remove account-2`. No restart needed.
+remove one with `codex-switch remove "Codex 2"`. No restart needed.
 
 ## How updates work
 
@@ -260,7 +260,10 @@ git pull
 deploy/install.sh
 ```
 
-A new proxy process starts on the same port and takes all new requests. The old
+A new proxy process starts on the same port. Before it takes any requests, it
+reads every account's allowance through the same connections your traffic uses;
+if it can't, it exits and the old process carries on. Otherwise it takes all new
+requests. The old
 process stops accepting work, finishes every request it already has, including
 streams and WebSockets, then exits, and launchd runs the new build from then
 on. Running agents carry on. The script then quits, rebuilds and reopens the
@@ -295,7 +298,7 @@ move that folder to the Trash to remove them too.
 
 | | What it is | Lines of code |
 | --- | --- | ---: |
-| **Codex Switch** | Account pool, menu bar app, per-task usage, updates that don't drop work | **about 10,700** (Go and Swift) |
+| **Codex Switch** | Account pool, menu bar app, per-task usage, updates that don't drop work | **about 11,000** (Go and Swift) |
 | [codex-lb](https://github.com/Soju06/codex-lb) | Account pool with a web dashboard; retries and replays requests inside the proxy | about 226,000 (Python and TypeScript) |
 | [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) | Gateway for lots of AI providers, translating between their APIs | about 232,000 (Go) |
 | [opencodex](https://github.com/lidge-jun/opencodex) | Proxy from Codex and Claude Code to any model provider | about 504,000 (TypeScript) |
@@ -309,7 +312,7 @@ dependencies.
 
 Line counts exclude tests, generated and vendored code, comments and blank
 lines. Codex Switch was measured with [scc](https://github.com/boyter/scc) on
-12 October 2026; the alternatives were measured on 11 October 2026.
+16 October 2026; the alternatives were measured on 11 October 2026.
 
 ## Local data
 
@@ -324,12 +327,12 @@ I'll probably ignore them.
 
 ## Credits
 
-The OpenAI mark in the menu bar and much of the menu's design come from
+The OpenAI and Claude marks in the menu and much of the menu's design come from
 [OpenUsage](https://github.com/robinebers/openusage) by Robin Ebers, used under
 the MIT licence (copyright 2026 Robin Ebers).
 
-Codex Switch is not affiliated with OpenAI. OpenAI, ChatGPT and Codex are
-trademarks of OpenAI.
+Codex Switch is not affiliated with OpenAI or Anthropic. OpenAI, ChatGPT and
+Codex are trademarks of OpenAI. Claude is a trademark of Anthropic.
 
 ## Licence
 
