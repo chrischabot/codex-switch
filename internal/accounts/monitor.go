@@ -28,7 +28,7 @@ type AccountRoutingFact struct {
 	ClaudeRestrictions map[string]ClaudeRestriction
 	AccountName        store.AccountName
 	DisplayName        string
-	ReservePercent     int
+	Reserve            AccountReserve
 	Credentials        Credentials
 	AccountState       AccountState
 	AccountStateCause  error
@@ -147,7 +147,7 @@ func (monitor *Monitor) readAccount(ctx context.Context, account PoolAccount, mo
 	} else {
 		read = monitor.observeAccount(ctx, account, monitored.savedLogin, scheduled)
 	}
-	read.ReservePercent = account.ReservePercent
+	read.Reserve = account.Reserve
 	monitor.mutex.Lock()
 	latest := monitored.fact
 	read = keepRequestPathObservations(read, scheduled, latest)
@@ -165,8 +165,8 @@ func (monitor *Monitor) readAccount(ctx context.Context, account PoolAccount, mo
 // was in flight: credentials it refreshed after a 401, a model OpenAI
 // rejected, and a sign-in OpenAI demanded. They are newer than the read.
 func keepRequestPathObservations(read, scheduled, latest AccountRoutingFact) AccountRoutingFact {
-	if latest.ReservePercent != scheduled.ReservePercent {
-		read.ReservePercent = latest.ReservePercent
+	if latest.Reserve != scheduled.Reserve {
+		read.Reserve = latest.Reserve
 	}
 	if read.Provider == ProviderClaude {
 		read.AllowanceSample = mergeClaudeAllowance(read.AllowanceSample, latest.AllowanceSample)
@@ -201,12 +201,12 @@ func (monitor *Monitor) ReadAccountRoutingFacts() ([]AccountRoutingFact, error) 
 		if known && monitored.fact.Credentials.AccountID == account.AccountID {
 			fact := monitored.fact
 			fact.DisplayName = account.DisplayName
-			fact.ReservePercent = account.ReservePercent
-			if fact.ReservePercent != monitored.fact.ReservePercent {
+			fact.Reserve = account.Reserve
+			if fact.Reserve != monitored.fact.Reserve {
 				if change := describeAccountAvailabilityChange(monitored.fact, fact, account.Email); change != "" {
 					log.Print(change)
 				}
-				monitored.fact.ReservePercent = fact.ReservePercent
+				monitored.fact.Reserve = fact.Reserve
 			}
 			facts = append(facts, fact)
 		}

@@ -288,6 +288,10 @@ func writeAtomic(path string, value any) error {
 		return err
 	}
 	data = append(data, '\n')
+	return writeAtomicData(path, data)
+}
+
+func writeAtomicData(path string, data []byte) error {
 	temp, err := os.CreateTemp(filepath.Dir(path), ".auth-*")
 	if err != nil {
 		return err

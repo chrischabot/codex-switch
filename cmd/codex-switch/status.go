@@ -109,6 +109,8 @@ func writeCurrentStatus(output io.Writer, snapshot *menupb.MenuSnapshot) {
 		state := "available"
 		if !account.Usable {
 			state = "unavailable: " + oneLine(account.UnavailableReason)
+		} else if account.ReserveStatus != "" {
+			state = oneLine(account.ReserveStatus)
 		}
 		label := accountName(account.Key)
 		for _, detail := range []string{account.Email, account.Plan} {

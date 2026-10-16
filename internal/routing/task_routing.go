@@ -102,7 +102,7 @@ func (router *TaskRouter) RouteForProviderTask(taskID store.TaskID, workKind sto
 				if err != nil {
 					return RouteDecision{}, err
 				}
-				if problem == "" {
+				if problem == "" && !accounts.SoftReserveReached(parentFact, router.currentTime().UTC()) {
 					winner, err := router.storeDatabase.PinTaskAccountIfAbsent(store.TaskAccountPin{TaskID: taskID, AccountName: parentPin.AccountName, PinnedAt: router.currentTime().UTC()})
 					if err != nil {
 						return RouteDecision{}, err
@@ -212,6 +212,7 @@ func (router *TaskRouter) reportExhaustedTaskPin(taskID store.TaskID, servedAcco
 func (router *TaskRouter) selectAccountWithMostWeeklyCapacity(facts []accounts.AccountRoutingFact, taskID store.TaskID, excludedAccountName store.AccountName, modelSlug string) (accounts.AccountRoutingFact, bool, error) {
 	var selected accounts.AccountRoutingFact
 	selectedCapacity := -1.0
+	selectedSoftReserveReached := false
 	for _, fact := range facts {
 		if fact.AccountName == excludedAccountName {
 			continue
@@ -227,21 +228,24 @@ func (router *TaskRouter) selectAccountWithMostWeeklyCapacity(facts []accounts.A
 		if !known {
 			capacity = -0.5
 		}
-		if selectedCapacity < capacity || (selectedCapacity == capacity && taskID != "" && accountWinsEqualCapacityTie(taskID, fact.AccountName, selected.AccountName)) {
+		softReserveReached := accounts.SoftReserveReached(fact, router.currentTime().UTC())
+		moreCapacity := selectedCapacity < capacity || (selectedCapacity == capacity && taskID != "" && accountWinsEqualCapacityTie(taskID, fact.AccountName, selected.AccountName))
+		if selected.AccountName == "" || (selectedSoftReserveReached && !softReserveReached) || (selectedSoftReserveReached == softReserveReached && moreCapacity) {
 			selected = fact
 			selectedCapacity = capacity
+			selectedSoftReserveReached = softReserveReached
 		}
 	}
 	return selected, selected.AccountName != "", nil
 }
 
-// describeChoice explains why selectAccountWithMostWeeklyCapacity chose an account.
+// describeChoice names the selected account and its reported weekly allowance.
 func (router *TaskRouter) describeChoice(selected accounts.AccountRoutingFact, modelSlug string) string {
 	weeklyFreePercent, reported := router.weeklyAllowanceLeft(selected, modelSlug)
 	if !reported {
 		return fmt.Sprintf("%s, which reports no weekly allowance", selected.DisplayName)
 	}
-	return fmt.Sprintf("%s, which has the most weekly allowance left (%.1f%%)", selected.DisplayName, weeklyFreePercent)
+	return fmt.Sprintf("%s, with %.1f%% weekly allowance left", selected.DisplayName, weeklyFreePercent)
 }
 
 func (router *TaskRouter) describeUnavailableAccounts(facts []accounts.AccountRoutingFact, modelSlug string) string {

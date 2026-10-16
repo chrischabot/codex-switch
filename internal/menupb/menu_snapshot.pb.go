@@ -561,8 +561,10 @@ type Account struct {
 	// part of the pool for current work even while its allowance is used up.
 	OffersConfiguredModel bool     `protobuf:"varint,9,opt,name=offers_configured_model,json=offersConfiguredModel,proto3" json:"offers_configured_model,omitempty"`
 	Provider              Provider `protobuf:"varint,10,opt,name=provider,proto3,enum=codex_switch.menu.Provider" json:"provider,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// Why new work goes elsewhere while the account remains usable.
+	ReserveStatus string `protobuf:"bytes,11,opt,name=reserve_status,json=reserveStatus,proto3" json:"reserve_status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Account) Reset() {
@@ -663,6 +665,13 @@ func (x *Account) GetProvider() Provider {
 		return x.Provider
 	}
 	return Provider_PROVIDER_UNSPECIFIED
+}
+
+func (x *Account) GetReserveStatus() string {
+	if x != nil {
+		return x.ReserveStatus
+	}
+	return ""
 }
 
 type AllowanceObservation struct {
@@ -1168,7 +1177,7 @@ const file_menu_snapshot_proto_rawDesc = "" +
 	"successful\x18\x02 \x01(\x03R\n" +
 	"successful\x12\x16\n" +
 	"\x06failed\x18\x03 \x01(\x03R\x06failed\x12 \n" +
-	"\vinterrupted\x18\x04 \x01(\x03R\vinterrupted\"\xa2\x03\n" +
+	"\vinterrupted\x18\x04 \x01(\x03R\vinterrupted\"\xc9\x03\n" +
 	"\aAccount\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12\x12\n" +
@@ -1180,7 +1189,8 @@ const file_menu_snapshot_proto_rawDesc = "" +
 	"\x12unavailable_reason\x18\b \x01(\tR\x11unavailableReason\x126\n" +
 	"\x17offers_configured_model\x18\t \x01(\bR\x15offersConfiguredModel\x127\n" +
 	"\bprovider\x18\n" +
-	" \x01(\x0e2\x1b.codex_switch.menu.ProviderR\bprovider\"\xa9\x02\n" +
+	" \x01(\x0e2\x1b.codex_switch.menu.ProviderR\bprovider\x12%\n" +
+	"\x0ereserve_status\x18\v \x01(\tR\rreserveStatus\"\xa9\x02\n" +
 	"\x14AllowanceObservation\x12;\n" +
 	"\vobserved_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"observedAt\x12\x18\n" +

@@ -31,8 +31,9 @@ struct AccountSection: View {
                         .layoutPriority(2)
                 }
             }
-            if !account.usable && !account.unavailableReason.isEmpty {
-                Text(account.unavailableReason)
+            let accountStatus = account.usable ? account.reserveStatus : account.unavailableReason
+            if !accountStatus.isEmpty {
+                Text(accountStatus)
                     .font(UsageTheme.detailFont)
                     .foregroundStyle(.secondary)
             }

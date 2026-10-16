@@ -18,8 +18,8 @@ func describeAccountAvailabilityChange(previous, current AccountRoutingFact, ema
 	allowanceReadChanged := allowanceReadFailing(previous) != allowanceReadFailing(current)
 	modelListReadChanged := (previous.ModelListCause == nil) != (current.ModelListCause == nil)
 	now := time.Now()
-	reserveReason := ReserveUnavailableReason(current, now)
-	reserveChanged := ReserveUnavailableReason(previous, now) != reserveReason
+	reserveReason := ReserveStatus(current, now)
+	reserveChanged := ReserveStatus(previous, now) != reserveReason
 	if !firstObservation && !stateChanged && !modelListChanged && !allowanceReadChanged && !modelListReadChanged && !reserveChanged {
 		return ""
 	}

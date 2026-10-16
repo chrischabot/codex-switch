@@ -252,9 +252,11 @@ Add an account any time with `codex-switch login` or `login --claude`, and
 remove one with `codex-switch remove "Codex 2"`. No restart needed.
 
 Keep allowance for an account you also use directly with
-`codex-switch reserve "Claude 1" 10`. When any allowance window has 10% or less
-left, new work and the next turn of pinned tasks use another account.
-The reserve is off by default; set it to `0` or `off` to clear it.
+`codex-switch reserve "Claude 1" 15 10`. When any current allowance window has
+15% or less left, new tasks prefer another account while pinned tasks stay.
+At 10% or less, new work and the next turn of pinned tasks use another account.
+The reserves are off by default; use `codex-switch reserve "Claude 1" off` to
+clear both.
 
 ## How updates work
 

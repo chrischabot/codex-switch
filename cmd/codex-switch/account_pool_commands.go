@@ -90,24 +90,26 @@ func removeCommand(args []string) {
 }
 
 func reserveCommand(args []string) {
-	if len(args) != 2 {
-		log.Fatal("usage: codex-switch reserve account-N | \"Codex N\" | \"Claude N\" percent | off")
+	const usage = "usage: codex-switch reserve <account> <soft-percent> <hard-percent>\n       codex-switch reserve <account> off"
+	if len(args) != 3 && (len(args) != 2 || args[1] != "off") {
+		log.Fatal(usage)
 	}
-	percent := 0
-	if args[1] != "off" {
-		var err error
-		percent, err = strconv.Atoi(args[1])
-		if err != nil {
-			log.Fatal("reserve must be a whole percentage from 0 to 100, or off")
+	reserve := accountapi.AccountReserve{}
+	if len(args) == 3 {
+		soft, softErr := strconv.Atoi(args[1])
+		hard, hardErr := strconv.Atoi(args[2])
+		if softErr != nil || hardErr != nil {
+			log.Fatal(usage)
 		}
+		reserve = accountapi.AccountReserve{SoftPercent: soft, HardPercent: hard}
 	}
-	account, err := accountapi.SetReservePercent(dataDir(), args[0], percent)
+	account, err := accountapi.SetAccountReserve(dataDir(), args[0], reserve)
 	if err != nil {
 		log.Fatal(err)
 	}
-	if percent == 0 {
+	if reserve == (accountapi.AccountReserve{}) {
 		fmt.Printf("%s: reserve off\n", account.DisplayName)
 	} else {
-		fmt.Printf("%s: %d%% kept for direct use\n", account.DisplayName, percent)
+		fmt.Printf("%s: soft reserve %d%%; hard reserve %d%%\n", account.DisplayName, reserve.SoftPercent, reserve.HardPercent)
 	}
 }
