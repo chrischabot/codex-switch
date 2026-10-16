@@ -1,22 +1,24 @@
 // Design studies only. Written by AI on 2026.10.17 by model Claude Fable 5.1.
 //
-// Both directions share one stacking: the account list is the ring's legend
-// (each account row carries its spend for the selected period), every account
-// shows its allowance in one line per window or one headline line, and the
-// top tasks list takes whatever height is left on the screen.
+// OpenUsage's language for an allowance window, stacked for five or six
+// accounts: a semibold label, a red flame with "Limit in 9h 42m" only when
+// the window will run out, a full-width bar with an even-pace tick, then
+// "15% left" and "Resets in 4d 17h" in quiet grey. Relative times only; red
+// only where a limit will be hit. The two directions differ in one thing:
+// how many lines of text a window block spends.
 import SwiftUI
 @testable import CodexSwitchMenu
 
 enum OneViewDirection: String, CaseIterable {
-    /// Every allowance window is one aligned line: label, bar, left, time.
-    case ledger = "1-ledger"
-    /// Each account shows the window that binds it; the others are one grey line.
-    case headline = "2-headline"
+    /// One text line per window (state left, time right) above the bar.
+    case compact = "a-compact"
+    /// OpenUsage's block as it is: label line, bar, detail line.
+    case faithful = "b-faithful"
 
     var caption: String {
         switch self {
-        case .ledger: "1 · Ledger — one aligned line per allowance window; the account list is the ring's legend; top tasks fill what is left."
-        case .headline: "2 · Headline — one bar per account for the window that binds it, its other windows in one grey line; same summary and tasks."
+        case .compact: "A · Compact — OpenUsage's window block folded to one text line above the bar; top tasks take the height that is left."
+        case .faithful: "B · Faithful — OpenUsage's window block as it is (label line, bar, detail line); fewer top tasks fit."
         }
     }
 }
@@ -24,14 +26,13 @@ enum OneViewDirection: String, CaseIterable {
 enum OneViewLayout {
     static let panelWidth: CGFloat = 360
     static let outerInset: CGFloat = 14
-    static let cardInset: CGFloat = 10
+    static let cardInset: CGFloat = 11
     static let sectionGap: CGFloat = 10
-    static let rowFont = Font.system(size: 12)
-    static let rowEmphasisFont = Font.system(size: 12, weight: .medium)
-    static let timeFont = Font.system(size: 11.5)
-    static let windowLabelWidth: CGFloat = 46
-    static let percentWidth: CGFloat = 62
-    static let timeWidth: CGFloat = 110
+    static let labelFont = Font.system(size: 13, weight: .semibold)
+    static let supportingFont = Font.system(size: 12)
+    static let barHeight: CGFloat = 5
+    static let windowInnerSpacing: CGFloat = 4
+        static let accountGap: CGFloat = 7
 }
 
 struct OneViewDesign: View {
@@ -47,14 +48,15 @@ struct OneViewDesign: View {
             header
             DesignSummary(snapshot: snapshot)
             ForEach(snapshot.providers, id: \.self) { provider in
-                DesignProviderCard(snapshot: snapshot, provider: provider, period: period, direction: direction)
+                DesignProviderSection(snapshot: snapshot, provider: provider, period: period, direction: direction)
             }
-            DesignTaskList(snapshot: snapshot, period: period, limit: taskRowLimit)
+            if taskRowLimit > 0 {
+                DesignTaskList(snapshot: snapshot, period: period, limit: taskRowLimit)
+            }
             footer
         }
         .padding(.horizontal, OneViewLayout.outerInset)
         .padding(.top, 12 + 10)
-        .padding(.bottom, 0)
         .frame(width: OneViewLayout.panelWidth)
         .background(UsageTheme.traySurface, in: DesignPopoverSurface())
         .focusEffectDisabled()
@@ -94,14 +96,15 @@ struct OneViewDesign: View {
 }
 
 /// Ring, metric, total and period in one block. The legend is the account
-/// list below: same colours, same order, spend on every row.
+/// list below: the same colours in the same order, with each account's
+/// spend on its own line.
 private struct DesignSummary: View {
     let snapshot: CSSwitch_MenuSnapshot
 
     var body: some View {
         let overview = OverviewSnapshot(menuSnapshot: snapshot)
         let presentation = UsagePresentation(snapshot: overview, selectedPeriod: .today)
-        HStack(spacing: 12) {
+        HStack(spacing: 14) {
             ZStack {
                 if let presentation {
                     ForEach(CostRingArcLayout.arcs(from: presentation.accountCostShares)) { arc in
@@ -114,7 +117,7 @@ private struct DesignSummary: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline) {
                     HStack(spacing: 4) {
-                        Text("API-equivalent cost").font(UsageTheme.labelFont)
+                        Text("API-equivalent cost").font(OneViewLayout.labelFont)
                         Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -131,9 +134,9 @@ private struct DesignSummary: View {
     }
 }
 
-/// One card per provider: a header line, then the provider's accounts
-/// separated by hairlines, so the account rows share one grid.
-private struct DesignProviderCard: View {
+/// The provider's name and spend above one grouped card of its accounts,
+/// as OpenUsage puts a provider's name above its card.
+private struct DesignProviderSection: View {
     let snapshot: CSSwitch_MenuSnapshot
     let provider: CSSwitch_Provider
     let period: CSSwitch_ReportingPeriod?
@@ -141,38 +144,40 @@ private struct DesignProviderCard: View {
 
     var body: some View {
         let accounts = snapshot.accounts.filter { $0.menuProvider == provider }
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 6) {
-                ProviderMark(provider: provider, size: 15).foregroundStyle(.secondary)
-                Text(provider.title).font(UsageTheme.labelFont)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 7) {
+                ProviderMark(provider: provider, size: 16).foregroundStyle(.secondary)
+                Text(provider.title).font(UsageTheme.titleFont)
                 Spacer()
                 let subtotal = accounts.compactMap { account in
                     period?.accounts.first { $0.accountKey == account.key }
                 }
                 if !subtotal.isEmpty, subtotal.allSatisfy(\.hasCostNanoUsd) {
                     Text(UsageFormatting.cost(subtotal.reduce(0) { $0 + $1.costNanoUsd }))
-                        .font(UsageTheme.detailEmphasisFont).foregroundStyle(.secondary).monospacedDigit()
+                        .font(OneViewLayout.supportingFont).foregroundStyle(.secondary).monospacedDigit()
                 }
             }
-            .padding(.bottom, 6)
-            ForEach(Array(accounts.enumerated()), id: \.element.key) { index, account in
-                if index > 0 { Divider().padding(.vertical, 6) }
-                DesignAccountRows(
-                    account: account,
-                    colour: snapshot.colour(of: account),
-                    total: period?.accounts.first { $0.accountKey == account.key },
-                    now: snapshot.generatedAt.date,
-                    direction: direction
-                )
+            .padding(.horizontal, 4)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(accounts.enumerated()), id: \.element.key) { index, account in
+                    if index > 0 { Divider().padding(.vertical, OneViewLayout.accountGap) }
+                    DesignAccount(
+                        account: account,
+                        colour: snapshot.colour(of: account),
+                        total: period?.accounts.first { $0.accountKey == account.key },
+                        now: snapshot.generatedAt.date,
+                        direction: direction
+                    )
+                }
             }
+            .padding(OneViewLayout.cardInset)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .cardSurface()
         }
-        .padding(OneViewLayout.cardInset)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .cardSurface()
     }
 }
 
-private struct DesignAccountRows: View {
+private struct DesignAccount: View {
     let account: CSSwitch_Account
     let colour: Color
     let total: CSSwitch_AccountTotal?
@@ -186,95 +191,133 @@ private struct DesignAccountRows: View {
         }
     }
 
-    /// The window that stops the account first: the earliest to run out,
-    /// otherwise the one with the least left.
-    private var bindingWindow: CSSwitch_AllowanceWindow? {
-        let runningOut = windows.compactMap { window in window.runOutDate(now: now).map { (window, $0) } }
-        if let soonest = runningOut.min(by: { $0.1 < $1.1 }) { return soonest.0 }
-        return windows.min { $0.freePercent < $1.freePercent }
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 AccountMarker(colour: colour)
                     .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
-                Text("Account \(account.accountNumber)").font(UsageTheme.labelFont)
-                Text(account.plan.prefix(1).uppercased() + account.plan.dropFirst())
-                    .font(OneViewLayout.rowFont).foregroundStyle(.secondary)
-                if account.allowance.hasAvailableResetCredits, account.allowance.availableResetCredits > 0 {
-                    Text("\(account.allowance.availableResetCredits) stored resets")
-                        .font(OneViewLayout.rowFont).foregroundStyle(.secondary)
-                }
-                if !account.usable, !account.unavailableReason.isEmpty {
-                    Text(account.unavailableReason).font(OneViewLayout.rowFont).foregroundStyle(.secondary).lineLimit(1)
-                }
+                Text("Account \(account.accountNumber)").font(OneViewLayout.labelFont)
+                Text(accountDetail).font(OneViewLayout.supportingFont).foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: 4)
                 if let total, total.hasCostNanoUsd {
                     Text(UsageFormatting.cost(total.costNanoUsd))
-                        .font(OneViewLayout.rowEmphasisFont).monospacedDigit()
+                        .font(OneViewLayout.supportingFont).monospacedDigit()
                 }
             }
+            ForEach(windows, id: \.self) { window in
+                DesignWindowBlock(window: window, provider: account.menuProvider, now: now, direction: direction)
+            }
+        }
+    }
+
+    /// "Pro · 3 stored resets", "Max 20x", or why the account is out of the pool.
+    private var accountDetail: String {
+        var parts: [String] = []
+        if !account.plan.isEmpty { parts.append(account.plan.prefix(1).uppercased() + account.plan.dropFirst()) }
+        if account.allowance.hasAvailableResetCredits, account.allowance.availableResetCredits > 0 {
+            parts.append("\(account.allowance.availableResetCredits) stored resets")
+        }
+        if !account.usable, !account.unavailableReason.isEmpty { parts.append(account.unavailableReason) }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// OpenUsage's window block. Compact: "Weekly  15% left" left and the time
+/// right, bar below. Faithful: label and flame line, bar, "15% left" and
+/// reset line.
+private struct DesignWindowBlock: View {
+    let window: CSSwitch_AllowanceWindow
+    let provider: CSSwitch_Provider
+    let now: Date
+    let direction: OneViewDirection
+
+    var body: some View {
+        let runOut = window.runOutDate(now: now)
+        VStack(alignment: .leading, spacing: OneViewLayout.windowInnerSpacing) {
             switch direction {
-            case .ledger:
-                ForEach(windows, id: \.self) { window in
-                    DesignWindowLine(window: window, provider: account.menuProvider, now: now)
-                }
-            case .headline:
-                if let binding = bindingWindow {
-                    DesignWindowLine(window: binding, provider: account.menuProvider, now: now)
-                    let others = windows.filter { $0 != binding }
-                    if !others.isEmpty {
-                        HStack(spacing: 0) {
-                            ForEach(Array(others.enumerated()), id: \.element) { index, window in
-                                if index > 0 { Text(" · ").foregroundStyle(.secondary) }
-                                Text("\(window.title(for: account.menuProvider)) \(UsageFormatting.percent(window.freePercent)) left")
-                                    .foregroundStyle(window.runOutDate(now: now) == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(UsageTheme.runOutColour))
-                            }
-                        }
-                        .font(OneViewLayout.timeFont).monospacedDigit()
-                        .padding(.leading, OneViewLayout.windowLabelWidth + 7)
+            case .compact:
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(window.title(for: provider)).font(OneViewLayout.labelFont)
+                    Text("\(UsageFormatting.percent(window.freePercent)) left").font(OneViewLayout.supportingFont).monospacedDigit()
+                    Spacer()
+                    if let runOut {
+                        limitLabel(runOut)
+                    } else {
+                        resetLabel
                     }
+                }
+                bar(runOut: runOut)
+            case .faithful:
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(window.title(for: provider)).font(OneViewLayout.labelFont)
+                    Spacer()
+                    if let runOut { limitLabel(runOut) }
+                }
+                bar(runOut: runOut)
+                HStack(alignment: .firstTextBaseline) {
+                    Text("\(UsageFormatting.percent(window.freePercent)) left").font(OneViewLayout.supportingFont).monospacedDigit()
+                    Spacer()
+                    resetLabel
                 }
             }
         }
     }
-}
 
-/// Label, bar, what is left, and the one time that matters: when it runs
-/// out if it will, otherwise when it resets.
-private struct DesignWindowLine: View {
-    let window: CSSwitch_AllowanceWindow
-    let provider: CSSwitch_Provider
-    let now: Date
+    private func limitLabel(_ runOut: Date) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "flame.fill").font(.system(size: 11)).foregroundStyle(UsageTheme.runOutColour)
+            Text("Limit in " + DesignDuration.compact(runOut.timeIntervalSince(now)))
+                .font(OneViewLayout.supportingFont).foregroundStyle(.secondary).monospacedDigit()
+        }
+    }
 
-    var body: some View {
-        let runOut = window.runOutDate(now: now)
-        HStack(spacing: 7) {
-            Text(window.title(for: provider))
-                .font(OneViewLayout.rowEmphasisFont).lineLimit(1)
-                .frame(width: OneViewLayout.windowLabelWidth, alignment: .leading)
-            GeometryReader { geometry in
+    @ViewBuilder
+    private var resetLabel: some View {
+        if window.hasResetAt {
+            Text("Resets in " + DesignDuration.compact(window.resetAt.date.timeIntervalSince(now)))
+                .font(OneViewLayout.supportingFont).foregroundStyle(.secondary).monospacedDigit()
+        }
+    }
+
+    /// Full-width capsule: blue while the window lasts to its reset, red when
+    /// it will run out, with a tick where even pace would leave it now.
+    private func bar(runOut: Date?) -> some View {
+        GeometryReader { geometry in
+            let track = geometry.size.width
+            ZStack(alignment: .leading) {
                 Capsule().fill(.fill.secondary)
-                    .overlay(alignment: .leading) {
-                        Capsule().fill(runOut == nil ? UsageTheme.capacityColour : UsageTheme.runOutColour)
-                            .frame(width: geometry.size.width * min(max(window.freePercent / 100, 0), 1))
-                    }
+                Capsule().fill(runOut == nil ? UsageTheme.capacityColour : UsageTheme.runOutColour)
+                    .frame(width: max(OneViewLayout.barHeight, track * min(max(window.freePercent / 100, 0), 1)))
             }
-            .frame(height: 5)
-            Text("\(UsageFormatting.percent(window.freePercent)) left")
-                .font(OneViewLayout.rowEmphasisFont).monospacedDigit().lineLimit(1)
-                .frame(width: OneViewLayout.percentWidth, alignment: .trailing)
-            Group {
-                if let runOut {
-                    Text(UsageFormatting.runOutLabel(runOut, now: now)).foregroundStyle(UsageTheme.runOutColour)
-                } else if window.hasResetAt {
-                    Text(UsageFormatting.resetLabel(window.resetAt.date, now: now)).foregroundStyle(.secondary)
+            .overlay(alignment: .leading) {
+                if runOut != nil, let pace = evenPaceFreeFraction {
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(Color.primary.opacity(0.55))
+                        .frame(width: 2, height: OneViewLayout.barHeight + 4)
+                        .offset(x: min(max(track * pace - 1, 0), track - 2))
                 }
             }
-            .font(OneViewLayout.timeFont).monospacedDigit().lineLimit(1)
-            .frame(width: OneViewLayout.timeWidth, alignment: .trailing)
         }
+        .frame(height: OneViewLayout.barHeight)
+    }
+
+    /// Where the bar would stand now if the window were spent evenly.
+    private var evenPaceFreeFraction: Double? {
+        guard window.hasResetAt, window.periodSeconds > 0 else { return nil }
+        let elapsed = now.timeIntervalSince(window.resetAt.date.addingTimeInterval(-TimeInterval(window.periodSeconds)))
+        return 1 - min(max(elapsed / TimeInterval(window.periodSeconds), 0), 1)
+    }
+}
+
+/// "4d 17h", "9h 42m", "12m": two units at the day scale, minutes below it.
+enum DesignDuration {
+    static func compact(_ seconds: TimeInterval) -> String {
+        let minutes = max(1, Int((max(seconds, 0) / 60).rounded(.up)))
+        let days = minutes / 1_440
+        let hours = minutes % 1_440 / 60
+        if days > 0 { return "\(days)d \(hours)h" }
+        if hours > 0 { return "\(hours)h \(minutes % 60)m" }
+        return "\(minutes)m"
     }
 }
 
@@ -310,24 +353,24 @@ private struct DesignTaskList: View {
                 }
             let slotCount = slotsByProvider.values.map(\.count).max() ?? 0
             VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Top tasks").font(UsageTheme.labelFont)
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Top tasks").font(OneViewLayout.labelFont)
                     Spacer()
-                    Text("Today").font(UsageTheme.detailFont).foregroundStyle(.secondary)
+                    Text("Today").font(OneViewLayout.supportingFont).foregroundStyle(.secondary)
                 }
                 .padding(.bottom, 2)
                 ForEach(rows) { row in
-                    HStack(spacing: 6) {
+                    HStack(spacing: 7) {
                         ProviderMark(provider: row.provider, size: 12).foregroundStyle(.secondary)
-                        Text(row.title).font(OneViewLayout.rowFont).lineLimit(1)
+                        Text(row.title).font(OneViewLayout.supportingFont).lineLimit(1)
                         Spacer(minLength: 6)
-                        Text(UsageFormatting.cost(row.cost)).font(OneViewLayout.rowEmphasisFont)
+                        Text(UsageFormatting.cost(row.cost)).font(OneViewLayout.supportingFont)
                             .foregroundStyle(.secondary).monospacedDigit().fixedSize()
                         HStack(spacing: 4) {
                             ForEach(slotsByProvider[row.provider] ?? [], id: \.key) { account in
                                 HStack(spacing: 3) {
                                     AccountMarker(colour: snapshot.colour(of: account), size: 7)
-                                    Text("\(account.accountNumber)").font(OneViewLayout.rowEmphasisFont).monospacedDigit()
+                                    Text("\(account.accountNumber)").font(OneViewLayout.supportingFont).monospacedDigit()
                                 }
                                 .frame(width: 20, alignment: .trailing)
                                 .opacity(row.accounts.contains(account.key) ? 1 : 0)

@@ -34,7 +34,7 @@ final class OneViewDesignRenderTests: XCTestCase {
             try render(snapshot, direction: direction, name: direction.rawValue, caption: direction.caption,
                        defaults: defaults, to: directory)
         }
-        let chosen = OneViewDirection.ledger
+        let chosen = OneViewDirection.compact
         let six = snapshot.withSixthAccount()
         XCTAssertEqual(six.accounts.count, snapshot.accounts.count + 1)
         try render(six, direction: chosen, name: chosen.rawValue + "-six-accounts",
@@ -68,7 +68,7 @@ final class OneViewDesignRenderTests: XCTestCase {
 
         for (index, screen) in Self.screens.enumerated() {
             let budget = CGFloat(screen.height - screen.menuBar - 8 - 16)
-            let taskRows = min(Self.maximumTaskRows, max(1, Int((budget - withoutTasks) / rowHeight)))
+            let taskRows = min(Self.maximumTaskRows, max(0, Int((budget - withoutTasks) / rowHeight)))
             let hostingView = panelView(taskRows: taskRows)
             let panelSize = hostingView.bounds.size
             let screenName = "\(screen.width)x\(screen.height)"
