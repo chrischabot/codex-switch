@@ -1,10 +1,15 @@
-// Written by AI on 2026.10.17 by model GPT-6.1 Sol.
+// Written by AI on 2026.10.17 by model Claude Fable 5.1 (first version by GPT-6.1 Sol).
 import AppKit
 import SwiftUI
 import XCTest
 @testable import CodexSwitchMenu
 
 final class OneViewDesignRenderTests: XCTestCase {
+    /// Screens the panel must fit without scrolling: the menu bar's height
+    /// and the gap under it come off the top, 16 points stay free below.
+    private static let screens: [(width: Int, height: Int, menuBar: Int)] = [(1512, 982, 37), (2560, 1440, 25)]
+    private static let maximumTaskRows = 10
+
     @MainActor
     func testRenderOneViewDesigns() async throws {
         let environment = ProcessInfo.processInfo.environment
@@ -25,35 +30,64 @@ final class OneViewDesignRenderTests: XCTestCase {
             print("\(account.poolName): \(account.allowance.windows.map { $0.title(for: account.menuProvider) }.joined(separator: ", "))")
         }
 
-        for arrangement in OneViewArrangement.allCases {
-            let panel = OneViewDesign(snapshot: snapshot, arrangement: arrangement)
+        for direction in OneViewDirection.allCases {
+            try render(snapshot, direction: direction, name: direction.rawValue, caption: direction.caption,
+                       defaults: defaults, to: directory)
+        }
+        let chosen = OneViewDirection.ledger
+        let six = snapshot.withSixthAccount()
+        XCTAssertEqual(six.accounts.count, snapshot.accounts.count + 1)
+        try render(six, direction: chosen, name: chosen.rawValue + "-six-accounts",
+                   caption: chosen.caption + " Six accounts: the last Claude account duplicated in the render only.",
+                   defaults: defaults, to: directory)
+
+        XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, foregroundBefore)
+        XCTAssertTrue(NSApplication.shared.windows.isEmpty, "Design rendering must not open a window")
+    }
+
+    /// Renders the panel for every screen with as many top tasks as fit, and
+    /// writes the laptop fit as the plain panel image.
+    @MainActor
+    private func render(_ snapshot: CSSwitch_MenuSnapshot, direction: OneViewDirection, name: String, caption: String,
+                        defaults: UserDefaults, to directory: URL) throws {
+        func panelView(taskRows: Int) -> NSHostingView<some View> {
+            let panel = OneViewDesign(snapshot: snapshot, direction: direction, taskRowLimit: taskRows)
                 .defaultAppStorage(defaults).environment(\.colorScheme, .light)
             let hostingView = NSHostingView(rootView: panel)
             hostingView.appearance = NSAppearance(named: .aqua)
-            hostingView.frame = CGRect(x: 0, y: 0, width: arrangement.width, height: 900)
+            hostingView.frame = CGRect(x: 0, y: 0, width: OneViewLayout.panelWidth, height: 900)
             hostingView.layoutSubtreeIfNeeded()
             hostingView.setFrameSize(hostingView.fittingSize)
             hostingView.layoutSubtreeIfNeeded()
+            return hostingView
+        }
+        let oneRow = panelView(taskRows: 1).bounds.height
+        let allRows = panelView(taskRows: Self.maximumTaskRows).bounds.height
+        let rowHeight = (allRows - oneRow) / CGFloat(Self.maximumTaskRows - 1)
+        let withoutTasks = oneRow - rowHeight
+
+        for (index, screen) in Self.screens.enumerated() {
+            let budget = CGFloat(screen.height - screen.menuBar - 8 - 16)
+            let taskRows = min(Self.maximumTaskRows, max(1, Int((budget - withoutTasks) / rowHeight)))
+            let hostingView = panelView(taskRows: taskRows)
             let panelSize = hostingView.bounds.size
-            print("\(arrangement.rawValue): \(Int(panelSize.width)) × \(Int(panelSize.height)) pt; no ScrollView")
+            let screenName = "\(screen.width)x\(screen.height)"
+            print("\(name) \(screenName): \(Int(panelSize.width)) × \(Int(panelSize.height)) pt, \(taskRows) top tasks; no ScrollView")
+            XCTAssertLessThanOrEqual(panelSize.height, budget, "The whole pool must fit on \(screenName)")
             let panelBitmap = try XCTUnwrap(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
             hostingView.cacheDisplay(in: hostingView.bounds, to: panelBitmap)
             let panelImage = NSImage(size: panelSize)
             panelImage.addRepresentation(panelBitmap)
-            try XCTUnwrap(panelBitmap.representation(using: .png, properties: [:]))
-                .write(to: directory.appending(path: "\(arrangement.rawValue)-panel.png"))
-            try (arrangement.caption + "\n").write(to: directory.appending(path: "\(arrangement.rawValue)-panel.txt"), atomically: true, encoding: .utf8)
-
-            for (width, height, menuBar) in [(1512, 982, 37), (2560, 1440, 25)] {
-                XCTAssertLessThanOrEqual(panelSize.height, CGFloat(height - menuBar - 16), "The whole pool must fit")
-                try renderScreen(panelImage: panelImage, width: width, height: height, menuBar: menuBar,
-                                 to: directory.appending(path: "\(arrangement.rawValue)-\(width)x\(height).png"))
-                try (arrangement.caption + " \(width)×\(height); privacy on.\n")
-                    .write(to: directory.appending(path: "\(arrangement.rawValue)-\(width)x\(height).txt"), atomically: true, encoding: .utf8)
+            let fit = "\(screenName); \(taskRows) top tasks fit; privacy on."
+            if index == 0 {
+                try XCTUnwrap(panelBitmap.representation(using: .png, properties: [:]))
+                    .write(to: directory.appending(path: "\(name)-panel.png"))
+                try (caption + " Panel as it fits \(fit)\n").write(to: directory.appending(path: "\(name)-panel.txt"), atomically: true, encoding: .utf8)
             }
+            try renderScreen(panelImage: panelImage, width: screen.width, height: screen.height, menuBar: screen.menuBar,
+                             to: directory.appending(path: "\(name)-\(screenName).png"))
+            try (caption + " \(fit)\n").write(to: directory.appending(path: "\(name)-\(screenName).txt"), atomically: true, encoding: .utf8)
         }
-        XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, foregroundBefore)
-        XCTAssertTrue(NSApplication.shared.windows.isEmpty, "Design rendering must not open a window")
     }
 
     @MainActor
