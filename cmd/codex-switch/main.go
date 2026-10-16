@@ -26,6 +26,8 @@ func main() {
 		accountsCommand(args)
 	case "remove":
 		removeCommand(args)
+	case "reserve":
+		reserveCommand(args)
 	case "serve":
 		serveCommand(args)
 	case "print-codex-config":
@@ -44,7 +46,7 @@ func selectCommand(args []string) (string, []string) {
 		return "status", args
 	}
 	switch args[0] {
-	case "login", "accounts", "remove", "serve", "status", "print-codex-config", "print-claude-config", "print-revision":
+	case "login", "accounts", "remove", "reserve", "serve", "status", "print-codex-config", "print-claude-config", "print-revision":
 		return args[0], args[1:]
 	default:
 		return "status", args

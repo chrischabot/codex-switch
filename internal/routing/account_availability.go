@@ -30,6 +30,9 @@ func (router *TaskRouter) accountUnavailableReason(fact accounts.AccountRoutingF
 		return "account state " + string(fact.AccountState), nil
 	}
 	now := router.currentTime().UTC()
+	if reason := accounts.ReserveUnavailableReason(fact, now); reason != "" {
+		return reason, nil
+	}
 	if fact.Provider == accounts.ProviderClaude {
 		reason, resetsAt := accounts.ClaudeUnavailableReason(fact, modelSlug, now)
 		if reason != "" {

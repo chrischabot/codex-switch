@@ -414,14 +414,25 @@ def pi_client_usage(session):
     return usage
 
 
+def proxy_command(*arguments):
+    """Runs a person-facing command against this run's isolated account data."""
+    environment = dict(client_environment(), CODEX_SWITCH_DATA_DIR=str(RUN / 'data'))
+    result = subprocess.run([str(RUN / 'codex-switch'), *arguments], env=environment, capture_output=True, text=True)
+    if result.returncode:
+        raise Failure(f'codex-switch {" ".join(arguments)} failed: {result.stderr.strip()}')
+    return result.stdout
+
+
+def account_keys_by_name():
+    return dict(line.split('\t')[:2] for line in proxy_command('accounts').splitlines() if '\t' in line)
+
+
 def weekly_used_percent():
     """Weekly allowance used per account, as `codex-switch status` shows it to a person."""
     environment = dict(client_environment(), CODEX_SWITCH_DATA_DIR=str(RUN / 'data'))
     shown = subprocess.run([str(RUN / 'codex-switch'), 'status'], env=environment,
                            capture_output=True, text=True).stdout
-    listed = subprocess.run([str(RUN / 'codex-switch'), 'accounts'], env=environment,
-                            capture_output=True, text=True).stdout
-    key_by_name = dict(line.split('\t')[:2] for line in listed.splitlines() if '\t' in line)
+    key_by_name = account_keys_by_name()
     used, account = {}, None
     for line in shown.splitlines():
         if match := re.match(r'((Codex|Claude) \d+) ·', line):

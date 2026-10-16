@@ -251,6 +251,11 @@ can serve the requested model, preserving the prompt cache.
 Add an account any time with `codex-switch login` or `login --claude`, and
 remove one with `codex-switch remove "Codex 2"`. No restart needed.
 
+Keep allowance for an account you also use directly with
+`codex-switch reserve "Claude 1" 10`. When any allowance window has 10% or less
+left, new work and the next turn of pinned tasks use another account.
+The reserve is off by default; set it to `0` or `off` to clear it.
+
 ## How updates work
 
 Run the install script again:

@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"strconv"
 
 	accountapi "github.com/joshp123/codex-switch/internal/accounts"
 	"github.com/joshp123/codex-switch/internal/codexstate"
@@ -86,4 +87,27 @@ func removeCommand(args []string) {
 		log.Fatal(err)
 	}
 	fmt.Printf("Removed %s (%s) and %d thread pins.\n", removed.DisplayName, removed.Email, removedPins)
+}
+
+func reserveCommand(args []string) {
+	if len(args) != 2 {
+		log.Fatal("usage: codex-switch reserve account-N | \"Codex N\" | \"Claude N\" percent | off")
+	}
+	percent := 0
+	if args[1] != "off" {
+		var err error
+		percent, err = strconv.Atoi(args[1])
+		if err != nil {
+			log.Fatal("reserve must be a whole percentage from 0 to 100, or off")
+		}
+	}
+	account, err := accountapi.SetReservePercent(dataDir(), args[0], percent)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if percent == 0 {
+		fmt.Printf("%s: reserve off\n", account.DisplayName)
+	} else {
+		fmt.Printf("%s: %d%% kept for direct use\n", account.DisplayName, percent)
+	}
 }

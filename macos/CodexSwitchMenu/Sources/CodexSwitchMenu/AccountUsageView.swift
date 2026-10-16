@@ -31,6 +31,11 @@ struct AccountSection: View {
                         .layoutPriority(2)
                 }
             }
+            if !account.usable && !account.unavailableReason.isEmpty {
+                Text(account.unavailableReason)
+                    .font(UsageTheme.detailFont)
+                    .foregroundStyle(.secondary)
+            }
             if account.hasAllowance {
                 // Shortest first; a model's own limit follows the limit it sits inside.
                 let windows = account.allowance.windows.sorted {
