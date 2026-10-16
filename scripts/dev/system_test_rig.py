@@ -72,7 +72,8 @@ def prepare():
         else:
             claims = json.loads(base64.urlsafe_b64decode(auth['tokens']['access_token'].split('.')[1] + '==='))
             if claims['exp'] < time.time() + 3600:
-                raise Failure(f'{source.parent.name} needs a fresh login before the system test.')
+                raise Failure(f'{source.parent.name}\'s access token expires in {int((claims["exp"] - time.time()) / 60)} minutes; '
+                              'the live proxy renews it when it expires. Run the system test after that.')
             auth['tokens']['refresh_token'] = 'system-test-no-refresh'
         # Only access tokens are copied: a refresh here would rotate the live
         # proxy's refresh token and sign the live proxy out.
