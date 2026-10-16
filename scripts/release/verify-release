@@ -68,7 +68,7 @@ download_url="$(xmllint --xpath "string($enclosure/@url)" "$candidate/appcast.xm
 download_prefix="https://github.com/$release_repository/releases/download/v$(<"$candidate/VERSION")/"
 [[ "$feed_url" == "$production_feed" ]] || download_prefix="${feed_url%/*}/"
 [[ "$download_url" == "${download_prefix}CodexSwitchMenu.zip" ]] || fail "appcast download differs from candidate"
-[[ "$(xmllint --xpath "string($enclosure/@length)" "$candidate/appcast.xml")" == "$(stat -f %z "$candidate/CodexSwitchMenu.zip")" ]]
+[[ "$(xmllint --xpath "string($enclosure/@length)" "$candidate/appcast.xml")" == "$(/usr/bin/stat -f %z "$candidate/CodexSwitchMenu.zip")" ]]
 signature="$(xmllint --xpath "string($enclosure/@*[local-name()='edSignature'])" "$candidate/appcast.xml")"
 public_key="$(plutil -extract SUPublicEDKey raw -o - "$info")"
 [[ -s "$sparkle_public_key_file" && "$public_key" == "$(tr -d '[:space:]' < "$sparkle_public_key_file")" ]] || fail "app does not trust the repository Sparkle public key"
