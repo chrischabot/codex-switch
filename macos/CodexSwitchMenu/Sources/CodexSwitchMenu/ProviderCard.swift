@@ -8,14 +8,13 @@ import SwiftUI
 struct ProviderSection: View {
     let snapshot: CSSwitch_MenuSnapshot
     let provider: CSSwitch_Provider
-    let providerTotal: String?
     let hideIdentity: Bool
     let now: Date
 
     var body: some View {
         let accounts = snapshot.accounts.filter { $0.menuProvider == provider }.sorted { $0.accountNumber < $1.accountNumber }
         VStack(alignment: .leading, spacing: 5) {
-            ProviderHeader(provider: provider, total: providerTotal)
+            ProviderHeader(provider: provider)
                 .padding(.horizontal, UsageTheme.cardInset)
             AccountIdentities(accounts: accounts, snapshot: snapshot, hideIdentity: hideIdentity)
                 .padding(.horizontal, UsageTheme.cardInset)

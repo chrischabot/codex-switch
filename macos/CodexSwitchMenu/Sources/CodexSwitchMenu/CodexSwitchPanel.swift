@@ -75,7 +75,6 @@ struct CodexSwitchPanel: View {
                                     ProviderSection(
                                         snapshot: snapshot,
                                         provider: provider,
-                                        providerTotal: selectedPresentation?.providerTotal(provider, metric: selectedMetric),
                                         hideIdentity: privacyModeEnabled,
                                         now: snapshot.generatedAt.date
                                     )
@@ -242,7 +241,7 @@ private struct PanelStatusHeader: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
-            Text("Balancing \(snapshot.accounts.count) accounts")
+            Text("Balancing \(snapshot.accounts.filter(\.offersConfiguredModel).count) accounts")
                 .font(UsageTheme.titleFont)
             Spacer(minLength: 8)
             HStack(spacing: 5) {

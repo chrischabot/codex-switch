@@ -59,21 +59,6 @@ struct UsagePresentation: Equatable, Sendable {
         }
     }
 
-    /// The provider's spend or tokens for the period, formatted; nil until
-    /// every one of its accounts has a priced total.
-    func providerTotal(_ provider: CSSwitch_Provider, metric: UsageMetric) -> String? {
-        let shares = accountTokenShares.filter { $0.provider == provider }
-        guard !shares.isEmpty else { return nil }
-        switch metric {
-        case .tokens:
-            return UsageFormatting.tokens(shares.reduce(0) { $0 + $1.tokens })
-        case .cost:
-            let costs = shares.compactMap(\.costNanoUSD)
-            guard costs.count == shares.count else { return nil }
-            return UsageFormatting.cost(costs.reduce(0, +))
-        }
-    }
-
     struct Share: Equatable, Identifiable, Sendable {
         let id: String
         let label: String
