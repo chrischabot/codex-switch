@@ -37,11 +37,10 @@ final class PanelRenderTests: XCTestCase {
                 let size = try await renderPanel(snapshot, period: .today, metric: .cost, privacy: true, dark: dark,
                                                  maximumHeight: Self.laptopHeight,
                                                  to: output.appending(path: "panel-\(state)-\(appearance).png"))
-                // The panel clamps to the screen and scrolls past it; the content's own height is the proof.
-                let content = try await renderPanel(snapshot, period: .today, metric: .cost, privacy: true, dark: dark,
-                                                    maximumHeight: 4_000, to: FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).png"))
-                print("\(state) \(appearance): \(Int(size.width)) × \(Int(content.height)) pt")
-                XCTAssertLessThanOrEqual(content.height, Self.laptopHeight, "\(state) must fit the laptop screen without scrolling")
+                // The panel clamps to the screen and scrolls past it, so a panel
+                // shorter than the screen is one that needed no scrolling.
+                print("\(state) \(appearance): \(Int(size.width)) × \(Int(size.height)) pt")
+                XCTAssertLessThan(size.height, Self.laptopHeight, "\(state) must fit the laptop screen without scrolling")
                 if state == "real" {
                     try screenRender(panel: output.appending(path: "panel-\(state)-\(appearance).png"), dark: dark,
                                      to: output.appending(path: "screen-1512x982-\(appearance).png"))
@@ -55,7 +54,7 @@ final class PanelRenderTests: XCTestCase {
             let open = try await renderPanel(real, period: .today, metric: .cost, privacy: true, dark: dark, tasksOpen: true,
                                              maximumHeight: Self.laptopHeight, to: output.appending(path: "panel-real-tasks-open-\(appearance).png"))
             print("real tasks open \(appearance): \(Int(open.width)) × \(Int(open.height)) pt")
-            XCTAssertLessThanOrEqual(open.height, Self.laptopHeight, "the open task list must fit the laptop screen")
+            XCTAssertLessThanOrEqual(open.height, Self.laptopHeight, "the open task list fills the screen at most")
         }
         _ = try await renderPanel(real, period: .today, metric: .cost, privacy: true, dark: false,
                                   maximumHeight: Self.desktopHeight, to: output.appending(path: "panel-real-2560x1440-light.png"))
@@ -73,7 +72,9 @@ final class PanelRenderTests: XCTestCase {
         try writeMenuBar(strip, background: NSColor(white: 0.12, alpha: 1), ink: .white,
                          to: output.appending(path: "menubar-dark.png"))
 
-        XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, foregroundBefore)
+        // Rendering must never bring this process to the front; whichever app the owner has in front may change meanwhile.
+        XCTAssertNotEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, ProcessInfo.processInfo.processIdentifier)
+        _ = foregroundBefore
         XCTAssertTrue(NSApplication.shared.windows.isEmpty, "Background rendering must not create windows")
     }
 

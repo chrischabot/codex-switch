@@ -24,9 +24,12 @@ struct UsagePresentation: Equatable, Sendable {
         self.hasMultipleProviders = hasMultipleProviders
         let accounts = snapshot.menuSnapshot.accounts
         // One slice per account, in the pool's order, so the legend reads
-        // provider by provider.
-        let totals = accounts.compactMap { account in
-            period.accounts.first(where: { $0.accountKey == account.key }).map { (account, $0) }
+        // provider by provider. An account outside the pool for the configured
+        // model is listed only if it spent something.
+        let totals = accounts.compactMap { account -> (CSSwitch_Account, CSSwitch_AccountTotal)? in
+            guard let total = period.accounts.first(where: { $0.accountKey == account.key }) else { return nil }
+            if !account.offersConfiguredModel, total.tokens == 0, total.costNanoUsd == 0 { return nil }
+            return (account, total)
         }
         totalTokens = period.accounts.reduce(0) { $0 + $1.tokens }
         totalCostNanoUSD = period.accounts.allSatisfy(\.hasCostNanoUsd) ? period.accounts.reduce(0) { $0 + $1.costNanoUsd } : nil

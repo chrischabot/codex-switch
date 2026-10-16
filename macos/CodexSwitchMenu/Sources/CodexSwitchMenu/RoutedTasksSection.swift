@@ -11,6 +11,7 @@ struct RoutedTasksSection: View {
     /// How many rows the panel has room for when open; the list shows the largest tasks that fit.
     let maximumRows: Int
     @Binding var expanded: Bool
+    @Environment(\.panelDensity) private var density
 
     static let mostRows = 10
     private static let rowHeight: CGFloat = 17
@@ -18,13 +19,13 @@ struct RoutedTasksSection: View {
 
     /// The card's height with this many rows open; the panel uses it to give
     /// the list exactly the room the screen leaves.
-    static func height(rows: Int) -> CGFloat {
-        UsageTheme.cardInset * 2 + rowHeight + CGFloat(rows) * (rowHeight + rowGap)
+    static func height(rows: Int, density: PanelDensity) -> CGFloat {
+        density.cardInset * 2 + rowHeight + CGFloat(rows) * (rowHeight + rowGap)
     }
 
     /// At least one row when open, so opening always shows something.
-    static func rows(fitting room: CGFloat) -> Int {
-        let rows = Int((room - height(rows: 0)) / (rowHeight + rowGap))
+    static func rows(fitting room: CGFloat, density: PanelDensity) -> Int {
+        let rows = Int((room - height(rows: 0, density: density)) / (rowHeight + rowGap))
         return min(max(rows, 1), mostRows)
     }
 
@@ -125,7 +126,7 @@ struct RoutedTasksSection: View {
                     }
                 }
             }
-            .padding(UsageTheme.cardInset)
+            .padding(density.cardInset)
             .cardSurface()
         }
     }

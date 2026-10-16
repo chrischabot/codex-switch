@@ -4,8 +4,6 @@ import SwiftUI
 enum UsageTheme {
     static let panelWidth: CGFloat = 360
     static let outerInset: CGFloat = 14
-    static let sectionGap: CGFloat = 8
-    static let cardInset: CGFloat = 10
     static let cardRadius: CGFloat = 12
     static let traySurface = Color(nsColor: .textBackgroundColor)
 
@@ -36,6 +34,44 @@ enum UsageTheme {
 
     static func accountColour(_ number: Int) -> Color {
         accountColours[(number - 1) % accountColours.count]
+    }
+}
+
+/// How much air the panel has. Regular is OpenUsage's rhythm: 13-point
+/// labels, 12-point detail, text rows 26 to 28 points apart. Compact is
+/// what the panel falls back to only when regular would not fit the screen,
+/// such as six accounts on a 14-inch laptop; it keeps every word and number.
+enum PanelDensity {
+    case regular, compact
+
+    var cardInset: CGFloat { self == .regular ? 12 : 10 }
+    var sectionGap: CGFloat { self == .regular ? 10 : 8 }
+    /// Between the identity group and the first window block, and between blocks.
+    var groupGap: CGFloat { self == .regular ? 18 : 12 }
+    var blockTitleGap: CGFloat { self == .regular ? 8 : 6 }
+    var identityFont: Font { .system(size: self == .regular ? 12 : 11) }
+    var identityGap: CGFloat { self == .regular ? 4 : 3 }
+    var rowFont: Font { .system(size: self == .regular ? 12 : 11) }
+    var rowEmphasisFont: Font { .system(size: self == .regular ? 12 : 11, weight: .medium) }
+    var rowHeight: CGFloat { self == .regular ? 18 : 16 }
+    var rowGap: CGFloat { self == .regular ? 9 : 8 }
+    var barHeight: CGFloat { 5 }
+    var legendGap: CGFloat { self == .regular ? 5 : 3 }
+    var ringSize: CGFloat { self == .regular ? 96 : 92 }
+    /// Grid columns, sized for "100% left" and a flame with "Resets in 22d 12h".
+    var numberWidth: CGFloat { 24 }
+    var percentWidth: CGFloat { self == .regular ? 58 : 52 }
+    var timeWidth: CGFloat { self == .regular ? 116 : 106 }
+}
+
+private struct PanelDensityKey: EnvironmentKey {
+    static let defaultValue = PanelDensity.regular
+}
+
+extension EnvironmentValues {
+    var panelDensity: PanelDensity {
+        get { self[PanelDensityKey.self] }
+        set { self[PanelDensityKey.self] = newValue }
     }
 }
 

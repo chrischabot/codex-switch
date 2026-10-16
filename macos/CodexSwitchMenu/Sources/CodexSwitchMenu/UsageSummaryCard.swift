@@ -8,6 +8,7 @@ struct UsageSummaryCard: View {
     let enabledMetrics: Set<UsageMetric>
     let selectPeriod: (OverviewSnapshot.ReportingPeriodKind) -> Void
     let selectMetric: (UsageMetric) -> Void
+    @Environment(\.panelDensity) private var density
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -32,7 +33,7 @@ struct UsageSummaryCard: View {
                 )
             }
         }
-        .padding(UsageTheme.cardInset)
+        .padding(density.cardInset)
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardSurface()
     }
@@ -44,6 +45,7 @@ struct UsageSummaryCard: View {
 private struct UsageBreakdown: View {
     let presentation: UsagePresentation
     let selectedMetric: UsageMetric
+    @Environment(\.panelDensity) private var density
 
     var body: some View {
         if let total {
@@ -54,7 +56,7 @@ private struct UsageBreakdown: View {
                     total: format(total),
                     accessibilityLabel: "\(selectedMetric.title) \(format(total))"
                 )
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: density.legendGap) {
                     ForEach(shares) { share in
                         HStack(spacing: 7) {
                             AccountMarker(colour: UsageTheme.accountColour(share.colourSlot))
@@ -136,6 +138,7 @@ private struct MetricMenu: View {
 }
 
 private struct BreakdownRing: View {
+    @Environment(\.panelDensity) private var density
     let shares: [UsagePresentation.Share]
     let total: String
     let accessibilityLabel: String
@@ -156,7 +159,7 @@ private struct BreakdownRing: View {
                 .lineLimit(1)
                 .padding(.horizontal, 24)
         }
-        .frame(width: 96, height: 96)
+        .frame(width: density.ringSize, height: density.ringSize)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
     }

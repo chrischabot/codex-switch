@@ -9,6 +9,9 @@ struct CodexSwitchPanel: View {
     @AppStorage("privacyModeEnabled") private var privacyModeEnabled = false
     @AppStorage("usageMetric") private var selectedMetric: UsageMetric = .cost
     @AppStorage("topTasksExpanded") private var topTasksExpanded = false
+    /// Regular air unless the whole pool would not fit the screen; decided
+    /// once per opening, from the first layout.
+    @State private var density = PanelDensity.regular
 
     private static let topInset: CGFloat = 12
     private static let bottomInset: CGFloat = 10
@@ -28,8 +31,8 @@ struct CodexSwitchPanel: View {
     private var taskRows: Int {
         guard topTasksExpanded, heightAboveTasks > 0 else { return 0 }
         let room = maximumHeight - PanelSizing.footerHeight - Self.topInset - Self.bottomInset
-            - heightAboveTasks - UsageTheme.sectionGap
-        return RoutedTasksSection.rows(fitting: room)
+            - heightAboveTasks - density.sectionGap
+        return RoutedTasksSection.rows(fitting: room, density: density)
     }
 
     var body: some View {
@@ -41,9 +44,9 @@ struct CodexSwitchPanel: View {
         VStack(spacing: 0) {
             ScrollViewReader { scrollProxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: UsageTheme.sectionGap) {
+                    VStack(alignment: .leading, spacing: density.sectionGap) {
                         if let snapshot {
-                            VStack(alignment: .leading, spacing: UsageTheme.sectionGap) {
+                            VStack(alignment: .leading, spacing: density.sectionGap) {
                                 PanelStatusHeader(
                                     snapshot: snapshot,
                                     currentCheckSucceeded: store.currentCheckSucceeded,
@@ -54,7 +57,7 @@ struct CodexSwitchPanel: View {
                                         .font(UsageTheme.detailFont)
                                         .foregroundStyle(.secondary)
                                         .padding(.leading, 4)
-                                        .padding(.top, -4)
+                                        .padding(.top, density == .regular ? -2 : -4)
                                 }
                                 if let overview, let selectedPresentation {
                                     UsageSummaryCard(
@@ -103,6 +106,7 @@ struct CodexSwitchPanel: View {
                     .padding(.horizontal, UsageTheme.outerInset)
                     .padding(.top, Self.topInset)
                     .padding(.bottom, Self.bottomInset)
+                    .environment(\.panelDensity, density)
                     .background {
                         GeometryReader { proxy in
                             Color.clear.preference(
@@ -124,7 +128,13 @@ struct CodexSwitchPanel: View {
                     contentHeight: contentHeight,
                     maximumPanelHeight: maximumHeight
                 ))
-                .onPreferenceChange(PanelContentHeightKey.self) { contentHeight = $0 }
+                .onPreferenceChange(PanelContentHeightKey.self) { height in
+                    contentHeight = height
+                    // Measured at regular density; fall back to compact only when the pool itself overflows.
+                    if density == .regular, !topTasksExpanded, height > maximumHeight - PanelSizing.footerHeight {
+                        density = .compact
+                    }
+                }
                 .onPreferenceChange(PanelHeightAboveTasksKey.self) { heightAboveTasks = $0 }
                 .onChange(of: selectedPeriod) { _, _ in
                     scrollProxy.scrollTo(PanelScrollAnchor.top, anchor: .top)

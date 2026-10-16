@@ -2,8 +2,8 @@ import Foundation
 
 /// How many accounts' weekly allowances the pool is getting through, from
 /// each account's weekly window: its share used so far divided by the share
-/// of the window that has passed. "Using 1.3 Codex and 2.6 Claude accounts a
-/// week" says whether the pool is big enough.
+/// of the window that has passed. "Burning 1.3 Codex and 2.6 Claude accounts a
+/// week" says whether the pool is big enough, in the owner's word for it.
 enum WeeklyPace {
     static let weekSeconds: Int64 = 604_800
 
@@ -28,12 +28,12 @@ enum WeeklyPace {
         }
     }
 
-    /// "Using 1.3 Codex and 2.6 Claude accounts a week"; nil before any week
+    /// "Burning 1.3 Codex and 2.6 Claude accounts a week"; nil before any week
     /// can be read.
     static func sentence(_ snapshot: CSSwitch_MenuSnapshot, now: Date, locale: Locale = .autoupdatingCurrent) -> String? {
         let paces = accountsPerWeek(snapshot, now: now)
         guard !paces.isEmpty else { return nil }
         let parts = paces.map { "\(UsageFormatting.oneDecimal($0.accounts, locale: locale)) \($0.provider.title)" }
-        return "Using " + parts.joined(separator: " and ") + " accounts a week"
+        return "Burning " + parts.joined(separator: " and ") + " accounts a week"
     }
 }
