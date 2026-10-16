@@ -47,18 +47,18 @@ enum PanelDensity {
     case regular, compact
 
     var cardInset: CGFloat { self == .regular ? 12 : 10 }
-    var sectionGap: CGFloat { self == .regular ? 10 : 8 }
+    var sectionGap: CGFloat { self == .regular ? 10 : 6 }
     /// Between the identity group and the first window block, and between blocks.
-    var groupGap: CGFloat { self == .regular ? 18 : 12 }
+    var groupGap: CGFloat { self == .regular ? 18 : 10 }
     var blockTitleGap: CGFloat { self == .regular ? 8 : 6 }
     var identityFont: Font { .system(size: self == .regular ? 12 : 11) }
-    var identityGap: CGFloat { self == .regular ? 4 : 3 }
+    var identityGap: CGFloat { self == .regular ? 4 : 2 }
     var rowFont: Font { .system(size: self == .regular ? 12 : 11) }
     var rowEmphasisFont: Font { .system(size: self == .regular ? 12 : 11, weight: .medium) }
     var rowHeight: CGFloat { self == .regular ? 18 : 16 }
-    var rowGap: CGFloat { self == .regular ? 9 : 8 }
+    var rowGap: CGFloat { self == .regular ? 9 : 6 }
     var barHeight: CGFloat { 5 }
-    var legendGap: CGFloat { self == .regular ? 5 : 3 }
+    var legendGap: CGFloat { self == .regular ? 5 : 2 }
     var ringSize: CGFloat { self == .regular ? 96 : 92 }
     /// Grid columns sized to the widest real strings: a dot and one digit,
     /// "100% left", and "Resets in 29d 23h" (a flame only ever comes with the

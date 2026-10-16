@@ -52,12 +52,17 @@ struct CodexSwitchPanel: View {
                                     currentCheckSucceeded: store.currentCheckSucceeded,
                                     privacyModeEnabled: $privacyModeEnabled
                                 )
-                                if let pace = WeeklyPace.sentence(snapshot, now: snapshot.generatedAt.date) {
-                                    Text(pace)
-                                        .font(UsageTheme.detailFont)
-                                        .foregroundStyle(.secondary)
-                                        .padding(.leading, 4)
-                                        .padding(.top, density == .regular ? -2 : -4)
+                                let pace = WeeklyPace.lines(snapshot, now: snapshot.generatedAt.date)
+                                if !pace.isEmpty {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        ForEach(pace, id: \.self) { line in
+                                            Text(line)
+                                                .font(UsageTheme.detailFont)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    .padding(.leading, 4)
+                                    .padding(.top, density == .regular ? -2 : -4)
                                 }
                                 if let overview, let selectedPresentation {
                                     UsageSummaryCard(

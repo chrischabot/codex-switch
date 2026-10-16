@@ -28,12 +28,13 @@ enum WeeklyPace {
         }
     }
 
-    /// "Burning 1.3 Codex and 2.6 Claude accounts a week"; nil before any week
-    /// can be read.
-    static func sentence(_ snapshot: CSSwitch_MenuSnapshot, now: Date, locale: Locale = .autoupdatingCurrent) -> String? {
-        let paces = accountsPerWeek(snapshot, now: now)
-        guard !paces.isEmpty else { return nil }
-        let parts = paces.map { "\(UsageFormatting.oneDecimal($0.accounts, locale: locale)) \($0.provider.title)" }
-        return "Burning " + parts.joined(separator: " and ") + " accounts a week"
+    /// "Codex: burning 4.1 accounts a week, 2 in the pool", one line per
+    /// provider whose week can be read: need against have, which says whether
+    /// the pool lasts. Nothing before any week can be read.
+    static func lines(_ snapshot: CSSwitch_MenuSnapshot, now: Date, locale: Locale = .autoupdatingCurrent) -> [String] {
+        accountsPerWeek(snapshot, now: now).map { pace in
+            let pool = snapshot.accounts.filter { $0.menuProvider == pace.provider && $0.offersConfiguredModel }.count
+            return "\(pace.provider.title): burning \(UsageFormatting.oneDecimal(pace.accounts, locale: locale)) accounts a week, \(pool) in the pool"
+        }
     }
 }

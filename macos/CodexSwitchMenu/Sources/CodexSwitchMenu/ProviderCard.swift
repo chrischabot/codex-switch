@@ -29,6 +29,7 @@ struct ProviderSection: View {
                                     number: Int(row.account.accountNumber),
                                     colour: snapshot.colour(of: row.account),
                                     allowance: row.window,
+                                    usable: row.account.usable,
                                     now: now
                                 )
                             }
@@ -142,19 +143,6 @@ extension CSSwitch_AllowanceWindow {
         }
     }
 
-    /// When the allowance empties if use continues at this window's average
-    /// pace so far; nil when it lasts until the reset. The pace is read only
-    /// once a seventh of the window has passed (a day of a week): an hour into
-    /// a week, one busy session would project the whole week.
-    func runOutDate(now: Date) -> Date? {
-        guard hasResetAt, usedPercent > 0, usedPercent < 100 else { return nil }
-        let reset = resetAt.date
-        let elapsed = now.timeIntervalSince(reset.addingTimeInterval(-TimeInterval(periodSeconds)))
-        guard elapsed >= TimeInterval(periodSeconds) / 7 else { return nil }
-        let runOut = now.addingTimeInterval(freePercent / usedPercent * elapsed)
-        return runOut < reset ? runOut : nil
-    }
-
     /// Nothing left to use before the reset.
     var isEmpty: Bool { usedPercent >= 100 }
 }
@@ -165,20 +153,18 @@ extension CSSwitch_Account {
 }
 
 /// One account's line in a window block: its colour and number, the bar,
-/// what is left, and the next time that changes its state: a red flame and
-/// "Limit in 9h 55m" if it will run out first, otherwise "Resets in 44m".
-/// An empty window says so in red; a window with no room to spare is red
-/// too. The reset of a running-out window is on hover.
+/// what is left, and when it resets. Every figure is one the provider
+/// states. The bar is red only when the account cannot take new work: it
+/// is empty, under a tenth left, at its limit, or held back by its reserve.
 private struct AllowanceGridRow: View {
     let number: Int
     let colour: Color
     let allowance: CSSwitch_AllowanceWindow
-    let now: Date
+    let usable: Bool
     @Environment(\.panelDensity) private var density
 
     var body: some View {
-        let runOut = allowance.runOutDate(now: now)
-        let isLow = allowance.isEmpty || runOut != nil || allowance.freePercent < 10
+        let isLow = !usable || allowance.isEmpty || allowance.freePercent < 10
         GridRow {
             HStack(spacing: 3) {
                 AccountMarker(colour: colour, size: 7)
@@ -195,31 +181,19 @@ private struct AllowanceGridRow: View {
                 .monospacedDigit()
                 .lineLimit(1)
                 .frame(width: density.percentWidth, alignment: .trailing)
-            HStack(spacing: 3) {
-                if runOut != nil {
-                    Image(systemName: "flame.fill")
-                        .font(.system(size: 10))
-                        .foregroundStyle(UsageTheme.runOutColour)
-                }
-                Text(timeLabel(runOut: runOut))
-                    .font(density.rowFont)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                    .lineLimit(1)
-            }
-            .frame(width: density.timeWidth, alignment: .trailing)
-            .help(runOut == nil || !allowance.hasResetAt ? "" : UsageFormatting.resetLabel(allowance.resetAt.date, now: now))
+            Text(allowance.hasResetAt ? UsageFormatting.resetLabel(allowance.resetAt.date, now: now) : "")
+                .font(density.rowFont)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .lineLimit(1)
+                .frame(width: density.timeWidth, alignment: .trailing)
         }
         .frame(height: density.rowHeight)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Account \(number): \(allowance.isEmpty ? "empty" : "\(UsageFormatting.percent(allowance.freePercent)) left"), \(timeLabel(runOut: runOut))")
+        .accessibilityLabel("Account \(number): \(allowance.isEmpty ? "empty" : "\(UsageFormatting.percent(allowance.freePercent)) left"), \(allowance.hasResetAt ? UsageFormatting.resetLabel(allowance.resetAt.date, now: now) : "")")
     }
 
-    private func timeLabel(runOut: Date?) -> String {
-        guard allowance.hasResetAt else { return "" }
-        if let runOut { return "Limit in " + UsageFormatting.duration(runOut.timeIntervalSince(now)) }
-        return UsageFormatting.resetLabel(allowance.resetAt.date, now: now)
-    }
+    let now: Date
 }
 
 /// Full-width capsule of what is left: blue while the window lasts to its
