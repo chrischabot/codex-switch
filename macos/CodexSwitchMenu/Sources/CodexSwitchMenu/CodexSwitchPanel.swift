@@ -111,7 +111,7 @@ struct CodexSwitchPanel: View {
         }
         .frame(width: UsageTheme.panelWidth)
         .focusEffectDisabled()
-        .background(UsageTheme.traySurface)
+        .background(UsageTheme.traySurface.ignoresSafeArea())
         .onChange(of: store.latestSnapshot, initial: true) { _, snapshot in
             guard let snapshot else { return }
             let overview = OverviewSnapshot(menuSnapshot: snapshot)

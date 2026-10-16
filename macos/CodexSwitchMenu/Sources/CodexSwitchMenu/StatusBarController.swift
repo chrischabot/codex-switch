@@ -22,6 +22,9 @@ final class StatusBarController: NSObject {
         panelController.sizingOptions = [.preferredContentSize]
         popover.contentViewController = panelController
         popover.behavior = .transient
+        // The panel's surface runs under the popover's arrow; otherwise the
+        // popover's own material shows beside it at the arrow and edges.
+        popover.hasFullSizeContent = true
 
         guard let button = statusItem.button else { return }
         button.target = self
