@@ -10,6 +10,7 @@ private final class MenuBarPanel: NSPanel {
 @MainActor
 final class StatusBarController: NSObject {
     private let store: OverviewStore
+    private let updates: UpdateController?
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let panel: MenuBarPanel
     private let panelController: NSHostingController<CodexSwitchPanel>
@@ -24,12 +25,14 @@ final class StatusBarController: NSObject {
     /// Space between the menu bar and the panel, and between the panel and the screen's edges.
     private static let screenMargin: CGFloat = 6
 
-    init(store: OverviewStore) {
+    init(store: OverviewStore, updates: UpdateController? = nil) {
         self.store = store
+        self.updates = updates
         panelController = NSHostingController(
             rootView: CodexSwitchPanel(
                 store: store,
-                maximumHeight: NSScreen.main?.visibleFrame.height ?? 700
+                maximumHeight: NSScreen.main?.visibleFrame.height ?? 700,
+                updates: updates
             )
         )
         panelController.sizingOptions = [.preferredContentSize]
@@ -110,7 +113,7 @@ final class StatusBarController: NSObject {
                     visibleFrame.maxX - width - Self.screenMargin)
         anchorTopLeft = NSPoint(x: x, y: visibleFrame.maxY - Self.screenMargin)
         let maximumHeight = anchorTopLeft.y - visibleFrame.minY - Self.screenMargin
-        panelController.rootView = CodexSwitchPanel(store: store, maximumHeight: max(maximumHeight, 320))
+        panelController.rootView = CodexSwitchPanel(store: store, maximumHeight: max(maximumHeight, 320), updates: updates)
         panelController.view.layoutSubtreeIfNeeded()
         let size = panelController.view.fittingSize
         panel.setFrame(NSRect(x: anchorTopLeft.x, y: anchorTopLeft.y - size.height, width: width, height: size.height),

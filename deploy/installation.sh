@@ -1,5 +1,5 @@
-# Where an installation of Codex Switch lives. Sourced by install.sh and
-# uninstall.sh.
+# Where an installation of Codex Switch lives. Shared by source and app
+# installation, and uninstall.sh.
 #
 # Everything is under $HOME except the launchd label, the port and the menu
 # app. To run a second, isolated installation beside your own, set HOME to

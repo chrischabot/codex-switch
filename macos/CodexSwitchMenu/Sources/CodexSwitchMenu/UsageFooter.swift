@@ -3,6 +3,7 @@ import SwiftUI
 
 struct UsageFooter: View {
     let store: OverviewStore
+    var updates: UpdateController? = nil
 
     var body: some View {
         HStack {
@@ -18,6 +19,12 @@ struct UsageFooter: View {
                     Task { await store.refresh() }
                 }
                 .disabled(store.isRefreshing)
+                if let updates {
+                    Button("Check for Updates…") {
+                        updates.checkForUpdates()
+                    }
+                    .disabled(!updates.canCheckForUpdates)
+                }
                 Divider()
                 Button("Quit", systemImage: "power") {
                     NSApplication.shared.terminate(nil)

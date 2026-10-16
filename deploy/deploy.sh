@@ -56,18 +56,25 @@ replace_stable() {
 }
 if [ "$MODE" = new ]; then
   TARGET_BINARY="$NEW_BINARY"
+  DETACH_BINARY="$NEW_BINARY"
 else
   [ -f "$STABLE.previous" ] || { echo "no previous binary at $STABLE.previous" >&2; exit 1; }
   TARGET_BINARY="$STABLE.previous"
+  DETACH_BINARY="$STABLE"
 fi
 TARGET_REVISION="$(CODEX_SWITCH_DATA_DIR=$DATA "$TARGET_BINARY" print-revision)" || { echo "candidate could not report its revision; stable binary unchanged" >&2; exit 1; }
 case "$TARGET_REVISION" in
   ''|unknown) echo "candidate has no source revision; build it with scripts/dev/build-proxy" >&2; exit 1 ;;
 esac
-# A separate session keeps the bridge alive if the deployment caller exits.
-# exec preserves this child PID for readiness checks and the later drain wait.
-CODEX_SWITCH_DATA_DIR="$DATA" python3 -c 'import os, sys; os.setsid(); os.execv(sys.argv[1], sys.argv[1:])' "$TARGET_BINARY" serve --listen "$LISTEN" --check-providers </dev/null >>"$DATA/deployment-bridge.log" 2>&1 &
-BRIDGE_PID=$!
+# The bundled binary starts a separate session using only macOS system APIs.
+# It opens its own log so capturing the PID cannot wait for the bridge to exit.
+BRIDGE_PID=$(CODEX_SWITCH_DATA_DIR="$DATA" "$DETACH_BINARY" start-detached "$DATA/deployment-bridge.log" "$TARGET_BINARY" serve --listen "$LISTEN" --check-providers)
+bridge_alive() {
+  case "$(/bin/ps -p "$BRIDGE_PID" -o stat= | tr -d ' ')" in
+    ''|Z*) return 1 ;;
+    *) kill -0 "$BRIDGE_PID" 2>/dev/null ;;
+  esac
+}
 
 # The bridge must demonstrably own new connections before the old
 # generation is signalled (closing a listener resets its queued backlog).
@@ -75,8 +82,7 @@ BRIDGE_PID=$!
 # before it listens. Failed reads exit without taking traffic.
 BRIDGE_READY=false
 for _ in $(seq 1 300); do
-  if ! kill -0 "$BRIDGE_PID" 2>/dev/null; then
-    wait "$BRIDGE_PID" 2>/dev/null || true
+  if ! bridge_alive; then
     echo "candidate exited before serving; stable binary unchanged; old generation keeps serving" >&2
     tail -n 1 "$DATA/deployment-bridge.log" >&2
     exit 1
@@ -91,7 +97,7 @@ for _ in $(seq 1 300); do
 done
 if [ "$BRIDGE_READY" != true ]; then
   kill -TERM "$BRIDGE_PID" 2>/dev/null || true
-  wait "$BRIDGE_PID" 2>/dev/null || true
+  while bridge_alive; do sleep 0.2; done
   echo "candidate did not take new connections; stable binary unchanged; old generation keeps serving" >&2
   exit 1
 fi
@@ -120,5 +126,5 @@ done
 [ "$SUCCESSOR_READY" = true ] || { echo "supervisor respawn did not appear; bridge stays in service" >&2; exit 1; }
 
 kill -TERM "$BRIDGE_PID"
-wait "$BRIDGE_PID" 2>/dev/null || true
+while bridge_alive; do sleep 0.2; done
 echo "serving generation: pid $PID revision $TARGET_REVISION"

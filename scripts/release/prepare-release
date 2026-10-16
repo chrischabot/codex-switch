@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/common.sh"
+
+usage() {
+  echo "usage: scripts/release/prepare-release --version X.Y.Z --output DIR [--identity IDENTITY] [--build INTEGER] [--feed-url URL] [--notes FILE]" >&2
+  exit 2
+}
+version="" output="" identity="" build="" notes=""
+feed_url="$production_feed"
+while [[ $# -gt 0 ]]; do
+  [[ $# -ge 2 ]] || usage
+  case "$1" in
+    --version) version="$2" ;;
+    --output) output="$2" ;;
+    --identity) identity="$2" ;;
+    --build) build="$2" ;;
+    --feed-url) feed_url="$2" ;;
+    --notes) notes="$2" ;;
+    *) usage ;;
+  esac
+  shift 2
+done
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$version" != 0.0.0 && -n "$output" ]] || usage
+valid_feed_url "$feed_url" || fail "feed must be the production appcast or loopback HTTP appcast"
+[[ ! -e "$output" && ! -L "$output" ]] || fail "output already exists: $output"
+require_commands git openssl security xcrun ditto shasum xmllint xxd
+[[ -z "$(git -C "$repository_root" status --porcelain)" ]] || fail "release worktree must be clean"
+[[ -s "$sparkle_public_key_file" ]] || fail "run setup-release-credentials and commit deploy/SparklePublicKey first"
+derive_sparkle_public_key
+public_key="$(tr -d '[:space:]' < "$sparkle_public_key_file")"
+[[ "$public_key" == "$derived_sparkle_public_key" ]] || fail "private key does not match deploy/SparklePublicKey"
+require_notary_credentials
+if [[ -z "$identity" ]]; then
+  identities=()
+  while IFS= read -r found; do identities+=("$found"); done < <(
+    security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p'
+  )
+  [[ ${#identities[@]} -eq 1 ]] || fail "specify --identity; expected one Developer ID Application identity"
+  identity="${identities[0]}"
+fi
+[[ "$identity" == "Developer ID Application:"* ]] || fail "identity must be Developer ID Application"
+commit="$(git -C "$repository_root" rev-parse HEAD)"
+build="${build:-$(git -C "$repository_root" rev-list --count HEAD)}"
+[[ "$build" =~ ^[1-9][0-9]*$ ]] || fail "build must be a positive integer"
+[[ -z "$notes" || -s "$notes" ]] || fail "release notes are empty or missing"
+mkdir -p "$(dirname "$output")"
+output="$(cd "$(dirname "$output")" && pwd)/$(basename "$output")"
+work="$(mktemp -d "${TMPDIR:-/tmp}/codex-switch-release.XXXXXX")"
+trap 'trash "$work"' EXIT
+app="$work/CodexSwitchMenu.app"
+CODEX_SWITCH_VERSION="$version" CODEX_SWITCH_BUILD="$build" \
+  CODEX_SWITCH_SIGN_IDENTITY="$identity" CODEX_SWITCH_SPARKLE_PUBLIC_KEY="$public_key" \
+  CODEX_SWITCH_FEED_URL="$feed_url" \
+  "$repository_root/macos/CodexSwitchMenu/package_app.sh" --release --destination "$app"
+
+ditto -c -k --keepParent "$app" "$work/notarization.zip"
+xcrun notarytool submit "$work/notarization.zip" --key "$notary_key" \
+  --key-id "$notary_key_id" --issuer "$notary_issuer" --wait
+xcrun stapler staple "$app"
+xcrun stapler validate "$app"
+assets="$work/assets"
+mkdir -p "$assets"
+ditto -c -k --keepParent "$app" "$assets/CodexSwitchMenu.zip"
+if [[ -n "$notes" ]]; then cp "$notes" "$assets/RELEASE_NOTES.md";
+else printf 'Codex Switch %s\n' "$version" > "$assets/RELEASE_NOTES.md"; fi
+cp "$assets/RELEASE_NOTES.md" "$assets/CodexSwitchMenu.md"
+printf '%s\n' "$version" > "$assets/VERSION"
+printf '%s\n' "$build" > "$assets/BUILD"
+printf '%s\n' "$commit" > "$assets/GIT_COMMIT"
+swift_scratch="${CODEX_SWITCH_SWIFT_SCRATCH_PATH:-$repository_root/macos/CodexSwitchMenu/.build}"
+generate_appcast="$swift_scratch/artifacts/sparkle/Sparkle/bin/generate_appcast"
+[[ -x "$generate_appcast" ]] || fail "SwiftPM did not produce Sparkle's generate_appcast"
+download_prefix="https://github.com/$release_repository/releases/download/v$version/"
+[[ "$feed_url" == "$production_feed" ]] || download_prefix="${feed_url%/*}/"
+"$generate_appcast" --ed-key-file "$sparkle_private_key" --download-url-prefix "$download_prefix" \
+  --embed-release-notes --maximum-versions 1 --maximum-deltas 0 \
+  --link "https://github.com/$release_repository" "$assets"
+(
+  cd "$assets"
+  shasum -a 256 CodexSwitchMenu.zip appcast.xml > SHA256SUMS
+  shasum -a 256 CodexSwitchMenu.zip appcast.xml VERSION BUILD GIT_COMMIT RELEASE_NOTES.md > CANDIDATE_SHA256SUMS
+)
+verify_args=(--revision "$commit")
+[[ "$feed_url" == "$production_feed" ]] || verify_args+=(--allow-loopback-feed)
+"$release_script_dir/verify-release" "${verify_args[@]}" "$assets"
+mv "$assets" "$output"
+echo "Prepared unpublished release in $output. Nothing was uploaded to GitHub."

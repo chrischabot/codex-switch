@@ -12,7 +12,9 @@ extension CSSwitch_Provider {
     /// The provider's own logo, as a template image.
     var mark: NSImage? {
         let name = self == .claude ? "claude" : "openai"
-        guard let url = Bundle.module.url(forResource: name, withExtension: "svg", subdirectory: "Resources"),
+        let resources = Bundle.main.url(forResource: "CodexSwitchMenu_CodexSwitchMenu", withExtension: "bundle")
+            .flatMap(Bundle.init(url:)) ?? .module
+        guard let url = resources.url(forResource: name, withExtension: "svg", subdirectory: "Resources"),
               let image = NSImage(contentsOf: url) else { return nil }
         image.isTemplate = true
         return image

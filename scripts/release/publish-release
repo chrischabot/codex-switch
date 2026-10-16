@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/common.sh"
+
+candidate="" confirm=""
+while [[ $# -gt 0 ]]; do
+  [[ $# -ge 2 ]] || exit 2
+  case "$1" in
+    --candidate) candidate="$2" ;;
+    --confirm) confirm="$2" ;;
+    *) echo "usage: scripts/release/publish-release --candidate DIR --confirm vX.Y.Z" >&2; exit 2 ;;
+  esac
+  shift 2
+done
+[[ -n "$candidate" && -n "$confirm" ]] || fail "provide --candidate DIR --confirm vX.Y.Z"
+require_commands gh git
+version="$(<"$candidate/VERSION")"
+commit="$(<"$candidate/GIT_COMMIT")"
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$confirm" == "v$version" ]] || fail "confirmation must match candidate version"
+[[ -z "$(git -C "$repository_root" status --porcelain)" ]] || fail "release worktree must be clean"
+git -C "$repository_root" fetch origin main --tags
+main="$(git -C "$repository_root" rev-parse origin/main)"
+[[ "$commit" == "$main" ]] || fail "candidate must come from current origin/main"
+"$release_script_dir/verify-release" --revision "$main" "$candidate"
+if gh release view --repo "$release_repository" "$confirm" >/dev/null 2>&1; then
+  fail "release already exists: $confirm"
+fi
+if git -C "$repository_root" ls-remote --exit-code --tags origin "refs/tags/$confirm" >/dev/null 2>&1; then
+  fail "remote tag already exists: $confirm"
+fi
+gh release create --repo "$release_repository" "$confirm" --target "$commit" \
+  --title "Codex Switch $version" --notes-file "$candidate/RELEASE_NOTES.md" \
+  "$candidate/CodexSwitchMenu.zip" "$candidate/appcast.xml" "$candidate/SHA256SUMS"
+echo "Published Codex Switch $version from the verified candidate."

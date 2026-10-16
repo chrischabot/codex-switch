@@ -3,6 +3,7 @@ import SwiftUI
 struct CodexSwitchPanel: View {
     let store: OverviewStore
     let maximumHeight: CGFloat
+    let updates: UpdateController?
     @State private var selectedPeriod: OverviewSnapshot.ReportingPeriodKind
     @State private var contentHeight: CGFloat = 0
     @State private var heightAboveTasks: CGFloat = 0
@@ -19,10 +20,12 @@ struct CodexSwitchPanel: View {
     init(
         store: OverviewStore,
         maximumHeight: CGFloat,
-        initialPeriod: OverviewSnapshot.ReportingPeriodKind = .today
+        initialPeriod: OverviewSnapshot.ReportingPeriodKind = .today,
+        updates: UpdateController? = nil
     ) {
         self.store = store
         self.maximumHeight = maximumHeight
+        self.updates = updates
         _selectedPeriod = State(initialValue: initialPeriod)
     }
 
@@ -149,7 +152,7 @@ struct CodexSwitchPanel: View {
                 }
             }
 
-            UsageFooter(store: store)
+            UsageFooter(store: store, updates: updates)
         }
         .frame(width: UsageTheme.panelWidth)
         .focusEffectDisabled()

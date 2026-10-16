@@ -41,7 +41,7 @@ against their terms. Until OpenAI supports several accounts in the app natively,
 it's the only way I've found to make this work. Tibo, if you're reading this:
 please add it, fix the limits, and ship a model better than Opus 5.5. lol
 
-It is macOS only, you build it from source, and so far it has one user: me.
+It is macOS only, and so far it has one user: me.
 
 ## What it does
 
@@ -81,11 +81,15 @@ through the proxy. Task names come from the clients' session logs on your Mac.
 
 ## Install
 
-The easy way: paste this into Codex or Claude Code and let it do the work.
+Download [CodexSwitchMenu.zip from the latest release](https://github.com/joshp123/codex-switch/releases/latest),
+unzip it, move CodexSwitchMenu to Applications and open it. The app installs the
+proxy and starts it at login. No build tools are needed.
+
+Then paste this into Codex or Claude Code to connect your accounts and clients:
 
 ```text
 Install Codex Switch from https://github.com/joshp123/codex-switch on this Mac.
-Read its README first. Clone it, run deploy/install.sh, then help me sign in
+Read its README first. Open the installed CodexSwitchMenu app, then help me sign in
 each of my ChatGPT accounts with `codex-switch login` and Claude accounts with
 `codex-switch login --claude` (I'll do the browser part). Configure only the
 clients I use: `print-codex-config` for Codex and Pi's openai-codex provider;
@@ -99,10 +103,18 @@ The only thing you do yourself is sign in to each account in the browser.
 
 ### Doing it by hand
 
-You need macOS 14 or later, Go 1.24 or later, Xcode 16 or later (for the menu
-app), your coding client, and at least two subscriptions for the provider you use.
+You need macOS 14 or later, your coding client, and at least two subscriptions
+for the provider you use.
 
 **1. Install.**
+
+Download and open the app as above. It runs the proxy under launchd on
+`127.0.0.1:2455`, so it starts at login and restarts if it stops. The
+`codex-switch` command goes in `~/.local/bin`, so make sure that's on your `PATH`.
+The menu app also opens at login.
+
+To build from source instead, install Go 1.25 or later and Xcode 16 or later,
+then run:
 
 ```sh
 git clone https://github.com/joshp123/codex-switch.git
@@ -110,11 +122,8 @@ cd codex-switch
 deploy/install.sh
 ```
 
-This builds the proxy and runs it under launchd on `127.0.0.1:2455`, so it
-starts at login and restarts if it stops. It also builds the menu bar app, signs
-it for this Mac only (no Apple developer account needed), puts it in
-Applications and opens it. The `codex-switch` command goes in `~/.local/bin`,
-so make sure that's on your `PATH`.
+The source build is signed for this Mac only. It uses the same proxy installer
+as the downloaded app.
 
 **2. Sign in to each account.** Each `login` opens the normal Codex sign-in in
 your browser. Use a different account each time.
@@ -130,8 +139,8 @@ Codex 1	account-1	you@example.com
 Codex 2	account-2	you+work@example.com
 ```
 
-**3. Point Codex at it.** `deploy/install.sh` prints one line (and
-`codex-switch print-codex-config` prints it again):
+**3. Point Codex at it.** Run `codex-switch print-codex-config`. It prints one
+line:
 
 ```toml
 openai_base_url = "http://127.0.0.1:2455/client/<private key>/backend-api/codex"
@@ -260,21 +269,24 @@ clear both.
 
 ## How updates work
 
-Run the install script again:
-
-```sh
-git pull
-deploy/install.sh
-```
+The app checks for updates automatically. To check yourself, open its Options
+menu and choose **Check for Updates…**. Sparkle downloads and installs the signed,
+notarised app. When it reopens, it compares its bundled proxy with the serving
+version and hands over through the same blue-green deployment used by source
+installs.
 
 A new proxy process starts on the same port. Before it takes any requests, it
 reads every account's allowance through the same connections your traffic uses;
 if it can't, it exits and the old process carries on. Otherwise it takes all new
-requests. The old
-process stops accepting work, finishes every request it already has, including
-streams and WebSockets, then exits, and launchd runs the new build from then
-on. Running agents carry on. The script then quits, rebuilds and reopens the
-menu app.
+requests. The old process finishes the model work it has already accepted;
+other connections get a fixed grace period. Launchd then runs the new build.
+Running agents carry on. A failed handover is logged in
+`~/Library/Application Support/codex-switch/proxy-install.log` and retried while
+the app is open.
+
+For a source install, update the checkout and run `deploy/install.sh` again.
+
+Maintainers: [prepare, verify and publish a release](docs/releases.md).
 
 To go back to the previous proxy:
 
@@ -293,7 +305,7 @@ First point your clients back at their providers: delete `openai_base_url` from
 entries from Pi's `models.json`, then restart the clients. Then:
 
 ```sh
-deploy/uninstall.sh
+/bin/sh /Applications/CodexSwitchMenu.app/Contents/Resources/deploy/uninstall.sh
 ```
 
 The proxy finishes the requests it has already accepted and stops. The script

@@ -228,8 +228,15 @@ func buildRevision() (string, bool) {
 
 // printBinaryRevision lets deploy.sh learn the target revision without
 // starting a server.
-func printBinaryRevision() {
-	revision, _ := buildRevision()
+func printBinaryRevision(args []string) {
+	revision, dirty := buildRevision()
+	if len(args) == 1 && args[0] == "--dirty" {
+		fmt.Println(dirty)
+		return
+	}
+	if len(args) != 0 {
+		log.Fatal("usage: codex-switch print-revision [--dirty]")
+	}
 	fmt.Println(revision)
 }
 

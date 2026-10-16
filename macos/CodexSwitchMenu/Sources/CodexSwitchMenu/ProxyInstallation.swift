@@ -1,0 +1,64 @@
+import Foundation
+import OSLog
+
+private let installationLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "CodexSwitchMenu",
+    category: "ProxyInstallation"
+)
+
+/// The shell entry point is shared with source installs. Its child keeps the
+/// handover running if Sparkle replaces the menu while a generation drains.
+@MainActor
+final class ProxyInstallation {
+    private var process: Process?
+    private var retryTask: Task<Void, Never>?
+
+    func start(dataDirectory: URL) {
+        guard process == nil else { return }
+        let resources = Bundle.main.resourceURL!
+        let install = resources.appending(path: "deploy/install-proxy.sh")
+        let proxy = Bundle.main.bundleURL.appending(path: "Contents/Helpers/codex-switch")
+        do {
+            try FileManager.default.createDirectory(
+                at: dataDirectory, withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+            let log = dataDirectory.appending(path: "proxy-install.log")
+            if !FileManager.default.fileExists(atPath: log.path) {
+                FileManager.default.createFile(atPath: log.path, contents: nil, attributes: [.posixPermissions: 0o600])
+            }
+            let output = try FileHandle(forWritingTo: log)
+            defer { try? output.close() }
+            try output.seekToEnd()
+            let child = Process()
+            child.executableURL = URL(filePath: "/bin/sh")
+            child.arguments = [install.path, proxy.path]
+            child.standardInput = FileHandle.nullDevice
+            child.standardOutput = output
+            child.standardError = output
+            child.terminationHandler = { [weak self] child in
+                let status = child.terminationStatus
+                Task { @MainActor [weak self] in
+                    self?.process = nil
+                    if status != 0 {
+                        installationLogger.error("Proxy installation exited with status \(status); see proxy-install.log")
+                        self?.retry(dataDirectory: dataDirectory)
+                    }
+                }
+            }
+            try child.run()
+            process = child
+        } catch {
+            installationLogger.error("Proxy installation failed: \(error.localizedDescription, privacy: .public)")
+            retry(dataDirectory: dataDirectory)
+        }
+    }
+
+    private func retry(dataDirectory: URL) {
+        retryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(60))
+            guard !Task.isCancelled else { return }
+            self?.start(dataDirectory: dataDirectory)
+        }
+    }
+}

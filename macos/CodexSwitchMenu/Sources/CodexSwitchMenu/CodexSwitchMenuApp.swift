@@ -12,6 +12,8 @@ private let launchLogger = Logger(
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBarController: StatusBarController?
+    private var updates: UpdateController?
+    private let proxyInstallation = ProxyInstallation()
     private let launchConfiguration: LaunchConfiguration
 
     init(launchConfiguration: LaunchConfiguration) {
@@ -41,8 +43,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             cacheFile: cacheFile
         )
         NSApplication.shared.setActivationPolicy(.accessory)
-        statusBarController = StatusBarController(store: store)
+        if Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil {
+            updates = UpdateController()
+        }
+        statusBarController = StatusBarController(store: store, updates: updates)
         if launchConfiguration.isProduction {
+            if Bundle.main.object(forInfoDictionaryKey: "CSManagesProxy") as? Bool == true {
+                proxyInstallation.start(dataDirectory: launchConfiguration.dataDirectory)
+            }
             registerLoginItem()
         }
     }

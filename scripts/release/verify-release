@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/common.sh"
+
+usage() {
+  echo "usage: scripts/release/verify-release --revision SHA [--allow-loopback-feed] CANDIDATE_DIR" >&2
+  exit 2
+}
+revision="" allow_loopback_feed=0
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --revision) [[ $# -ge 2 ]] || usage; revision="$2"; shift 2 ;;
+    --allow-loopback-feed) allow_loopback_feed=1; shift ;;
+    *) usage ;;
+  esac
+done
+[[ $# -eq 1 && "$revision" =~ ^[0-9a-f]{40}$ ]] || usage
+candidate="$(cd "$1" && pwd)"
+require_commands codesign ditto openssl otool plutil shasum spctl xcrun xmllint xxd
+for file in CodexSwitchMenu.zip appcast.xml VERSION BUILD GIT_COMMIT RELEASE_NOTES.md SHA256SUMS CANDIDATE_SHA256SUMS; do
+  [[ -s "$candidate/$file" ]] || fail "candidate is missing $file"
+done
+(cd "$candidate"; shasum -a 256 -c SHA256SUMS; shasum -a 256 -c CANDIDATE_SHA256SUMS)
+[[ "$(<"$candidate/GIT_COMMIT")" == "$revision" ]] || fail "candidate revision differs from nominated revision"
+work="$(mktemp -d "${TMPDIR:-/tmp}/codex-switch-verify.XXXXXX")"
+trap 'trash "$work"' EXIT
+ditto -x -k "$candidate/CodexSwitchMenu.zip" "$work"
+app="$work/CodexSwitchMenu.app"
+info="$app/Contents/Info.plist"
+proxy="$app/Contents/Helpers/codex-switch"
+[[ -x "$app/Contents/MacOS/CodexSwitchMenu" && -x "$proxy" && -d "$app/Contents/Frameworks/Sparkle.framework" ]]
+for script in deploy.sh installation.sh install-proxy.sh uninstall.sh; do
+  [[ -s "$app/Contents/Resources/deploy/$script" ]] || fail "bundled deploy script is missing: $script"
+done
+[[ "$(plutil -extract CFBundleIdentifier raw -o - "$info")" == com.josh.codex-switch-menu ]]
+[[ "$(plutil -extract GitCommit raw -o - "$info")" == "$revision" ]]
+[[ "$(plutil -extract CFBundleShortVersionString raw -o - "$info")" == "$(<"$candidate/VERSION")" ]]
+[[ "$(plutil -extract CFBundleVersion raw -o - "$info")" == "$(<"$candidate/BUILD")" ]]
+[[ "$(plutil -extract SUEnableAutomaticChecks raw -o - "$info")" == true ]]
+[[ "$(plutil -extract CSManagesProxy raw -o - "$info")" == true ]]
+[[ "$("$proxy" print-revision)" == "$revision" ]] || fail "bundled proxy revision differs from app revision"
+feed_url="$(plutil -extract SUFeedURL raw -o - "$info")"
+valid_feed_url "$feed_url" || fail "invalid update feed"
+if [[ "$allow_loopback_feed" -eq 0 ]]; then
+  [[ "$feed_url" == "$production_feed" ]] || fail "loopback candidate cannot be published"
+fi
+codesign --verify --deep --strict --verbose=2 "$app"
+codesign -dv "$app" 2>&1 | grep -q '^Authority=Developer ID Application:' || fail "app is not signed with Developer ID Application"
+spctl --assess --type execute --verbose=2 "$app"
+xcrun stapler validate "$app"
+while IFS= read -r library; do
+  case "$library" in
+    /usr/lib/*|/System/Library/*|@rpath/*|@loader_path/*|@executable_path/*) ;;
+    *) fail "bundled proxy links an external library: $library" ;;
+  esac
+done < <(otool -L "$proxy" | awk 'NR > 1 { print $1 }')
+xmllint --noout "$candidate/appcast.xml"
+enclosure='//*[local-name()="enclosure"]'
+[[ "$(xmllint --xpath "count($enclosure)" "$candidate/appcast.xml")" == 1 ]] || fail "appcast must contain one update"
+[[ "$(xmllint --xpath "string(//*[local-name()='item']/*[local-name()='version'])" "$candidate/appcast.xml")" == "$(<"$candidate/BUILD")" ]] || fail "appcast build differs from candidate"
+[[ "$(xmllint --xpath "string(//*[local-name()='item']/*[local-name()='shortVersionString'])" "$candidate/appcast.xml")" == "$(<"$candidate/VERSION")" ]] || fail "appcast version differs from candidate"
+download_url="$(xmllint --xpath "string($enclosure/@url)" "$candidate/appcast.xml")"
+download_prefix="https://github.com/$release_repository/releases/download/v$(<"$candidate/VERSION")/"
+[[ "$feed_url" == "$production_feed" ]] || download_prefix="${feed_url%/*}/"
+[[ "$download_url" == "${download_prefix}CodexSwitchMenu.zip" ]] || fail "appcast download differs from candidate"
+[[ "$(xmllint --xpath "string($enclosure/@length)" "$candidate/appcast.xml")" == "$(stat -f %z "$candidate/CodexSwitchMenu.zip")" ]]
+signature="$(xmllint --xpath "string($enclosure/@*[local-name()='edSignature'])" "$candidate/appcast.xml")"
+public_key="$(plutil -extract SUPublicEDKey raw -o - "$info")"
+[[ -s "$sparkle_public_key_file" && "$public_key" == "$(tr -d '[:space:]' < "$sparkle_public_key_file")" ]] || fail "app does not trust the repository Sparkle public key"
+verify_update_signature "$candidate/CodexSwitchMenu.zip" "$public_key" "$signature"
+echo "Verified signed, notarised Codex Switch $(<"$candidate/VERSION") and its Sparkle archive signature."

@@ -365,6 +365,13 @@ def update_during_work_finishes_on_the_old_process(system):
         raise Failure(f'{len(canceled)} held responses were cancelled; Codex replied {replies}; see process {old} in data/proxy.log.')
     if final in (old, new) or rig.process_alive(old) or rig.process_alive(new):
         raise Failure(f'After the update, process {final} serves; old {old} and interim {new} should both have exited.')
+    # The app runs this same entrypoint on every launch. An already installed
+    # bundle must leave the serving generation and its supervisor untouched.
+    installer_environment = dict(os.environ, HOME=str(rig.RUN / 'home'), CODEX_SWITCH_LAUNCHD_LABEL=rig.LABEL)
+    same_bundle = rig.start_client([str(rig.REPO / 'deploy/install-proxy.sh'), str(rig.RUN / 'candidate')],
+                                  'same-bundle', env=installer_environment)
+    if same_bundle.wait(timeout=30) or rig.deploy_status()['pid'] != final:
+        raise Failure(f'Reopening the same bundle restarted the proxy or failed: {rig.read("logs/same-bundle.err")[-400:]}')
     for label, thread in (('A held task', websocket_task.thread), ('A held task', http_task.thread), ('The new task', new_task.thread), ('The goal', goal.thread)):
         require_no_replay(label, rig.forwarded_requests(thread=thread))
     if errors:
@@ -373,7 +380,8 @@ def update_during_work_finishes_on_the_old_process(system):
             'admitted Codex responses, and the stable binary was unchanged.\n'
             'Two Codex responses, one over WebSocket and one over HTTP, were mid-stream when the working update began. The old process\n'
             'stopped taking new work, and a new Codex task started on the new build meanwhile. Both responses then finished on the old\n'
-            'process before it exited, and launchd now runs the new build. The update command finished by itself. A goal sleeping\n'
+            'process before it exited, and launchd now runs the new build. Reopening the same bundle left that process running.\n'
+            'The update command finished by itself. A goal sleeping\n'
             'in a tool across the update finished with its tool effect run once. Nothing was replayed and Codex showed no error.')
 
 

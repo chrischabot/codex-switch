@@ -114,7 +114,8 @@ def start_proxy():
     with socket.socket() as reservation:
         reservation.bind(('127.0.0.1', 0))
         (RUN / 'listen').write_text(f'127.0.0.1:{reservation.getsockname()[1]}')
-    plist = RUN / 'launchd.plist'
+    plist = RUN / 'home/Library/LaunchAgents' / f'{LABEL}.plist'
+    plist.parent.mkdir(parents=True)
     plist.write_bytes(plistlib.dumps({
         'Label': LABEL,
         'ProgramArguments': [str(RUN / 'codex-switch'), 'serve', '--listen', listen_address()],
