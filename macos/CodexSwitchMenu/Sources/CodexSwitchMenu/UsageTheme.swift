@@ -2,7 +2,9 @@ import AppKit
 import SwiftUI
 
 enum UsageTheme {
-    static let panelWidth: CGFloat = 360
+    /// Wider than OpenUsage's 360 so the bar, the thing a person scans, is the
+    /// widest part of a row even with "100% left" and "Resets in 29d 23h" beside it.
+    static let panelWidth: CGFloat = 420
     static let outerInset: CGFloat = 14
     static let cardRadius: CGFloat = 12
     static let traySurface = Color(nsColor: .textBackgroundColor)
@@ -58,10 +60,13 @@ enum PanelDensity {
     var barHeight: CGFloat { 5 }
     var legendGap: CGFloat { self == .regular ? 5 : 3 }
     var ringSize: CGFloat { self == .regular ? 96 : 92 }
-    /// Grid columns, sized for "100% left" and a flame with "Resets in 22d 12h".
-    var numberWidth: CGFloat { 24 }
-    var percentWidth: CGFloat { self == .regular ? 58 : 52 }
-    var timeWidth: CGFloat { self == .regular ? 116 : 106 }
+    /// Grid columns sized to the widest real strings: a dot and one digit,
+    /// "100% left", and "Resets in 29d 23h" (a flame only ever comes with the
+    /// shorter "Limit in …").
+    var columnGap: CGFloat { 6 }
+    var numberWidth: CGFloat { 20 }
+    var percentWidth: CGFloat { self == .regular ? 58 : 54 }
+    var timeWidth: CGFloat { self == .regular ? 104 : 100 }
 }
 
 private struct PanelDensityKey: EnvironmentKey {

@@ -23,7 +23,7 @@ struct ProviderSection: View {
                     VStack(alignment: .leading, spacing: density.blockTitleGap) {
                         Text(block.title)
                             .font(UsageTheme.labelFont)
-                        Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: density.rowGap) {
+                        Grid(alignment: .leading, horizontalSpacing: density.columnGap, verticalSpacing: density.rowGap) {
                             ForEach(block.rows, id: \.account.key) { row in
                                 AllowanceGridRow(
                                     number: Int(row.account.accountNumber),
@@ -63,7 +63,7 @@ private struct AccountIdentities: View {
                             .font(density.rowEmphasisFont)
                             .monospacedDigit()
                     }
-                    .frame(width: density.numberWidth + 8, alignment: .leading)
+                    .frame(width: density.numberWidth + density.columnGap, alignment: .leading)
                     Text(detail(account))
                         .font(density.identityFont)
                         .foregroundStyle(.secondary)
