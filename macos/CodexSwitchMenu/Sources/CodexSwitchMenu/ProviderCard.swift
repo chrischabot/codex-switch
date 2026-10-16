@@ -1,37 +1,41 @@
 import SwiftUI
 
-/// A provider's accounts in one card, organised by indicator: who the
-/// accounts are, then one block per allowance window with a thin row per
-/// account, so one window is read across every account at once and a new
-/// account adds one row per block.
+/// A provider's accounts in one card, organised by allowance window: one
+/// block per window with a thin row per account, so one window is read
+/// across every account at once and a new account adds one row per block.
+/// The first block also says who each account is; later blocks show only
+/// the colour and number.
 struct ProviderCard: View {
     let snapshot: CSSwitch_MenuSnapshot
     let provider: CSSwitch_Provider
     let hideIdentity: Bool
     let now: Date
 
-    private var accounts: [CSSwitch_Account] {
-        snapshot.accounts.filter { $0.menuProvider == provider }.sorted { $0.accountNumber < $1.accountNumber }
-    }
-
     var body: some View {
+        let accounts = snapshot.accounts.filter { $0.menuProvider == provider }.sorted { $0.accountNumber < $1.accountNumber }
+        let blocks = IndicatorBlock.blocks(for: accounts, provider: provider)
         VStack(alignment: .leading, spacing: 9) {
-            VStack(alignment: .leading, spacing: 5) {
-                ForEach(accounts, id: \.key) { account in
-                    AccountIdentityRow(account: account, colour: snapshot.colour(of: account), hideIdentity: hideIdentity)
-                }
-            }
-            ForEach(IndicatorBlock.blocks(for: accounts, provider: provider)) { block in
-                VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(blocks.enumerated()), id: \.element.id) { index, block in
+                VStack(alignment: .leading, spacing: 5) {
                     Text(block.title)
                         .font(UsageTheme.labelFont)
                     ForEach(block.rows, id: \.account.key) { row in
                         AllowanceRow(
-                            number: Int(row.account.accountNumber),
+                            account: row.account,
                             colour: snapshot.colour(of: row.account),
                             allowance: row.window,
-                            now: now
+                            now: now,
+                            identity: index == 0 ? (hideIdentity ? UsageFormatting.privateEmail(row.account.email) : row.account.email) : nil
                         )
+                    }
+                    if index == 0 {
+                        ForEach(accounts.filter { !$0.offersConfiguredModel }, id: \.key) { account in
+                            OutOfPoolRow(
+                                account: account,
+                                colour: snapshot.colour(of: account),
+                                identity: hideIdentity ? UsageFormatting.privateEmail(account.email) : account.email
+                            )
+                        }
                     }
                 }
             }
@@ -42,60 +46,7 @@ struct ProviderCard: View {
     }
 }
 
-/// Which account this is: its colour and number, its address (censored in
-/// privacy mode), its plan and stored resets, and the state that keeps new
-/// work off it when there is one.
-private struct AccountIdentityRow: View {
-    let account: CSSwitch_Account
-    let colour: Color
-    let hideIdentity: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                AccountMarker(colour: colour)
-                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
-                Text("Account \(account.accountNumber)")
-                    .font(UsageTheme.detailEmphasisFont)
-                    .layoutPriority(2)
-                if !account.email.isEmpty {
-                    Text(hideIdentity ? UsageFormatting.privateEmail(account.email) : account.email)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                Spacer(minLength: 4)
-                Text(planAndResets)
-                    .font(UsageTheme.detailFont)
-                    .foregroundStyle(.secondary)
-                    .layoutPriority(2)
-            }
-            let status = account.usable ? account.reserveStatus : account.unavailableReason
-            if !status.isEmpty {
-                Text(status)
-                    .font(UsageTheme.detailFont)
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, 14)
-            }
-        }
-    }
-
-    /// "Pro · 3 stored resets", "Max 20x".
-    private var planAndResets: String {
-        var parts: [String] = []
-        if !account.plan.isEmpty {
-            parts.append(account.plan.prefix(1).uppercased() + account.plan.dropFirst())
-        }
-        if account.allowance.hasAvailableResetCredits, account.allowance.availableResetCredits > 0 {
-            let count = account.allowance.availableResetCredits
-            parts.append(count == 1 ? "1 stored reset" : "\(count) stored resets")
-        }
-        return parts.joined(separator: " · ")
-    }
-}
-
-/// One allowance window across the provider's accounts.
+/// One allowance window across the provider's pool accounts.
 struct IndicatorBlock: Identifiable {
     struct Row {
         let account: CSSwitch_Account
@@ -107,11 +58,13 @@ struct IndicatorBlock: Identifiable {
     let rows: [Row]
 
     /// Shortest window first; a model's own limit follows the limit it sits
-    /// inside. Accounts keep their number order within every block.
+    /// inside. Accounts keep their number order within every block. An
+    /// account that cannot run the configured model has no row: its
+    /// allowance is not the pool's.
     static func blocks(for accounts: [CSSwitch_Account], provider: CSSwitch_Provider) -> [IndicatorBlock] {
         var rowsByKey: [String: [Row]] = [:]
         var windowsByKey: [String: CSSwitch_AllowanceWindow] = [:]
-        for account in accounts where account.hasAllowance {
+        for account in accounts where account.hasAllowance && account.offersConfiguredModel {
             for window in account.allowance.windows {
                 let key = "\(window.periodSeconds) \(window.modelID) \(window.modelName)"
                 rowsByKey[key, default: []].append(Row(account: account, window: window))
@@ -154,101 +107,151 @@ extension CSSwitch_AllowanceWindow {
         let runOut = now.addingTimeInterval(freePercent / usedPercent * elapsed)
         return runOut < reset ? runOut : nil
     }
-
-    /// Where the bar would stand now if the window were spent evenly from
-    /// start to reset: 1 at the start, 0 at the reset.
-    func evenPaceFreeFraction(now: Date) -> Double? {
-        guard hasResetAt, periodSeconds > 0 else { return nil }
-        let elapsed = now.timeIntervalSince(resetAt.date.addingTimeInterval(-TimeInterval(periodSeconds)))
-        return 1 - min(max(elapsed / TimeInterval(periodSeconds), 0), 1)
-    }
 }
 
-/// One account's line in an indicator block: its number, the bar, what is
-/// left, and the one time that matters: a flame and when it hits the limit
-/// if it will, otherwise when it resets. The reset of a running-out window
-/// is on hover.
+extension CSSwitch_Account {
+    /// "Pro", "Max 20x".
+    var planTitle: String { plan.prefix(1).uppercased() + plan.dropFirst() }
+}
+
+/// One account's line in a window block: its colour and number, the bar,
+/// what is left, and the time that matters: a flame and how long until it
+/// hits the limit if it will, otherwise how long until it resets. In the
+/// provider's first block the row also carries the account's address and
+/// plan, and the state that keeps new work off it when there is one.
 private struct AllowanceRow: View {
-    let number: Int
+    let account: CSSwitch_Account
     let colour: Color
     let allowance: CSSwitch_AllowanceWindow
     let now: Date
+    let identity: String?
 
-    private static let numberWidth: CGFloat = 22
-    private static let percentWidth: CGFloat = 56
-    private static let timeWidth: CGFloat = 112
+    static let numberWidth: CGFloat = 22
+    private static let percentWidth: CGFloat = 36
+    private static let timeWidth: CGFloat = 60
 
     var body: some View {
         let runOut = allowance.runOutDate(now: now)
-        let reset = allowance.hasResetAt ? UsageFormatting.resetLabel(allowance.resetAt.date, now: now) : nil
-        HStack(spacing: 8) {
-            HStack(spacing: 3) {
-                AccountMarker(colour: colour, size: 7)
-                Text("\(number)")
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                AccountNumber(number: Int(account.accountNumber), colour: colour)
+                AllowanceBar(
+                    freeFraction: min(max(allowance.freePercent / 100, 0), 1),
+                    runningOut: runOut != nil
+                )
+                Text(UsageFormatting.percent(allowance.freePercent))
                     .font(UsageTheme.detailEmphasisFont)
                     .monospacedDigit()
-            }
-            .frame(width: Self.numberWidth, alignment: .leading)
-            AllowanceBar(
-                freeFraction: min(max(allowance.freePercent / 100, 0), 1),
-                runningOut: runOut != nil,
-                evenPaceFreeFraction: runOut == nil ? nil : allowance.evenPaceFreeFraction(now: now)
-            )
-            Text("\(UsageFormatting.percent(allowance.freePercent)) left")
+                    .lineLimit(1)
+                    .frame(width: Self.percentWidth, alignment: .trailing)
+                Group {
+                    if let runOut {
+                        HStack(spacing: 3) {
+                            Image(systemName: "flame.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(UsageTheme.runOutColour)
+                            Text(UsageFormatting.duration(runOut.timeIntervalSince(now)))
+                        }
+                        .help(UsageFormatting.resetLabel(allowance.resetAt.date, now: now))
+                    } else if allowance.hasResetAt {
+                        Text(UsageFormatting.duration(allowance.resetAt.date.timeIntervalSince(now)))
+                    }
+                }
                 .font(UsageTheme.detailFont)
+                .foregroundStyle(.secondary)
                 .monospacedDigit()
                 .lineLimit(1)
-                .frame(width: Self.percentWidth, alignment: .trailing)
-            Group {
-                if let runOut {
-                    HStack(spacing: 4) {
-                        Image(systemName: "flame.fill")
-                            .font(.system(size: 10))
-                            .foregroundStyle(UsageTheme.runOutColour)
-                        Text("Limit in " + UsageFormatting.duration(runOut.timeIntervalSince(now)))
-                    }
-                    .help(reset ?? "")
-                } else if let reset {
-                    Text(reset)
+                .frame(width: Self.timeWidth, alignment: .trailing)
+            }
+            .frame(height: 16)
+            if let identity {
+                AccountIdentityLine(identity: identity, plan: account.planTitle)
+                    .padding(.leading, Self.numberWidth + 8)
+                let status = account.usable ? account.reserveStatus : account.unavailableReason
+                if !status.isEmpty {
+                    Text(status)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .padding(.leading, Self.numberWidth + 8)
                 }
             }
-            .font(UsageTheme.detailFont)
-            .foregroundStyle(.secondary)
-            .monospacedDigit()
-            .lineLimit(1)
-            .frame(width: Self.timeWidth, alignment: .trailing)
         }
-        .frame(height: 16)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Account \(number): \(UsageFormatting.percent(allowance.freePercent)) left")
+        .accessibilityLabel("Account \(account.accountNumber): \(UsageFormatting.percent(allowance.freePercent)) left")
     }
 }
 
-/// Full-width capsule: blue while the window lasts to its reset, red when
-/// it will run out, with a tick where even pace would leave it now.
+/// An account that cannot run the configured model: listed, greyed, with no
+/// allowance to compare.
+private struct OutOfPoolRow: View {
+    let account: CSSwitch_Account
+    let colour: Color
+    let identity: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            AccountNumber(number: Int(account.accountNumber), colour: colour)
+            AccountIdentityLine(identity: identity, plan: account.planTitle)
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(.secondary)
+        .frame(height: 16)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Account \(account.accountNumber), not in the pool")
+    }
+}
+
+/// The address and plan on one line. The address is never cut: the plan
+/// goes first, then the type shrinks a little.
+private struct AccountIdentityLine: View {
+    let identity: String
+    let plan: String
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            Text(plan.isEmpty ? identity : "\(identity) · \(plan)")
+                .fixedSize()
+            Text(identity)
+                .fixedSize()
+            Text(identity)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(.secondary)
+    }
+}
+
+private struct AccountNumber: View {
+    let number: Int
+    let colour: Color
+
+    var body: some View {
+        HStack(spacing: 3) {
+            AccountMarker(colour: colour, size: 7)
+            Text("\(number)")
+                .font(UsageTheme.detailEmphasisFont)
+                .monospacedDigit()
+        }
+        .frame(width: AllowanceRow.numberWidth, alignment: .leading)
+    }
+}
+
+/// Full-width capsule: blue while the window lasts to its reset, red when it will run out.
 private struct AllowanceBar: View {
     let freeFraction: Double
     let runningOut: Bool
-    let evenPaceFreeFraction: Double?
 
-    private static let height: CGFloat = 5
+    private static let height: CGFloat = 6
 
     var body: some View {
         GeometryReader { geometry in
-            let track = geometry.size.width
             ZStack(alignment: .leading) {
                 Capsule().fill(.fill.secondary)
                 Capsule()
                     .fill(runningOut ? UsageTheme.runOutColour : UsageTheme.capacityColour)
-                    .frame(width: freeFraction > 0 ? max(Self.height, track * freeFraction) : 0)
-            }
-            .overlay(alignment: .leading) {
-                if let evenPaceFreeFraction {
-                    RoundedRectangle(cornerRadius: 1)
-                        .fill(Color.primary.opacity(0.55))
-                        .frame(width: 2, height: Self.height + 4)
-                        .offset(x: min(max(track * evenPaceFreeFraction - 1, 0), max(track - 2, 0)))
-                }
+                    .frame(width: freeFraction > 0 ? max(Self.height, geometry.size.width * freeFraction) : 0)
             }
             .frame(height: Self.height)
             .frame(maxHeight: .infinity, alignment: .center)

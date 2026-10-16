@@ -63,7 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ sender: NSApplication,
         hasVisibleWindows flag: Bool
     ) -> Bool {
-        statusBarController?.showPopover()
+        statusBarController?.showPanel()
         return false
     }
 

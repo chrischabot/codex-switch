@@ -22,8 +22,8 @@ final class FormattingTests: XCTestCase {
         let soon = try Date.ISO8601FormatStyle().parse("2026-10-11T15:12:00Z")
 
         XCTAssertEqual(UsageFormatting.resetLabel(sunday, now: now), "Resets in 6d 14h")
-        XCTAssertEqual(UsageFormatting.runOutLabel(tonight, now: now), "Runs out in 8h 36m")
-        XCTAssertEqual(UsageFormatting.runOutLabel(soon, now: now), "Runs out in 12m")
+        XCTAssertEqual(UsageFormatting.duration(tonight.timeIntervalSince(now)), "8h 36m")
+        XCTAssertEqual(UsageFormatting.duration(soon.timeIntervalSince(now)), "12m")
     }
 
     func testAmountsUseThreeSignificantFigures() {

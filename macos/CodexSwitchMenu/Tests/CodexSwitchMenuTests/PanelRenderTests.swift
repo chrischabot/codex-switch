@@ -5,7 +5,7 @@ import XCTest
 
 final class PanelRenderTests: XCTestCase {
     /// The tallest the menu may be on a 14-inch MacBook Pro at 1512x982:
-    /// the screen less its 37-point menu bar and the popover's margins.
+    /// the screen less its 37-point menu bar and the panel's margins.
     private static let laptopHeight: CGFloat = 982 - 37 - 16
     private static let desktopHeight: CGFloat = 1_440 - 25 - 16
 
@@ -45,8 +45,15 @@ final class PanelRenderTests: XCTestCase {
                 }
             }
         }
-        _ = try await renderPanel(real, period: .today, metric: .cost, privacy: false, dark: false,
-                                  maximumHeight: Self.laptopHeight, to: output.appending(path: "panel-real-privacy-off-light.png"))
+        for dark in [false, true] {
+            let appearance = dark ? "dark" : "light"
+            _ = try await renderPanel(real, period: .today, metric: .cost, privacy: false, dark: dark,
+                                      maximumHeight: Self.laptopHeight, to: output.appending(path: "panel-real-privacy-off-\(appearance).png"))
+            let open = try await renderPanel(real, period: .today, metric: .cost, privacy: true, dark: dark, tasksOpen: true,
+                                             maximumHeight: Self.laptopHeight, to: output.appending(path: "panel-real-tasks-open-\(appearance).png"))
+            print("real tasks open \(appearance): \(Int(open.width)) × \(Int(open.height)) pt")
+            XCTAssertLessThanOrEqual(open.height, Self.laptopHeight, "the open task list must fit the laptop screen")
+        }
         _ = try await renderPanel(real, period: .today, metric: .cost, privacy: true, dark: false,
                                   maximumHeight: Self.desktopHeight, to: output.appending(path: "panel-real-2560x1440-light.png"))
         for (name, period) in [("7-days", OverviewSnapshot.ReportingPeriodKind.sevenDays), ("30-days", .thirtyDays)] {
@@ -74,6 +81,7 @@ final class PanelRenderTests: XCTestCase {
         metric: UsageMetric,
         privacy: Bool,
         dark: Bool,
+        tasksOpen: Bool = false,
         maximumHeight: CGFloat,
         to url: URL
     ) async throws -> CGSize {
@@ -85,6 +93,7 @@ final class PanelRenderTests: XCTestCase {
         defaults.setVolatileDomain([
             "privacyModeEnabled": privacy,
             "usageMetric": metric.rawValue,
+            "topTasksExpanded": tasksOpen,
         ], forName: UserDefaults.argumentDomain)
         let panel = CodexSwitchPanel(store: store, maximumHeight: maximumHeight, initialPeriod: period)
             .defaultAppStorage(defaults)

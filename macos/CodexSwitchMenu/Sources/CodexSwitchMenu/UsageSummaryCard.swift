@@ -11,11 +11,19 @@ struct UsageSummaryCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            MetricMenu(
-                selection: selectedMetric,
-                enabledMetrics: enabledMetrics,
-                select: selectMetric
-            )
+            HStack(alignment: .firstTextBaseline) {
+                MetricMenu(
+                    selection: selectedMetric,
+                    enabledMetrics: enabledMetrics,
+                    select: selectMetric
+                )
+                Spacer()
+                if let presentation, let total = presentation.total(selectedMetric) {
+                    Text(format(total, metric: selectedMetric))
+                        .font(.system(size: 18, weight: .semibold))
+                        .monospacedDigit()
+                }
+            }
             UsagePeriodPicker(
                 periods: OverviewSnapshot.ReportingPeriodKind.allCases,
                 enabledPeriods: enabledPeriods,
@@ -33,10 +41,17 @@ struct UsageSummaryCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardSurface()
     }
+
+    private func format(_ amount: Int64, metric: UsageMetric) -> String {
+        switch metric {
+        case .cost: UsageFormatting.cost(amount)
+        case .tokens: UsageFormatting.tokens(amount) + " tokens"
+        }
+    }
 }
 
-/// The ring with the period's total inside, and one legend line per account
-/// beside it: a single column up to three accounts, two columns beyond.
+/// The ring of the period's split by account, with one legend line per
+/// account beside it. Names keep their full width.
 private struct UsageBreakdown: View {
     let presentation: UsagePresentation
     let selectedMetric: UsageMetric
@@ -44,34 +59,25 @@ private struct UsageBreakdown: View {
     var body: some View {
         if let total {
             let shares = shares
-            let columns = shares.count > 3 ? 2 : 1
-            let rows = (shares.count + columns - 1) / columns
-            HStack(spacing: 8) {
+            HStack(spacing: 18) {
                 BreakdownRing(
                     shares: shares,
-                    primary: selectedMetric == .cost && presentation.hasMultipleProviders ? UsageFormatting.ringCost(total) : format(total),
-                    unit: selectedMetric == .tokens ? "tokens" : nil,
                     accessibilityLabel: "\(selectedMetric.title) \(format(total))"
                 )
-                HStack(alignment: .top, spacing: 12) {
-                    ForEach(0..<columns, id: \.self) { column in
-                        VStack(alignment: .leading, spacing: 6) {
-                            ForEach(shares.dropFirst(column * rows).prefix(rows)) { share in
-                                HStack(spacing: 5) {
-                                    AccountMarker(colour: UsageTheme.accountColour(share.colourSlot), size: 7)
-                                    Text(share.label)
-                                        .font(UsageTheme.detailFont)
-                                        .lineLimit(1)
-                                    Spacer(minLength: 4)
-                                    Text(value(share))
-                                        .font(UsageTheme.detailFont)
-                                        .foregroundStyle(.secondary)
-                                        .monospacedDigit()
-                                        .lineLimit(1)
-                                }
-                            }
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(shares) { share in
+                        HStack(spacing: 7) {
+                            AccountMarker(colour: UsageTheme.accountColour(share.colourSlot))
+                            Text(share.label)
+                                .font(UsageTheme.detailFont)
+                                .fixedSize()
+                            Spacer(minLength: 8)
+                            Text(value(share))
+                                .font(UsageTheme.detailEmphasisFont)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                                .fixedSize()
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -86,12 +92,7 @@ private struct UsageBreakdown: View {
         }
     }
 
-    private var total: Int64? {
-        switch selectedMetric {
-        case .cost: presentation.totalCostNanoUSD
-        case .tokens: presentation.totalTokens
-        }
-    }
+    private var total: Int64? { presentation.total(selectedMetric) }
 
     private func format(_ amount: Int64) -> String {
         switch selectedMetric {
@@ -146,8 +147,6 @@ private struct MetricMenu: View {
 
 private struct BreakdownRing: View {
     let shares: [UsagePresentation.Share]
-    let primary: String
-    let unit: LocalizedStringResource?
     let accessibilityLabel: String
 
     var body: some View {
@@ -159,21 +158,8 @@ private struct BreakdownRing: View {
                 )
                 .fill(UsageTheme.accountColour(arc.colourSlot))
             }
-            VStack(spacing: 0) {
-                Text(primary)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                if let unit {
-                    Text(unit)
-                        .font(.system(size: 8, weight: .medium))
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .frame(width: 36)
         }
-        .frame(width: 62, height: 62)
+        .frame(width: 96, height: 96)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
     }

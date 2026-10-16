@@ -52,6 +52,13 @@ struct UsagePresentation: Equatable, Sendable {
         accountCostShares = totalCostNanoUSD.map { shares(metric: .cost, total: $0) } ?? []
     }
 
+    func total(_ metric: UsageMetric) -> Int64? {
+        switch metric {
+        case .cost: totalCostNanoUSD
+        case .tokens: totalTokens
+        }
+    }
+
     /// The provider's spend or tokens for the period, formatted; nil until
     /// every one of its accounts has a priced total.
     func providerTotal(_ provider: CSSwitch_Provider, metric: UsageMetric) -> String? {

@@ -8,6 +8,7 @@ struct CodexSwitchPanel: View {
     @State private var heightAboveTasks: CGFloat = 0
     @AppStorage("privacyModeEnabled") private var privacyModeEnabled = false
     @AppStorage("usageMetric") private var selectedMetric: UsageMetric = .cost
+    @AppStorage("topTasksExpanded") private var topTasksExpanded = false
 
     private static let topInset: CGFloat = 14
     private static let bottomInset: CGFloat = 12
@@ -22,10 +23,10 @@ struct CodexSwitchPanel: View {
         _selectedPeriod = State(initialValue: initialPeriod)
     }
 
-    /// The top tasks list takes the height the screen leaves after the
+    /// The open top tasks list takes the height the screen leaves after the
     /// pool, so the whole panel fits without scrolling.
     private var taskRows: Int {
-        guard heightAboveTasks > 0 else { return 0 }
+        guard topTasksExpanded, heightAboveTasks > 0 else { return 0 }
         let room = maximumHeight - PanelSizing.footerHeight - Self.topInset - Self.bottomInset
             - heightAboveTasks - UsageTheme.sectionGap
         return RoutedTasksSection.rows(fitting: room)
@@ -48,6 +49,13 @@ struct CodexSwitchPanel: View {
                                     currentCheckSucceeded: store.currentCheckSucceeded,
                                     privacyModeEnabled: $privacyModeEnabled
                                 )
+                                if let pace = WeeklyPace.sentence(snapshot, now: snapshot.generatedAt.date) {
+                                    Text(pace)
+                                        .font(UsageTheme.detailFont)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.leading, 4)
+                                        .padding(.top, -4)
+                                }
                                 if let overview, let selectedPresentation {
                                     UsageSummaryCard(
                                         presentation: selectedPresentation,
@@ -91,7 +99,8 @@ struct CodexSwitchPanel: View {
                                 period: overview?.reportingPeriod(selectedPeriod),
                                 selectedPeriod: selectedPeriod,
                                 selectedMetric: selectedMetric,
-                                maximumRows: taskRows
+                                maximumRows: taskRows,
+                                expanded: $topTasksExpanded
                             )
                         } else {
                             EmptyPanelState()
@@ -238,7 +247,7 @@ private struct PanelStatusHeader: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
-            Text("Balancing \(snapshot.accounts.filter(\.offersConfiguredModel).count) accounts")
+            Text("Balancing \(snapshot.accounts.count) accounts")
                 .font(UsageTheme.titleFont)
             Spacer(minLength: 8)
             HStack(spacing: 5) {

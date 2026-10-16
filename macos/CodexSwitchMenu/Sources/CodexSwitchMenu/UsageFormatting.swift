@@ -22,11 +22,6 @@ enum UsageFormatting {
         "Resets in " + duration(date.timeIntervalSince(now))
     }
 
-    /// "Runs out in 9h 36m": how long until the window empties at its pace so far.
-    static func runOutLabel(_ date: Date, now: Date) -> String {
-        "Runs out in " + duration(date.timeIntervalSince(now))
-    }
-
     /// "4d 17h", "9h 36m", "12m": two units at the day scale, minutes below it.
     static func duration(_ seconds: TimeInterval) -> String {
         let minutes = max(1, Int((max(seconds, 0) / 60).rounded(.up)))
@@ -35,6 +30,11 @@ enum UsageFormatting {
         if days > 0 { return "\(days)d \(hours)h" }
         if hours > 0 { return "\(hours)h \(minutes % 60)m" }
         return "\(minutes)m"
+    }
+
+    /// "2.6", "1.0": one decimal, as the Mac formats it.
+    static func oneDecimal(_ value: Double, locale: Locale = .autoupdatingCurrent) -> String {
+        decimal(value, fractionDigits: 1, locale: locale)
     }
 
     static func percent(_ value: Double, locale: Locale = .autoupdatingCurrent) -> String {
