@@ -45,20 +45,35 @@ Use two clean revisions that both contain the updater and trust the same
 Sparkle public key. The target must contain a different proxy revision, so the
 check exercises a handover as well as Sparkle replacement.
 
+Use the same isolated installation settings for both builds. Choose unused
+ports and keep the root outside Applications and the normal data directory:
+
+```sh
+export CODEX_SWITCH_INSTALL_ROOT="$PWD/dist/update-check/home"
+export CODEX_SWITCH_LAUNCHD_LABEL=dev.codex-switch.update-check
+export CODEX_SWITCH_LISTEN=127.0.0.1:24681
+```
+
 1. At the older revision, prepare a source release with
-   `--feed-url http://127.0.0.1:8765/appcast.xml` and a lower `--build`.
+   `--feed-url http://127.0.0.1:24682/appcast.xml` and a lower `--build`.
 2. At the target revision, prepare the next version into a separate directory
-   with the same loopback feed and a larger build number. Serve that directory
-   with `python3 -m http.server 8765 --bind 127.0.0.1 --directory DIR`.
-3. Quit the installed menu app, unpack the source ZIP into Applications and
-   open it. Keep Codex, Pi and Claude Code doing real model work.
+   with the same settings and a larger build number. Serve that directory with
+   `python3 -m http.server 24682 --bind 127.0.0.1 --directory DIR`.
+3. Unpack the source ZIP into `dist/update-check/installed` and open that copy
+   of the app. It installs an empty proxy pool in the isolated root, under the
+   separate launchd label. It does not register itself to open at login.
 4. Open Options → Check for Updates…, install the target and let it reopen.
-   Check that the menu changed version and the proxy's `deploy-status` reports
-   the target revision. Observe the admitted work finish on the old process;
-   both the old process and bridge must then exit. Check `proxy-install.log`
-   and `proxy.log` in the app's data directory if the handover fails.
-5. Quit the test HTTP server. Prepare the final candidate with the default
-   production feed. Loopback candidates cannot be published.
+   Check the app version and the isolated proxy's `deploy-status` revision.
+   Check `proxy-install.log` and `proxy.log` under the isolated root: the old
+   generation must drain, launchd must start the new stable binary on its first
+   spawn, and the bridge must exit.
+5. Uninstall the isolated copy with its bundled script, retaining the settings:
+   `HOME="$CODEX_SWITCH_INSTALL_ROOT" CODEX_SWITCH_MENU_APP="$PWD/dist/update-check/installed/CodexSwitchMenu.app" sh dist/update-check/installed/CodexSwitchMenu.app/Contents/Resources/deploy/uninstall.sh`.
+   Quit the test HTTP server and check that the isolated label and processes
+   are gone.
+6. Unset the three installation variables before preparing the final candidate
+   with the default production feed. Isolated and loopback candidates cannot
+   be published.
 
 Run `scripts/dev/system-test` too. It uses real clients/accounts in an isolated
 installation and checks admission, draining and reopening the same bundle
