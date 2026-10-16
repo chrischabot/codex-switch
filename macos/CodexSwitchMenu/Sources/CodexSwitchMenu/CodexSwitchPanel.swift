@@ -5,8 +5,12 @@ struct CodexSwitchPanel: View {
     let maximumHeight: CGFloat
     @State private var selectedPeriod: OverviewSnapshot.ReportingPeriodKind
     @State private var contentHeight: CGFloat = 0
+    @State private var heightAboveTasks: CGFloat = 0
     @AppStorage("privacyModeEnabled") private var privacyModeEnabled = false
     @AppStorage("usageMetric") private var selectedMetric: UsageMetric = .cost
+
+    private static let topInset: CGFloat = 14
+    private static let bottomInset: CGFloat = 12
 
     init(
         store: OverviewStore,
@@ -16,6 +20,15 @@ struct CodexSwitchPanel: View {
         self.store = store
         self.maximumHeight = maximumHeight
         _selectedPeriod = State(initialValue: initialPeriod)
+    }
+
+    /// The top tasks list takes the height the screen leaves after the
+    /// pool, so the whole panel fits without scrolling.
+    private var taskRows: Int {
+        guard heightAboveTasks > 0 else { return 0 }
+        let room = maximumHeight - PanelSizing.footerHeight - Self.topInset - Self.bottomInset
+            - heightAboveTasks - UsageTheme.sectionGap
+        return RoutedTasksSection.rows(fitting: room)
     }
 
     var body: some View {
@@ -29,38 +42,47 @@ struct CodexSwitchPanel: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: UsageTheme.sectionGap) {
                         if let snapshot {
-                            PanelStatusHeader(
-                                snapshot: snapshot,
-                                currentCheckSucceeded: store.currentCheckSucceeded,
-                                privacyModeEnabled: $privacyModeEnabled
-                            )
-                            if let overview, let selectedPresentation {
-                                UsageSummaryCard(
-                                    presentation: selectedPresentation,
-                                    selectedPeriod: selectedPeriod,
-                                    selectedMetric: selectedMetric,
-                                    enabledPeriods: Set(OverviewSnapshot.ReportingPeriodKind.allCases.filter {
-                                        overview.supports(selectedMetric, period: $0)
-                                    }),
-                                    enabledMetrics: Set(UsageMetric.allCases.filter {
-                                        overview.supports($0, period: selectedPeriod)
-                                    }),
-                                    selectPeriod: { selectedPeriod = $0 },
-                                    selectMetric: { selectedMetric = $0 }
+                            VStack(alignment: .leading, spacing: UsageTheme.sectionGap) {
+                                PanelStatusHeader(
+                                    snapshot: snapshot,
+                                    currentCheckSucceeded: store.currentCheckSucceeded,
+                                    privacyModeEnabled: $privacyModeEnabled
                                 )
-                            }
-                            let providers = snapshot.providers
-                            ForEach(providers, id: \.self) { provider in
-                                if providers.count > 1 {
-                                    ProviderHeader(provider: provider)
+                                if let overview, let selectedPresentation {
+                                    UsageSummaryCard(
+                                        presentation: selectedPresentation,
+                                        selectedPeriod: selectedPeriod,
+                                        selectedMetric: selectedMetric,
+                                        enabledPeriods: Set(OverviewSnapshot.ReportingPeriodKind.allCases.filter {
+                                            overview.supports(selectedMetric, period: $0)
+                                        }),
+                                        enabledMetrics: Set(UsageMetric.allCases.filter {
+                                            overview.supports($0, period: selectedPeriod)
+                                        }),
+                                        selectPeriod: { selectedPeriod = $0 },
+                                        selectMetric: { selectedMetric = $0 }
+                                    )
                                 }
-                                ForEach(snapshot.accounts.filter { $0.menuProvider == provider }, id: \.key) { account in
-                                    AccountSection(
-                                        account: account,
-                                        colour: snapshot.colour(of: account),
-                                        hideIdentity: privacyModeEnabled,
-                                        now: snapshot.generatedAt.date,
-                                        dailyUsage: overview?.dailyUsage(account: account.key, metric: selectedMetric) ?? []
+                                let providers = snapshot.providers
+                                ForEach(providers, id: \.self) { provider in
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        if providers.count > 1 {
+                                            ProviderHeader(provider: provider, total: selectedPresentation?.providerTotal(provider, metric: selectedMetric))
+                                        }
+                                        ProviderCard(
+                                            snapshot: snapshot,
+                                            provider: provider,
+                                            hideIdentity: privacyModeEnabled,
+                                            now: snapshot.generatedAt.date
+                                        )
+                                    }
+                                }
+                            }
+                            .background {
+                                GeometryReader { proxy in
+                                    Color.clear.preference(
+                                        key: PanelHeightAboveTasksKey.self,
+                                        value: proxy.size.height
                                     )
                                 }
                             }
@@ -68,15 +90,16 @@ struct CodexSwitchPanel: View {
                                 snapshot: snapshot,
                                 period: overview?.reportingPeriod(selectedPeriod),
                                 selectedPeriod: selectedPeriod,
-                                selectedMetric: selectedMetric
+                                selectedMetric: selectedMetric,
+                                maximumRows: taskRows
                             )
                         } else {
                             EmptyPanelState()
                         }
                     }
                     .padding(.horizontal, UsageTheme.outerInset)
-                    .padding(.top, 14)
-                    .padding(.bottom, 12)
+                    .padding(.top, Self.topInset)
+                    .padding(.bottom, Self.bottomInset)
                     .background {
                         GeometryReader { proxy in
                             Color.clear.preference(
@@ -99,6 +122,7 @@ struct CodexSwitchPanel: View {
                     maximumPanelHeight: maximumHeight
                 ))
                 .onPreferenceChange(PanelContentHeightKey.self) { contentHeight = $0 }
+                .onPreferenceChange(PanelHeightAboveTasksKey.self) { heightAboveTasks = $0 }
                 .onChange(of: selectedPeriod) { _, _ in
                     scrollProxy.scrollTo(PanelScrollAnchor.top, anchor: .top)
                 }
@@ -147,6 +171,14 @@ private enum PanelScrollAnchor {
 }
 
 private struct PanelContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        let next = nextValue()
+        if next > 0 { value = next }
+    }
+}
+
+private struct PanelHeightAboveTasksKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         let next = nextValue()

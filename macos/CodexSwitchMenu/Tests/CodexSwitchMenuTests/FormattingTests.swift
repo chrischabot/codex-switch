@@ -10,18 +10,20 @@ final class FormattingTests: XCTestCase {
     func testPrivacyMaskKeepsEmailShapeWithoutRevealingAddress() {
         XCTAssertEqual(
             UsageFormatting.privateEmail("alice@example.com"),
-            "a••••••••@••••••••.com"
+            "a•••••@•••••.com"
         )
         XCTAssertEqual(UsageFormatting.privateEmail("account-1"), "account-1")
     }
 
-    func testResetsUseWeekdayWithinAWeekAndDateBeyond() throws {
+    func testTimesUntilResetAndRunOutAreRelative() throws {
         let now = try Date.ISO8601FormatStyle().parse("2026-10-11T15:00:00Z")
         let sunday = try Date.ISO8601FormatStyle().parse("2026-10-18T05:52:00Z")
-        let november = try Date.ISO8601FormatStyle().parse("2026-11-08T09:20:00Z")
+        let tonight = try Date.ISO8601FormatStyle().parse("2026-10-11T23:36:00Z")
+        let soon = try Date.ISO8601FormatStyle().parse("2026-10-11T15:12:00Z")
 
-        XCTAssertEqual(UsageFormatting.resetLabel(sunday, now: now, locale: locale, timeZone: utc), "Resets Sun 05:52")
-        XCTAssertEqual(UsageFormatting.resetLabel(november, now: now, locale: locale, timeZone: utc), "Resets 8 Nov 09:20")
+        XCTAssertEqual(UsageFormatting.resetLabel(sunday, now: now), "Resets in 6d 14h")
+        XCTAssertEqual(UsageFormatting.runOutLabel(tonight, now: now), "Runs out in 8h 36m")
+        XCTAssertEqual(UsageFormatting.runOutLabel(soon, now: now), "Runs out in 12m")
     }
 
     func testAmountsUseThreeSignificantFigures() {

@@ -14,27 +14,27 @@ enum UsageFormatting {
 
         let domainParts = parts[1].split(separator: ".", omittingEmptySubsequences: false)
         let suffix = domainParts.count > 1 ? ".\(domainParts.last!)" : ""
-        return "\(first)••••••••@••••••••\(suffix)"
+        return "\(first)•••••@•••••\(suffix)"
     }
 
-    /// "Resets Sun 07:52" within a week; "Resets 8 Nov 10:20" beyond it.
-    static func resetLabel(
-        _ date: Date,
-        now: Date,
-        locale: Locale = .autoupdatingCurrent,
-        timeZone: TimeZone = .autoupdatingCurrent
-    ) -> String {
-        "Resets " + dayAndTime(date, now: now, locale: locale, timeZone: timeZone)
+    /// "Resets in 4d 17h": how long until the window refills.
+    static func resetLabel(_ date: Date, now: Date) -> String {
+        "Resets in " + duration(date.timeIntervalSince(now))
     }
 
-    /// "Runs out Tue 14:20", in the same form as the reset time beside it.
-    static func runOutLabel(
-        _ date: Date,
-        now: Date,
-        locale: Locale = .autoupdatingCurrent,
-        timeZone: TimeZone = .autoupdatingCurrent
-    ) -> String {
-        "Runs out " + dayAndTime(date, now: now, locale: locale, timeZone: timeZone)
+    /// "Runs out in 9h 36m": how long until the window empties at its pace so far.
+    static func runOutLabel(_ date: Date, now: Date) -> String {
+        "Runs out in " + duration(date.timeIntervalSince(now))
+    }
+
+    /// "4d 17h", "9h 36m", "12m": two units at the day scale, minutes below it.
+    static func duration(_ seconds: TimeInterval) -> String {
+        let minutes = max(1, Int((max(seconds, 0) / 60).rounded(.up)))
+        let days = minutes / 1_440
+        let hours = minutes % 1_440 / 60
+        if days > 0 { return "\(days)d \(hours)h" }
+        if hours > 0 { return "\(hours)h \(minutes % 60)m" }
+        return "\(minutes)m"
     }
 
     static func percent(_ value: Double, locale: Locale = .autoupdatingCurrent) -> String {
@@ -78,18 +78,6 @@ enum UsageFormatting {
     static func ringCost(_ nanoUSD: Int64, locale: Locale = .autoupdatingCurrent) -> String {
         let dollars = abs(nanoUSD) / 1_000_000_000
         return dollars < 10_000 ? cost(nanoUSD, locale: locale) : "$" + tokens(dollars, locale: locale)
-    }
-
-    private static func dayAndTime(_ date: Date, now: Date, locale: Locale, timeZone: TimeZone) -> String {
-        let day = DateFormatter()
-        day.locale = locale
-        day.timeZone = timeZone
-        day.setLocalizedDateFormatFromTemplate(date.timeIntervalSince(now) < 7 * 24 * 60 * 60 ? "EEE" : "dMMM")
-        let time = DateFormatter()
-        time.locale = locale
-        time.timeZone = timeZone
-        time.setLocalizedDateFormatFromTemplate("jmm")
-        return day.string(from: date) + " " + time.string(from: date)
     }
 
     private static func decimal(_ value: Double, fractionDigits: Int, locale: Locale) -> String {

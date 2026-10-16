@@ -39,6 +39,7 @@ struct UsagePresentation: Equatable, Sendable {
                 return Share(
                     id: account.key,
                     label: hasMultipleProviders ? account.poolName : "Account \(account.accountNumber)",
+                    provider: account.menuProvider,
                     colourSlot: snapshot.menuSnapshot.colourSlot(of: account),
                     tokens: item.tokens,
                     costNanoUSD: item.hasCostNanoUsd ? item.costNanoUsd : nil,
@@ -51,9 +52,25 @@ struct UsagePresentation: Equatable, Sendable {
         accountCostShares = totalCostNanoUSD.map { shares(metric: .cost, total: $0) } ?? []
     }
 
+    /// The provider's spend or tokens for the period, formatted; nil until
+    /// every one of its accounts has a priced total.
+    func providerTotal(_ provider: CSSwitch_Provider, metric: UsageMetric) -> String? {
+        let shares = accountTokenShares.filter { $0.provider == provider }
+        guard !shares.isEmpty else { return nil }
+        switch metric {
+        case .tokens:
+            return UsageFormatting.tokens(shares.reduce(0) { $0 + $1.tokens })
+        case .cost:
+            let costs = shares.compactMap(\.costNanoUSD)
+            guard costs.count == shares.count else { return nil }
+            return UsageFormatting.cost(costs.reduce(0, +))
+        }
+    }
+
     struct Share: Equatable, Identifiable, Sendable {
         let id: String
         let label: String
+        let provider: CSSwitch_Provider
         let colourSlot: Int
         let tokens: Int64
         let costNanoUSD: Int64?

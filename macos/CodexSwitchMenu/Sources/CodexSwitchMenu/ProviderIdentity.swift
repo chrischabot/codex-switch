@@ -66,6 +66,8 @@ struct ProviderMark: View {
 /// The provider's logo and name above its accounts, as OpenUsage does.
 struct ProviderHeader: View {
     let provider: CSSwitch_Provider
+    /// The provider's spend or tokens for the selected period.
+    let total: String?
 
     var body: some View {
         HStack(spacing: 7) {
@@ -73,8 +75,15 @@ struct ProviderHeader: View {
                 .foregroundStyle(.secondary)
             Text(provider.title)
                 .font(UsageTheme.titleFont)
+            Spacer()
+            if let total {
+                Text(total)
+                    .font(UsageTheme.detailEmphasisFont)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
         }
-        .padding(.leading, 4)
+        .padding(.horizontal, 4)
         .padding(.top, 4)
     }
 }
