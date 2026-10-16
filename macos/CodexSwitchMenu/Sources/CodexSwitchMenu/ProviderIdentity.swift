@@ -83,6 +83,5 @@ struct ProviderHeader: View {
                     .monospacedDigit()
             }
         }
-        .padding(.horizontal, 4)
     }
 }

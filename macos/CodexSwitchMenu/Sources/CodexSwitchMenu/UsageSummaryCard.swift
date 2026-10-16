@@ -54,7 +54,7 @@ private struct UsageBreakdown: View {
                     total: format(total),
                     accessibilityLabel: "\(selectedMetric.title) \(format(total))"
                 )
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 3) {
                     ForEach(shares) { share in
                         HStack(spacing: 7) {
                             AccountMarker(colour: UsageTheme.accountColour(share.colourSlot))

@@ -14,10 +14,11 @@ struct ProviderSection: View {
 
     var body: some View {
         let accounts = snapshot.accounts.filter { $0.menuProvider == provider }.sorted { $0.accountNumber < $1.accountNumber }
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 5) {
             ProviderHeader(provider: provider, total: providerTotal)
+                .padding(.horizontal, UsageTheme.cardInset)
             AccountIdentities(accounts: accounts, snapshot: snapshot, hideIdentity: hideIdentity)
-                .padding(.horizontal, 4)
+                .padding(.horizontal, UsageTheme.cardInset)
             VStack(alignment: .leading, spacing: 16) {
                 ForEach(IndicatorBlock.blocks(for: accounts, provider: provider)) { block in
                     VStack(alignment: .leading, spacing: 8) {
@@ -43,31 +44,34 @@ struct ProviderSection: View {
     }
 }
 
-/// "1 josh@example.com · Pro   2 … · Pro   3 … · Free", each with its
-/// colour and any state that keeps new work off it, in the proxy's words.
-/// Wraps to more lines when the addresses need them; never cut.
+/// One line per account: its colour, number, address (censored in privacy
+/// mode), plan, and any state that keeps new work off it, in the proxy's
+/// words. A line wraps when its address needs it; nothing is cut.
 private struct AccountIdentities: View {
     let accounts: [CSSwitch_Account]
     let snapshot: CSSwitch_MenuSnapshot
     let hideIdentity: Bool
 
     var body: some View {
-        accounts.map { account in
-            let address = hideIdentity ? UsageFormatting.privateEmail(account.email) : account.email
-            // An account outside the pool for the configured model is listed by its plan alone.
-            let status = account.usable ? account.reserveStatus : account.offersConfiguredModel ? account.unavailableReason : ""
-            let detail = [address, account.planTitle, status].filter { !$0.isEmpty }.joined(separator: " · ")
-            // Narrow no-break spaces keep the dot, number and detail together.
-            return Text(Image(systemName: "circle.fill")).font(.system(size: 7)).foregroundColor(snapshot.colour(of: account))
-                + Text("\u{202F}\(account.accountNumber)\u{202F}").fontWeight(.medium)
-                + Text(detail.replacingOccurrences(of: " ", with: "\u{00A0}"))
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(accounts, id: \.key) { account in
+                let address = hideIdentity ? UsageFormatting.privateEmail(account.email) : account.email
+                // An account outside the pool for the configured model is listed by its plan alone.
+                let status = account.usable ? account.reserveStatus : account.offersConfiguredModel ? account.unavailableReason : ""
+                let detail = [address, account.planTitle, status].filter { !$0.isEmpty }.joined(separator: " · ")
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    AccountMarker(colour: snapshot.colour(of: account), size: 7)
+                        .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 3 }
+                    Text("\(account.accountNumber)")
+                        .fontWeight(.medium)
+                        .frame(width: AllowanceGrid.numberWidth - 10, alignment: .leading)
+                    Text(detail)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
-        .enumerated()
-        .reduce(Text("")) { paragraph, entry in entry.offset == 0 ? entry.element : paragraph + Text("   ") + entry.element }
         .font(.system(size: 11))
         .foregroundStyle(.secondary)
-        .lineSpacing(2)
-        .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -199,7 +203,7 @@ private struct AllowanceGridRow: View {
                 .foregroundStyle(UsageTheme.runOutColour)
                 .opacity(runOut == nil ? 0 : 1)
                 .frame(width: AllowanceGrid.flameWidth)
-            Text(timeLabel(runOut: runOut))
+            Text(allowance == nil ? "Not in pool" : timeLabel(runOut: runOut))
                 .font(AllowanceGrid.textFont)
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
@@ -208,7 +212,6 @@ private struct AllowanceGridRow: View {
                 .help(runOut == nil || allowance?.hasResetAt != true ? "" : UsageFormatting.resetLabel(allowance!.resetAt.date, now: now))
         }
         .frame(height: AllowanceGrid.rowHeight)
-        .opacity(allowance == nil ? 0.5 : 1)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityText(runOut: runOut))
     }

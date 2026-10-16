@@ -10,8 +10,8 @@ struct CodexSwitchPanel: View {
     @AppStorage("usageMetric") private var selectedMetric: UsageMetric = .cost
     @AppStorage("topTasksExpanded") private var topTasksExpanded = false
 
-    private static let topInset: CGFloat = 14
-    private static let bottomInset: CGFloat = 12
+    private static let topInset: CGFloat = 12
+    private static let bottomInset: CGFloat = 10
 
     init(
         store: OverviewStore,
