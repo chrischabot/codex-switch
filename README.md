@@ -269,11 +269,11 @@ clear both.
 
 ## How updates work
 
-The app checks for updates automatically. To check yourself, open its Options
-menu and choose **Check for Updates…**. Sparkle downloads and installs the signed,
-notarised app. When it reopens, it compares its bundled proxy with the serving
-version and hands over through the same blue-green deployment used by source
-installs.
+The app updates itself. Sparkle downloads each signed, notarised release in the
+background and installs it when the app next quits; **Check for Updates…** in its
+Options menu does it now. When the app reopens, it compares its bundled proxy
+with the serving version and hands over through the same blue-green deployment
+used by source installs.
 
 A new proxy process starts on the same port. Before it takes any requests, it
 reads every account's allowance through the same connections your traffic uses;
