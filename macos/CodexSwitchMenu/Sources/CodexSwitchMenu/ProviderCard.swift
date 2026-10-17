@@ -54,42 +54,40 @@ private struct AccountIdentities: View {
     @Environment(\.panelDensity) private var density
 
     var body: some View {
-        VStack(alignment: .leading, spacing: density.identityGap) {
+        // Columns, so plans and states line up under each other across the
+        // provider's accounts: number, address, then the plan and any extras.
+        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: density.columnGap + 4, verticalSpacing: density.identityGap) {
             ForEach(accounts, id: \.key) { account in
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(alignment: .firstTextBaseline, spacing: 0) {
-                        HStack(spacing: 3) {
-                            AccountMarker(colour: snapshot.colour(of: account), size: 7)
-                            Text("\(account.accountNumber)")
-                                .font(density.rowEmphasisFont)
-                                .monospacedDigit()
-                        }
-                        .frame(width: density.numberWidth + density.columnGap, alignment: .leading)
-                        // One line at the panel's width for every real address; a longer
-                        // one wraps rather than being cut.
-                        Text(detail(account))
-                            .font(density.identityFont)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                GridRow {
+                    HStack(spacing: 3) {
+                        AccountMarker(colour: snapshot.colour(of: account), size: 7)
+                        Text("\(account.accountNumber)")
+                            .font(density.rowEmphasisFont)
+                            .monospacedDigit()
                     }
+                    .frame(width: density.numberWidth, alignment: .leading)
+                    Text(hideIdentity ? UsageFormatting.privateEmail(account.email) : account.email)
+                        .fixedSize()
+                    Text(([account.planTitle] + extras(account)).filter { !$0.isEmpty }.joined(separator: " · "))
+                        .fixedSize()
                 }
+                .font(density.identityFont)
+                .foregroundStyle(.secondary)
             }
         }
     }
 
-    /// "josh@example.com · Pro · 3 stored resets", "… · Max 20x · held back ·
-    /// 10% reserve", or "… · Free · not in pool" for an account whose plan
-    /// cannot run the configured model.
-    private func detail(_ account: CSSwitch_Account) -> String {
-        var parts = [hideIdentity ? UsageFormatting.privateEmail(account.email) : account.email, account.planTitle]
+    /// "3 stored resets", "held back · 10% reserve", "not in pool": what is
+    /// worth knowing beyond the plan, in the proxy's words.
+    private func extras(_ account: CSSwitch_Account) -> [String] {
+        var parts: [String] = []
         if account.allowance.hasAvailableResetCredits, account.allowance.availableResetCredits > 0 {
             let count = account.allowance.availableResetCredits
             parts.append(count == 1 ? "1 stored reset" : "\(count) stored resets")
         }
         if !account.offersConfiguredModel { parts.append("not in pool") }
-        // The state that keeps new work off the account, in the proxy's words.
         parts.append(account.usable ? account.reserveStatus : account.offersConfiguredModel ? account.unavailableReason : "")
-        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
+        return parts
     }
 }
 

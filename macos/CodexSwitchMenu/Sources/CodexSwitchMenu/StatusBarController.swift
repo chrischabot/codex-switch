@@ -58,7 +58,9 @@ final class StatusBarController: NSObject {
         for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             panel.standardWindowButton(button)?.isHidden = true
         }
-        panel.level = .popUpMenu
+        // Menu bar extras' own level: above every ordinary window, and treated
+        // like one by the window picker of a screenshot.
+        panel.level = .statusBar
         panel.hidesOnDeactivate = false
         panel.hasShadow = true
         panel.isMovable = false
