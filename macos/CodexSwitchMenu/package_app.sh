@@ -126,6 +126,8 @@ if [[ -n $public_key ]]; then
     /usr/bin/plutil -insert SUFeedURL -string "$feed_url" "$plist"
     /usr/bin/plutil -insert SUPublicEDKey -string "$public_key" "$plist"
     /usr/bin/plutil -insert SUEnableAutomaticChecks -bool true "$plist"
+    # Updates install themselves; the app hands the proxy over blue-green.
+    /usr/bin/plutil -insert SUAutomaticallyUpdate -bool true "$plist"
     /usr/bin/plutil -insert SUEnableSystemProfiling -bool false "$plist"
 fi
 
