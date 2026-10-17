@@ -75,7 +75,7 @@ func SetAccountReserve(dataDirectory, accountName string, reserve AccountReserve
 // specific to another model. Expired windows no longer hold the account back.
 func ReserveUnavailableReason(fact AccountRoutingFact, now time.Time) string {
 	if reserveReached(fact, fact.Reserve.HardPercent, now) {
-		return fmt.Sprintf("held back: %d%% kept for direct use", fact.Reserve.HardPercent)
+		return fmt.Sprintf("held back · %d%% reserve", fact.Reserve.HardPercent)
 	}
 	return ""
 }
@@ -89,7 +89,7 @@ func ReserveStatus(fact AccountRoutingFact, now time.Time) string {
 		return reason
 	}
 	if SoftReserveReached(fact, now) {
-		return fmt.Sprintf("new work goes elsewhere: %d%% kept for direct use", fact.Reserve.SoftPercent)
+		return fmt.Sprintf("new work elsewhere · %d%% reserve", fact.Reserve.SoftPercent)
 	}
 	return ""
 }

@@ -29,7 +29,6 @@ struct ProviderSection: View {
                                     number: Int(row.account.accountNumber),
                                     colour: snapshot.colour(of: row.account),
                                     allowance: row.window,
-                                    usable: row.account.usable,
                                     now: now
                                 )
                             }
@@ -57,39 +56,44 @@ private struct AccountIdentities: View {
     var body: some View {
         VStack(alignment: .leading, spacing: density.identityGap) {
             ForEach(accounts, id: \.key) { account in
-                HStack(alignment: .firstTextBaseline, spacing: 0) {
-                    HStack(spacing: 3) {
-                        AccountMarker(colour: snapshot.colour(of: account), size: 7)
-                        Text("\(account.accountNumber)")
-                            .font(density.rowEmphasisFont)
-                            .monospacedDigit()
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 0) {
+                        HStack(spacing: 3) {
+                            AccountMarker(colour: snapshot.colour(of: account), size: 7)
+                            Text("\(account.accountNumber)")
+                                .font(density.rowEmphasisFont)
+                                .monospacedDigit()
+                        }
+                        .frame(width: density.numberWidth + density.columnGap, alignment: .leading)
+                        // One line at the panel's width for every real address; a longer
+                        // one wraps rather than being cut.
+                        Text(detail(account))
+                            .font(density.identityFont)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .frame(width: density.numberWidth + density.columnGap, alignment: .leading)
-                    Text(detail(account))
-                        .font(density.identityFont)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    // The state that keeps new work off the account, on a line of its own.
+                    let state = account.usable ? account.reserveStatus : account.offersConfiguredModel ? account.unavailableReason : ""
+                    if !state.isEmpty {
+                        Text(state)
+                            .font(density.identityFont)
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, density.numberWidth + density.columnGap)
+                    }
                 }
             }
         }
     }
 
-    /// "josh@example.com · Pro · 3 stored resets", then any state: a reserve,
-    /// a limit reached, or "not in pool" for an account whose plan cannot
-    /// run the configured model.
+    /// "josh@example.com · Pro · 3 stored resets", or "… · Free · not in
+    /// pool" for an account whose plan cannot run the configured model.
     private func detail(_ account: CSSwitch_Account) -> String {
         var parts = [hideIdentity ? UsageFormatting.privateEmail(account.email) : account.email, account.planTitle]
         if account.allowance.hasAvailableResetCredits, account.allowance.availableResetCredits > 0 {
             let count = account.allowance.availableResetCredits
             parts.append(count == 1 ? "1 stored reset" : "\(count) stored resets")
         }
-        if !account.offersConfiguredModel {
-            parts.append("not in pool")
-        } else if !account.usable {
-            parts.append(account.unavailableReason)
-        } else {
-            parts.append(account.reserveStatus)
-        }
+        if !account.offersConfiguredModel { parts.append("not in pool") }
         return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 }
@@ -154,17 +158,16 @@ extension CSSwitch_Account {
 
 /// One account's line in a window block: its colour and number, the bar,
 /// what is left, and when it resets. Every figure is one the provider
-/// states. The bar is red only when the account cannot take new work: it
-/// is empty, under a tenth left, at its limit, or held back by its reserve.
+/// states. The bar is red only when little or nothing is left: empty, or
+/// under a tenth. Why an account takes no new work is on its identity line.
 private struct AllowanceGridRow: View {
     let number: Int
     let colour: Color
     let allowance: CSSwitch_AllowanceWindow
-    let usable: Bool
     @Environment(\.panelDensity) private var density
 
     var body: some View {
-        let isLow = !usable || allowance.isEmpty || allowance.freePercent < 10
+        let isLow = allowance.isEmpty || allowance.freePercent < 10
         GridRow {
             HStack(spacing: 3) {
                 AccountMarker(colour: colour, size: 7)

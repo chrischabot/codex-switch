@@ -33,13 +33,9 @@ extension CSSwitch_MenuSnapshot {
         accounts.first { $0.key == key }
     }
 
-    /// Each account keeps one colour everywhere, unique across providers.
-    func colourSlot(of account: CSSwitch_Account) -> Int {
-        providers.count == 1 ? Int(account.accountNumber) : (accounts.firstIndex(of: account) ?? 0) + 1
-    }
-
+    /// Each account keeps one colour everywhere, from its provider's family.
     func colour(of account: CSSwitch_Account) -> Color {
-        UsageTheme.accountColour(colourSlot(of: account))
+        UsageTheme.accountColour(account.menuProvider, Int(account.accountNumber))
     }
 }
 

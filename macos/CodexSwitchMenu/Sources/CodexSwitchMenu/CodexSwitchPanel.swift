@@ -139,7 +139,8 @@ struct CodexSwitchPanel: View {
                 .onPreferenceChange(PanelContentHeightKey.self) { height in
                     contentHeight = height
                     // Measured at regular density; fall back to compact only when the pool itself overflows.
-                    if density == .regular, !topTasksExpanded, height > maximumHeight - PanelSizing.footerHeight {
+                    // A point short of the screen counts as not fitting, so the panel never sits exactly on the limit.
+                    if density == .regular, !topTasksExpanded, height >= maximumHeight - PanelSizing.footerHeight - 1 {
                         density = .compact
                     }
                 }

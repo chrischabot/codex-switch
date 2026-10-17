@@ -4,7 +4,7 @@ import SwiftUI
 enum UsageTheme {
     /// Wider than OpenUsage's 360 so the bar, the thing a person scans, is the
     /// widest part of a row even with "100% left" and "Resets Wed 18:00" beside it.
-    static let panelWidth: CGFloat = 420
+    static let panelWidth: CGFloat = 460
     static let outerInset: CGFloat = 14
     static let cardRadius: CGFloat = 12
     static let traySurface = Color(nsColor: .textBackgroundColor)
@@ -21,21 +21,31 @@ enum UsageTheme {
     /// An allowance on pace to empty before it resets.
     static let runOutColour = Color(nsColor: .systemRed)
 
-    /// Green is reserved for the working state, blue for capacity and red
-    /// for running out, so no account wears them or anything close.
-    private static let accountColours: [Color] = [
+    /// Each provider's accounts share a family, so the ring splits by
+    /// provider at a glance while every account stays distinct: Codex in
+    /// violets and magentas, Claude in its warm oranges and browns. Green is
+    /// reserved for Working, blue for the allowance bar and red for low, so
+    /// no account wears them or anything close.
+    private static let codexColours: [Color] = [
         .purple,
+        Color(red: 0.86, green: 0.30, blue: 0.68),
+        Color(red: 0.52, green: 0.38, blue: 0.80),
+        Color(red: 0.80, green: 0.56, blue: 0.90),
+        Color(red: 0.45, green: 0.24, blue: 0.52),
+        Color(red: 0.68, green: 0.48, blue: 0.70),
+    ]
+    private static let claudeColours: [Color] = [
         .orange,
-        .teal,
+        Color(red: 0.90, green: 0.68, blue: 0.20),
+        Color(red: 0.84, green: 0.44, blue: 0.30),
         .brown,
-        .yellow,
-        Color(red: 0.60, green: 0.40, blue: 0.55),
-        Color(red: 0.75, green: 0.65, blue: 0.45),
-        Color(red: 0.50, green: 0.50, blue: 0.50),
+        Color(red: 0.96, green: 0.58, blue: 0.48),
+        Color(red: 0.62, green: 0.46, blue: 0.26),
     ]
 
-    static func accountColour(_ number: Int) -> Color {
-        accountColours[(number - 1) % accountColours.count]
+    static func accountColour(_ provider: CSSwitch_Provider, _ number: Int) -> Color {
+        let family = provider == .claude ? claudeColours : codexColours
+        return family[(max(number, 1) - 1) % family.count]
     }
 }
 

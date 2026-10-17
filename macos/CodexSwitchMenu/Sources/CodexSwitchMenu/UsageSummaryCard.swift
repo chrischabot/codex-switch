@@ -59,7 +59,7 @@ private struct UsageBreakdown: View {
                 VStack(alignment: .leading, spacing: density.legendGap) {
                     ForEach(shares) { share in
                         HStack(spacing: 7) {
-                            AccountMarker(colour: UsageTheme.accountColour(share.colourSlot))
+                            AccountMarker(colour: UsageTheme.accountColour(share.provider, share.accountNumber))
                             Text(share.label)
                                 .font(UsageTheme.detailFont)
                                 .fixedSize()
@@ -150,7 +150,7 @@ private struct BreakdownRing: View {
                     startFraction: arc.startFraction,
                     endFraction: arc.endFraction
                 )
-                .fill(UsageTheme.accountColour(arc.colourSlot))
+                .fill(UsageTheme.accountColour(arc.provider, arc.accountNumber))
             }
             Text(total)
                 .font(.system(size: 14, weight: .semibold))

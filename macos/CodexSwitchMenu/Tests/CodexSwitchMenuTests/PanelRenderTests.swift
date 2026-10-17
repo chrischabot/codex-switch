@@ -208,11 +208,11 @@ extension CSSwitch_MenuSnapshot {
         var copy = self
         let codex = copy.accounts.indices.filter { copy.accounts[$0].menuProvider == .chatgpt && copy.accounts[$0].usable }
         if let second = codex.dropFirst().first {
-            copy.accounts[second].reserveStatus = "new work goes elsewhere: 15% kept for direct use"
+            copy.accounts[second].reserveStatus = "new work elsewhere · 15% reserve"
         }
         if let claude = copy.accounts.lastIndex(where: { $0.menuProvider == .claude }) {
             copy.accounts[claude].usable = false
-            copy.accounts[claude].unavailableReason = "held back: 10% kept for direct use"
+            copy.accounts[claude].unavailableReason = "held back · 10% reserve"
         }
         return copy
     }

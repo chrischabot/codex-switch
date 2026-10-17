@@ -21,7 +21,6 @@ final class StatusBarController: NSObject {
     /// downward when its content changes height.
     private var anchorTopLeft: NSPoint = .zero
 
-    private static let cornerRadius: CGFloat = 12
     /// Space between the menu bar and the panel, and between the panel and the screen's edges.
     private static let screenMargin: CGFloat = 6
 
@@ -38,27 +37,33 @@ final class StatusBarController: NSObject {
         panelController.sizingOptions = [.preferredContentSize]
         panel = MenuBarPanel(
             contentRect: NSRect(x: 0, y: 0, width: UsageTheme.panelWidth, height: 400),
-            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
+            styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered,
             defer: true
         )
         super.init()
 
+        // A titled window with its title bar hidden, not a borderless one with
+        // a clear background: the window itself is opaque, with the system's
+        // rounded corners and shadow, so everything that works from the
+        // window's own shape (its shadow, the screenshot picker's highlight)
+        // sees the whole panel rather than a clipped layer inside a clear frame.
         panel.contentViewController = panelController
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        panel.titlebarSeparatorStyle = .none
+        for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            panel.standardWindowButton(button)?.isHidden = true
+        }
         panel.level = .popUpMenu
         panel.hidesOnDeactivate = false
         panel.hasShadow = true
         panel.isMovable = false
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.isOpaque = true
+        panel.backgroundColor = .textBackgroundColor
+        panel.isExcludedFromWindowsMenu = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         panel.isReleasedWhenClosed = false
-        if let contentView = panel.contentView {
-            contentView.wantsLayer = true
-            contentView.layer?.cornerRadius = Self.cornerRadius
-            contentView.layer?.cornerCurve = .continuous
-            contentView.layer?.masksToBounds = true
-        }
         resizeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didResizeNotification, object: panel, queue: .main
         ) { [weak self] _ in

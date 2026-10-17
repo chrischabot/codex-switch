@@ -43,7 +43,7 @@ struct UsagePresentation: Equatable, Sendable {
                     id: account.key,
                     label: hasMultipleProviders ? account.poolName : "Account \(account.accountNumber)",
                     provider: account.menuProvider,
-                    colourSlot: snapshot.menuSnapshot.colourSlot(of: account),
+                    accountNumber: Int(account.accountNumber),
                     tokens: item.tokens,
                     costNanoUSD: item.hasCostNanoUsd ? item.costNanoUsd : nil,
                     startFraction: start,
@@ -66,7 +66,7 @@ struct UsagePresentation: Equatable, Sendable {
         let id: String
         let label: String
         let provider: CSSwitch_Provider
-        let colourSlot: Int
+        let accountNumber: Int
         let tokens: Int64
         let costNanoUSD: Int64?
         let startFraction: Double
