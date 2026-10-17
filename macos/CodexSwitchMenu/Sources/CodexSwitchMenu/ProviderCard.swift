@@ -72,21 +72,14 @@ private struct AccountIdentities: View {
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    // The state that keeps new work off the account, on a line of its own.
-                    let state = account.usable ? account.reserveStatus : account.offersConfiguredModel ? account.unavailableReason : ""
-                    if !state.isEmpty {
-                        Text(state)
-                            .font(density.identityFont)
-                            .foregroundStyle(.secondary)
-                            .padding(.leading, density.numberWidth + density.columnGap)
-                    }
                 }
             }
         }
     }
 
-    /// "josh@example.com · Pro · 3 stored resets", or "… · Free · not in
-    /// pool" for an account whose plan cannot run the configured model.
+    /// "josh@example.com · Pro · 3 stored resets", "… · Max 20x · held back ·
+    /// 10% reserve", or "… · Free · not in pool" for an account whose plan
+    /// cannot run the configured model.
     private func detail(_ account: CSSwitch_Account) -> String {
         var parts = [hideIdentity ? UsageFormatting.privateEmail(account.email) : account.email, account.planTitle]
         if account.allowance.hasAvailableResetCredits, account.allowance.availableResetCredits > 0 {
@@ -94,6 +87,8 @@ private struct AccountIdentities: View {
             parts.append(count == 1 ? "1 stored reset" : "\(count) stored resets")
         }
         if !account.offersConfiguredModel { parts.append("not in pool") }
+        // The state that keeps new work off the account, in the proxy's words.
+        parts.append(account.usable ? account.reserveStatus : account.offersConfiguredModel ? account.unavailableReason : "")
         return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 }

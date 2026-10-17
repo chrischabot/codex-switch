@@ -35,6 +35,9 @@ final class StatusBarController: NSObject {
             )
         )
         panelController.sizingOptions = [.preferredContentSize]
+        // The hidden title bar still reserves its height as a safe area; the
+        // panel's content starts at the window's top edge.
+        panelController.safeAreaRegions = []
         panel = MenuBarPanel(
             contentRect: NSRect(x: 0, y: 0, width: UsageTheme.panelWidth, height: 400),
             styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
