@@ -128,48 +128,14 @@ func publishLogin(dataDirectory, staging, accountName string, signedIn PoolAccou
 }
 
 func replaceAuthFile(accountDirectory, stagedPath string) error {
-	if err := replaceAuthFileWithRename(accountDirectory, stagedPath, os.Rename); err != nil {
-		return err
-	}
-	directory, err := os.Open(accountDirectory)
-	if err != nil {
-		log.Printf("warning: credentials were updated but the account directory could not be synced: %v", err)
-		return nil
-	}
-	defer directory.Close()
-	if err := directory.Sync(); err != nil {
-		log.Printf("warning: credentials were updated but the account directory could not be synced: %v", err)
-	}
-	return nil
+	return replaceAuthFileWithRename(accountDirectory, stagedPath, os.Rename)
 }
-
 func replaceAuthFileWithRename(accountDirectory, stagedPath string, rename func(string, string) error) error {
 	data, err := os.ReadFile(stagedPath)
 	if err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(accountDirectory, ".auth-*")
-	if err != nil {
-		return err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return err
-	}
-	if _, err := temporary.Write(data); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	return rename(temporaryPath, filepath.Join(accountDirectory, "auth.json"))
+	return writeAtomicDataWithPublish(filepath.Join(accountDirectory, "auth.json"), data, rename, syncParentDirectory)
 }
 
 // RemoveAccount takes the account out of the pool, forgets its task pins and

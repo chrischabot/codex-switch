@@ -287,6 +287,19 @@ func writeAtomic(path string, value any) error {
 }
 
 func writeAtomicData(path string, data []byte) error {
+	return writeAtomicDataWithPublish(path, data, os.Rename, syncParentDirectory)
+}
+
+func syncParentDirectory(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
+}
+
+func writeAtomicDataWithPublish(path string, data []byte, rename func(string, string) error, syncDirectory func(string) error) error {
 	temp, err := os.CreateTemp(filepath.Dir(path), ".auth-*")
 	if err != nil {
 		return err
@@ -308,5 +321,11 @@ func writeAtomicData(path string, data []byte) error {
 	if err := temp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tempPath, path)
+	if err := rename(tempPath, path); err != nil {
+		return err
+	}
+	if err := syncDirectory(filepath.Dir(path)); err != nil {
+		return fmt.Errorf("file published but directory sync failed: %w", err)
+	}
+	return nil
 }
