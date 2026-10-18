@@ -148,7 +148,7 @@ func serveRelay(tcpListenAddress string, checkProviders bool) {
 		log.Fatalf("publish the menu snapshot URL: %v", err)
 	}
 
-	server := &http.Server{Handler: forwardProxy}
+	server := relay.NewClientServer(forwardProxy)
 	serveFailed := make(chan error, 1)
 	go func() { serveFailed <- server.Serve(listener) }()
 

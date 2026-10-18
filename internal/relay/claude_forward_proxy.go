@@ -178,19 +178,17 @@ func (proxy *ClaudeForwardProxy) serveDecryptedConnection(connection net.Conn, t
 		Certificates: []tls.Certificate{proxy.certificate}, MinVersion: tls.VersionTLS12,
 		NextProtos: []string{"http/1.1"},
 	})
-	server := &http.Server{
-		Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-			proxy.serveAnthropicRequest(writer, request, tracked)
-		}),
-		ConnState: func(_ net.Conn, state http.ConnState) {
-			// These states follow the final HTTP response flush. A handler defer
-			// would expose the last buffered model bytes to the grace timer.
-			if state == http.StateIdle || state == http.StateClosed {
-				proxy.mutex.Lock()
-				tracked.modelInProgress = false
-				proxy.mutex.Unlock()
-			}
-		},
+	server := NewClientServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		proxy.serveAnthropicRequest(writer, request, tracked)
+	}))
+	server.ConnState = func(_ net.Conn, state http.ConnState) {
+		// These states follow the final HTTP response flush. A handler defer
+		// would expose the last buffered model bytes to the grace timer.
+		if state == http.StateIdle || state == http.StateClosed {
+			proxy.mutex.Lock()
+			tracked.modelInProgress = false
+			proxy.mutex.Unlock()
+		}
 	}
 	proxy.mutex.Lock()
 	tracked.server = server
