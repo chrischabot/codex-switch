@@ -19,6 +19,7 @@ import (
 	accountapi "github.com/joshp123/codex-switch/internal/accounts"
 	"github.com/joshp123/codex-switch/internal/clientcapability"
 	"github.com/joshp123/codex-switch/internal/codexstate"
+	"github.com/joshp123/codex-switch/internal/logging"
 	"github.com/joshp123/codex-switch/internal/relay"
 	"github.com/joshp123/codex-switch/internal/routing"
 	"github.com/joshp123/codex-switch/internal/store"
@@ -41,11 +42,10 @@ var sourceModified string
 func serveRelay(tcpListenAddress string, checkProviders bool) {
 	// Every generation appends to one log in the data directory, so a blue-green
 	// update keeps one timeline and the status command can name the file.
-	proxyLog, err := os.OpenFile(proxyLogPath(dataDir()), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
+	proxyLog, err := logging.NewRotatingWriter(proxyLogPath(dataDir()), 10<<20, 3)
 	if err != nil {
 		log.Fatalf("open proxy log: %v", err)
 	}
-	defer proxyLog.Close()
 	log.SetOutput(proxyLog)
 	log.SetFlags(log.LstdFlags)
 	capability, err := clientcapability.Create(dataDir())

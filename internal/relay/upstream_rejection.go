@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strings"
 
 	"github.com/joshp123/codex-switch/internal/store"
 )
@@ -58,41 +57,33 @@ func (handler *TrafficRelayHandler) observeRejectedResponse(routedRequest *route
 	return nil
 }
 
-// describeRejection quotes why a request was refused: Cloudflare's challenge
-// when Cloudflare stopped it before OpenAI, OpenAI's API error when the body is
-// one, otherwise the page title or the start of the text, on one line.
+// describeRejection keeps only known classifications. Provider bodies and
+// headers can echo credentials or prompt text, including inside error types.
 func describeRejection(header http.Header, body []byte) string {
-	if mitigation := header.Get("Cf-Mitigated"); mitigation != "" {
-		return fmt.Sprintf(": Cloudflare stopped the request before OpenAI (cf-mitigated: %s, cf-ray: %s)", mitigation, header.Get("Cf-Ray"))
+	if header.Get("Cf-Mitigated") != "" {
+		return ": Cloudflare stopped the request before OpenAI"
 	}
 	var rejected httpJSONResponseWire
 	if json.Unmarshal(body, &rejected) == nil {
 		return describeProviderReason(rejected)
 	}
-	text := string(body)
-	if !strings.Contains(strings.ToLower(header.Get("Content-Type")), "html") {
-		return describeProviderReason(httpJSONResponseWire{Detail: text})
-	}
-	if start := strings.Index(strings.ToLower(text), "<title>"); start >= 0 {
-		if end := strings.Index(strings.ToLower(text[start:]), "</title>"); end >= 0 {
-			return describeProviderReason(httpJSONResponseWire{Detail: "an HTML page titled " + text[start+len("<title>"):start+end]})
-		}
-	}
-	return ": an HTML page instead of an API error"
+	return ": non-JSON error response"
 }
 
-// describeProviderReason quotes the error OpenAI returned, on one line.
 func describeProviderReason(rejected httpJSONResponseWire) string {
-	reason := rejected.Detail
-	if rejected.Error != nil {
-		reason = strings.TrimSpace(rejected.Error.Type + " " + rejected.Error.Message)
+	if rejected.Error == nil {
+		return ": provider error; details omitted"
 	}
-	reason = strings.Join(strings.Fields(reason), " ")
-	if reason == "" {
-		return ""
+	switch rejected.Error.Type {
+	case "server_error", "invalid_request_error", "authentication_error", "permission_error", "rate_limit_error", "usage_limit_reached", "insufficient_quota", "not_found_error", "overloaded_error", "api_error":
+		return ": " + rejected.Error.Type
+	case "incomplete":
+		switch rejected.Error.Message {
+		case "max_output_tokens", "content_filter":
+			return ": incomplete " + rejected.Error.Message
+		}
+		return ": incomplete"
+	default:
+		return ": provider error; details omitted"
 	}
-	if len(reason) > 300 {
-		reason = reason[:300] + "..."
-	}
-	return ": " + reason
 }

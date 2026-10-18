@@ -34,8 +34,11 @@ func TestStreamCloseReportsOnlyUnfinishedModelWork(t *testing.T) {
 		t.Fatal("completed connection close was reported as interrupted work")
 	}
 	observer.observeStructuredEvent([]byte(`{"type":"response.failed","response":{"id":"reply-2","error":{"type":"server_error","message":"provider message"}}}`))
-	if !strings.Contains(diagnostics.String(), "OpenAI failed the astra response: server_error provider message") {
-		t.Fatalf("provider failure is logged without OpenAI's reason: %s", diagnostics.String())
+	if !strings.Contains(diagnostics.String(), "OpenAI failed the astra response: server_error") {
+		t.Fatalf("provider failure is logged without its safe classification: %s", diagnostics.String())
+	}
+	if strings.Contains(diagnostics.String(), "provider message") {
+		t.Fatal("provider response text leaked into log")
 	}
 	diagnostics.Reset()
 	observer.observeStructuredEvent([]byte(`{"type":"response.incomplete","response":{"id":"reply-3","incomplete_details":{"reason":"max_output_tokens"}}}`))

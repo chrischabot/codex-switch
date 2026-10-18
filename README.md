@@ -176,7 +176,10 @@ codex-switch status
 It shows each account's allowance, whether it can take new work (and why not),
 and which accounts recent tasks went to. The log at
 `~/Library/Application Support/codex-switch/proxy.log` records every assignment,
-move, wait and rejected request. It never records prompts or responses.
+move, wait and rejected request. Provider errors retain only known classifications,
+not arbitrary response text. The current log and three rotated files are each
+bounded to 10 MiB with owner-only permissions. Proxy generations coordinate
+rotation and reopen the current file for each write.
 
 ### Claude subscriptions
 
