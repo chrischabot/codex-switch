@@ -52,6 +52,7 @@ type Monitor struct {
 	httpClient      *http.Client
 	storeDatabase   *store.StoreDatabase
 
+	poolReader    poolReader
 	mutex         sync.Mutex
 	accounts      map[store.AccountName]*monitoredAccount
 	readRequested chan struct{}
@@ -114,7 +115,7 @@ func (monitor *Monitor) Run(ctx context.Context) {
 }
 
 func (monitor *Monitor) startDueReads(ctx context.Context, reads *sync.WaitGroup, readRequested bool) {
-	pool, err := ReadPool(monitor.dataDirectory)
+	pool, err := monitor.poolReader.read(monitor.dataDirectory)
 	if err != nil {
 		log.Printf("could not read the account pool: %v", err)
 		return
@@ -191,7 +192,7 @@ func keepRequestPathObservations(read, scheduled, latest AccountRoutingFact) Acc
 // ReadAccountRoutingFacts joins the latest facts to current pool membership.
 // Removed or replaced accounts cannot admit new work before their next read.
 func (monitor *Monitor) ReadAccountRoutingFacts() ([]AccountRoutingFact, error) {
-	pool, err := ReadPool(monitor.dataDirectory)
+	pool, err := monitor.poolReader.read(monitor.dataDirectory)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +243,7 @@ func (monitor *Monitor) ExcludeUnsupportedAccountModel(accountName store.Account
 
 // RefreshAccountCredentialsAfterUnauthorized prepares the account for the next routed request.
 func (monitor *Monitor) RefreshAccountCredentialsAfterUnauthorized(accountName store.AccountName, rejected Credentials) error {
-	pool, err := ReadPool(monitor.dataDirectory)
+	pool, err := monitor.poolReader.read(monitor.dataDirectory)
 	if err != nil {
 		return err
 	}
