@@ -110,6 +110,11 @@ func publishLogin(dataDirectory, staging, accountName string, signedIn PoolAccou
 	if err != nil {
 		return PoolAccount{}, err
 	}
+	for _, account := range existing {
+		if index <= account.Index {
+			index = account.Index + 1
+		}
+	}
 	name := fmt.Sprintf("account-%d", index)
 	signedIn.Name = name
 	if err := rememberPoolAccount(database, signedIn); err != nil {
@@ -222,6 +227,9 @@ func RemoveAccount(dataDirectory, accountName string) (PoolAccount, int64, error
 }
 
 func rememberPoolAccount(database *store.StoreDatabase, account PoolAccount) error {
+	if account.AccountID == "" {
+		return nil
+	}
 	return database.RememberAccountIdentity(store.AccountIdentity{
 		AccountName: store.AccountName(account.Name), ProviderAccountID: account.AccountID, Email: account.Email,
 	})

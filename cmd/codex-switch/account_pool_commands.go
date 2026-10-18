@@ -74,6 +74,10 @@ func accountsCommand(args []string) {
 		return
 	}
 	for _, account := range pool {
+		if account.ReadError != nil {
+			fmt.Printf("%s\t%s\t%s\n", account.DisplayName, account.Name, account.ReadError)
+			continue
+		}
 		fmt.Printf("%s\t%s\t%s\n", account.DisplayName, account.Name, account.Email)
 	}
 }

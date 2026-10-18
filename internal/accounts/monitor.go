@@ -142,7 +142,9 @@ func (monitor *Monitor) startDueReads(ctx context.Context, reads *sync.WaitGroup
 
 func (monitor *Monitor) readAccount(ctx context.Context, account PoolAccount, monitored *monitoredAccount, scheduled AccountRoutingFact) {
 	var read AccountRoutingFact
-	if account.Provider == ProviderClaude {
+	if account.ReadError != nil {
+		read = AccountRoutingFact{AccountName: store.AccountName(account.Name), Provider: account.Provider, AccountState: AccountCredentialsUnavailable, AccountStateCause: account.ReadError}
+	} else if account.Provider == ProviderClaude {
 		read = monitor.observeClaudeAccount(ctx, account, monitored.savedLogin, scheduled)
 	} else {
 		read = monitor.observeAccount(ctx, account, monitored.savedLogin, scheduled)
@@ -197,6 +199,10 @@ func (monitor *Monitor) ReadAccountRoutingFacts() ([]AccountRoutingFact, error) 
 	defer monitor.mutex.Unlock()
 	facts := make([]AccountRoutingFact, 0, len(pool))
 	for _, account := range pool {
+		if account.ReadError != nil {
+			facts = append(facts, AccountRoutingFact{AccountName: store.AccountName(account.Name), Provider: account.Provider, DisplayName: account.DisplayName, AccountState: AccountCredentialsUnavailable, AccountStateCause: account.ReadError})
+			continue
+		}
 		monitored, known := monitor.accounts[store.AccountName(account.Name)]
 		if known && monitored.fact.Credentials.AccountID == account.AccountID {
 			fact := monitored.fact

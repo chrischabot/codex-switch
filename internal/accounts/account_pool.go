@@ -23,6 +23,7 @@ const (
 // PoolAccount is one signed-in subscription account. Pool accounts live in
 // account-N directories in the data directory, each holding an auth.json.
 type PoolAccount struct {
+	ReadError      error // Invalid entries remain visible and removable, but never route work.
 	Provider       Provider
 	OrganizationID string
 	Plan           string
@@ -64,11 +65,11 @@ func ReadPool(dataDirectory string) ([]PoolAccount, error) {
 			continue
 		}
 		if err != nil {
-			return nil, err
+			account = PoolAccount{Name: entry.Name(), Index: index, ReadError: fmt.Errorf("invalid saved account; remove or restore its auth file")}
 		}
 		account.Reserve, err = readAccountReserve(filepath.Join(dataDirectory, entry.Name()))
 		if err != nil {
-			return nil, fmt.Errorf("read %s reserve: %w", entry.Name(), err)
+			account.ReadError = fmt.Errorf("invalid reserve configuration; restore its reserve file")
 		}
 		result = append(result, account)
 	}

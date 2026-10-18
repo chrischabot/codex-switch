@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -69,7 +68,6 @@ type Credentials struct {
 // savedLogin reads one account's auth.json and refreshes its tokens.
 type savedLogin struct {
 	provider Provider
-	mu       sync.Mutex
 	home     string
 	client   *http.Client
 	token    string
@@ -100,10 +98,8 @@ func (s *savedLogin) Credentials(ctx context.Context) (Credentials, error) {
 	if s.provider == ProviderClaude {
 		return s.claudeCredentials(ctx, Credentials{})
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	var result Credentials
-	err := withAuthLock(s.home, func() error {
+	err := withFileLockContext(ctx, filepath.Join(s.home, "auth.lock"), func() error {
 		auth, err := s.read()
 		if err != nil {
 			return err
@@ -125,8 +121,6 @@ func (s *savedLogin) CurrentCredentials() (Credentials, error) {
 	if s.provider == ProviderClaude {
 		return s.currentClaudeCredentials()
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	auth, err := s.read()
 	if err != nil {
 		return Credentials{}, err
@@ -147,10 +141,8 @@ func (s *savedLogin) RefreshAfterUnauthorized(ctx context.Context, rejected Cred
 	if rejected.AccessToken == "" || rejected.AccountID == "" {
 		return Credentials{}, signInRequired(errors.New("rejected credentials are incomplete"))
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	var result Credentials
-	err := withAuthLock(s.home, func() error {
+	err := withFileLockContext(ctx, filepath.Join(s.home, "auth.lock"), func() error {
 		auth, err := s.read()
 		if err != nil {
 			return err
@@ -208,8 +200,11 @@ func (s *savedLogin) refresh(ctx context.Context, auth *authFile) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
-		if resp.StatusCode == http.StatusUnauthorized {
+		var rejection struct {
+			Error string `json:"error"`
+		}
+		_ = json.NewDecoder(io.LimitReader(resp.Body, maximumRefreshResponseBytes)).Decode(&rejection)
+		if resp.StatusCode == http.StatusUnauthorized || (resp.StatusCode == http.StatusBadRequest && (rejection.Error == "invalid_grant" || rejection.Error == "invalid_client")) {
 			return signInRequired(fmt.Errorf("refresh credentials: status %d", resp.StatusCode))
 		}
 		return temporary(fmt.Errorf("refresh credentials: status %d", resp.StatusCode))

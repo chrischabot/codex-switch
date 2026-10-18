@@ -66,8 +66,6 @@ func (s *savedLogin) readClaudeAuth() (claudeAuthFile, error) {
 }
 
 func (s *savedLogin) currentClaudeCredentials() (Credentials, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	auth, err := s.readClaudeAuth()
 	if err != nil {
 		return Credentials{}, err
@@ -79,10 +77,8 @@ func (s *savedLogin) currentClaudeCredentials() (Credentials, error) {
 }
 
 func (s *savedLogin) claudeCredentials(ctx context.Context, rejected Credentials) (Credentials, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	var result Credentials
-	err := withAuthLock(s.home, func() error {
+	err := withFileLockContext(ctx, filepath.Join(s.home, "auth.lock"), func() error {
 		auth, err := s.readClaudeAuth()
 		if err != nil {
 			return err
