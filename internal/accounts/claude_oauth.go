@@ -23,12 +23,10 @@ import (
 func SignInClaude(dataDirectory, accountName string) (PoolAccount, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	var randomBytes [32]byte
-	if _, err := rand.Read(randomBytes[:]); err != nil {
+	proof, err := newClaudeOAuthProof()
+	if err != nil {
 		return PoolAccount{}, err
 	}
-	verifier := base64.RawURLEncoding.EncodeToString(randomBytes[:])
-	challengeBytes := sha256.Sum256([]byte(verifier))
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return PoolAccount{}, err
@@ -37,7 +35,7 @@ func SignInClaude(dataDirectory, accountName string) (PoolAccount, error) {
 	codeReady := make(chan string, 1)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/callback", func(response http.ResponseWriter, request *http.Request) {
-		if request.URL.Query().Get("state") != verifier {
+		if !proof.validState(request.URL.Query().Get("state")) {
 			http.Error(response, "Login state does not match.", http.StatusBadRequest)
 			return
 		}
@@ -55,9 +53,7 @@ func SignInClaude(dataDirectory, accountName string) (PoolAccount, error) {
 	server := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go server.Serve(listener)
 	defer server.Close()
-	parameters := url.Values{"code": {"true"}, "client_id": {claudeOAuthClientID}, "response_type": {"code"}, "redirect_uri": {redirectURI},
-		"scope": {claudeOAuthScopes}, "code_challenge": {base64.RawURLEncoding.EncodeToString(challengeBytes[:])}, "code_challenge_method": {"S256"}, "state": {verifier}}
-	authorizeURL := "https://claude.ai/oauth/authorize?" + parameters.Encode()
+	authorizeURL := proof.authorizationURL(redirectURI)
 	fmt.Fprintf(os.Stderr, "Sign in to Claude:\n%s\n\nWaiting for the browser. You can also paste the final redirect URL or code#state here.\n", authorizeURL)
 	if err := exec.Command("open", authorizeURL).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "Open the login URL above in your browser.")
@@ -84,7 +80,7 @@ func SignInClaude(dataDirectory, accountName string) (PoolAccount, error) {
 		} else {
 			code = input
 		}
-		if state != "" && state != verifier {
+		if state != "" && !proof.validState(state) {
 			return PoolAccount{}, errors.New("Claude login state does not match")
 		}
 	}
@@ -93,8 +89,8 @@ func SignInClaude(dataDirectory, accountName string) (PoolAccount, error) {
 	}
 	client := &http.Client{Timeout: 30 * time.Second}
 	var token claudeTokenResponse
-	if err := postClaudeOAuth(ctx, client, map[string]string{"grant_type": "authorization_code", "code": code, "state": verifier,
-		"client_id": claudeOAuthClientID, "redirect_uri": redirectURI, "code_verifier": verifier}, &token); err != nil {
+	if err := postClaudeOAuth(ctx, client, map[string]string{"grant_type": "authorization_code", "code": code, "state": proof.state,
+		"client_id": claudeOAuthClientID, "redirect_uri": redirectURI, "code_verifier": proof.verifier}, &token); err != nil {
 		return PoolAccount{}, err
 	}
 	if token.AccessToken == "" || token.RefreshToken == "" || token.ExpiresIn <= 0 {
@@ -183,4 +179,26 @@ func readClaudeProfile(ctx context.Context, client *http.Client, auth *claudeAut
 		return errors.New("Claude profile has incomplete account identity")
 	}
 	return nil
+}
+
+// A proof belongs to one authorization attempt. The verifier is sent only to
+// the token endpoint; state authenticates the browser's return separately.
+type claudeOAuthProof struct{ state, verifier string }
+
+func newClaudeOAuthProof() (claudeOAuthProof, error) {
+	var randomBytes [64]byte
+	if _, err := rand.Read(randomBytes[:]); err != nil {
+		return claudeOAuthProof{}, err
+	}
+	verifier := base64.RawURLEncoding.EncodeToString(randomBytes[:32])
+	return claudeOAuthProof{state: base64.RawURLEncoding.EncodeToString(randomBytes[32:]), verifier: verifier}, nil
+}
+func (proof claudeOAuthProof) validState(state string) bool {
+	return state != "" && state == proof.state
+}
+func (proof claudeOAuthProof) authorizationURL(redirectURI string) string {
+	challenge := sha256.Sum256([]byte(proof.verifier))
+	parameters := url.Values{"code": {"true"}, "client_id": {claudeOAuthClientID}, "response_type": {"code"}, "redirect_uri": {redirectURI},
+		"scope": {claudeOAuthScopes}, "code_challenge": {base64.RawURLEncoding.EncodeToString(challenge[:])}, "code_challenge_method": {"S256"}, "state": {proof.state}}
+	return "https://claude.ai/oauth/authorize?" + parameters.Encode()
 }
