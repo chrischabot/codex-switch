@@ -6,10 +6,18 @@ set -eu
 repository=$(CDPATH='' cd -P "$(dirname "$0")/.." && pwd)
 . "$repository/deploy/installation.sh"
 
-# Codex and Pi would fail every request once the proxy is gone.
+# Codex, Claude and Pi would fail every request once the proxy is gone.
 if [ -f "$data/client-capability" ] &&
-  /usr/bin/grep -qsF "$(cat "$data/client-capability")" "$HOME/.codex/config.toml" "$HOME/.pi/agent/models.json"; then
-  echo "Codex or Pi still uses Codex Switch. Remove its URL from ~/.codex/config.toml and ~/.pi/agent/models.json, restart them, then run this again." >&2
+  { /usr/bin/grep -qsF -f "$data/client-capability" "$HOME/.codex/config.toml" "$HOME/.pi/agent/models.json" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.local.json" ||
+    printf '%s\n' "${HTTPS_PROXY:-}" "${HTTP_PROXY:-}" "${https_proxy:-}" "${http_proxy:-}" | /usr/bin/grep -qsF -f "$data/client-capability"; }; then
+  echo "A client still uses Codex Switch. Remove its proxy settings from Codex, Claude user settings and Desktop local environments, and Pi; restart those clients, then run this again." >&2
+  exit 1
+fi
+
+# Desktop stores local environment overrides privately. Do not read its secrets
+# or assume that removing settings.json proves those overrides are gone.
+if [ -f "$data/claude-proxy-ca.pem" ] && [ "${CODEX_SWITCH_CLAUDE_DISCONNECTED:-0}" != 1 ]; then
+  echo "Remove the Codex Switch proxy and CA from Claude Desktop local environments, restart affected sessions, then rerun with CODEX_SWITCH_CLAUDE_DISCONNECTED=1. Claude settings files are checked separately." >&2
   exit 1
 fi
 

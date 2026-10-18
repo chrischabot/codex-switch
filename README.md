@@ -300,12 +300,16 @@ deploy/deploy.sh back \
 ## Uninstall
 
 First point your clients back at their providers: delete `openai_base_url` from
-`~/.codex/config.toml`; remove the two Claude `env` entries above from
-`~/.claude/settings.json`; remove the `openai-codex` and `anthropic` pool
-entries from Pi's `models.json`, then restart the clients. Then:
+`~/.codex/config.toml`, remove the two proxy and CA variables from Claude user
+settings and Desktop local environments, and remove the `openai-codex` and
+`anthropic` pool entries from Pi's `models.json`. Restart affected clients.
+
+The uninstaller checks the settings files and shell proxy variables. Desktop's
+private local environment overrides cannot be inspected by this script. When
+the proxy CA exists, confirm that no Claude session still uses it with:
 
 ```sh
-/bin/sh /Applications/CodexSwitchMenu.app/Contents/Resources/deploy/uninstall.sh
+CODEX_SWITCH_CLAUDE_DISCONNECTED=1 /bin/sh /Applications/CodexSwitchMenu.app/Contents/Resources/deploy/uninstall.sh
 ```
 
 The proxy finishes the requests it has already accepted and stops. The script

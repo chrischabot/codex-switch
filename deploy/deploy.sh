@@ -41,7 +41,7 @@ done
 CAPABILITY="$(cat "$DATA/client-capability")"
 STATUS_URL="http://$LISTEN/client/$CAPABILITY/codex-switch/deploy-status"
 
-deploy_status() { curl -sf --max-time 5 "$STATUS_URL"; }
+deploy_status() { printf 'url = "%s"\n' "$STATUS_URL" | curl -sf --max-time 5 --config -; }
 status_field() { echo "$1" | /usr/bin/sed -E "s/.*\"$2\":\"?([^,\"}]*)\"?.*/\1/"; }
 
 OLD_STATUS="$(deploy_status)" || { echo "no serving generation answered on $LISTEN" >&2; exit 1; }

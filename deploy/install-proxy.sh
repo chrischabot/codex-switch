@@ -56,7 +56,8 @@ fi
 status_field() { printf '%s' "$1" | /usr/bin/plutil -extract "$2" raw -o - -; }
 serving_status() {
   [ -f "$data/client-capability" ] || return 1
-  /usr/bin/curl -sf --max-time 2 "http://$listen/client/$(cat "$data/client-capability")/codex-switch/deploy-status"
+  printf 'url = "http://%s/client/%s/codex-switch/deploy-status"\n' "$listen" "$(cat "$data/client-capability")" |
+    /usr/bin/curl -sf --max-time 2 --config -
 }
 wait_for_proxy() {
   waited=0
