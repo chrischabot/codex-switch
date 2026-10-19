@@ -155,7 +155,8 @@ struct CodexSwitchPanel: View {
 
             UsageFooter(store: store, updates: updates)
         }
-        .frame(width: UsageTheme.panelWidth)
+        // At least the standard width; wider when a line needs it, so nothing wraps.
+        .frame(minWidth: UsageTheme.panelWidth)
         .focusEffectDisabled()
         .background(UsageTheme.traySurface.ignoresSafeArea())
         .onChange(of: store.latestSnapshot, initial: true) { _, snapshot in

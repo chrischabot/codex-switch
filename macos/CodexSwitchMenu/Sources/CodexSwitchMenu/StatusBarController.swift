@@ -118,14 +118,16 @@ final class StatusBarController: NSObject {
         let screen = buttonWindow.screen ?? NSScreen.main
         let visibleFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1_512, height: 945)
         let buttonFrame = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
-        let width = UsageTheme.panelWidth
-        let x = min(max(buttonFrame.midX - width / 2, visibleFrame.minX + Self.screenMargin),
-                    visibleFrame.maxX - width - Self.screenMargin)
-        anchorTopLeft = NSPoint(x: x, y: visibleFrame.maxY - Self.screenMargin)
-        let maximumHeight = anchorTopLeft.y - visibleFrame.minY - Self.screenMargin
+        let top = visibleFrame.maxY - Self.screenMargin
+        let maximumHeight = top - visibleFrame.minY - Self.screenMargin
         panelController.rootView = CodexSwitchPanel(store: store, maximumHeight: max(maximumHeight, 320), updates: updates)
         panelController.view.layoutSubtreeIfNeeded()
         let size = panelController.view.fittingSize
+        // As wide as the content needs, never wider than the screen.
+        let width = min(size.width, visibleFrame.width - 2 * Self.screenMargin)
+        let x = min(max(buttonFrame.midX - width / 2, visibleFrame.minX + Self.screenMargin),
+                    visibleFrame.maxX - width - Self.screenMargin)
+        anchorTopLeft = NSPoint(x: x, y: top)
         panel.setFrame(NSRect(x: anchorTopLeft.x, y: anchorTopLeft.y - size.height, width: width, height: size.height),
                        display: false)
         panel.makeKeyAndOrderFront(nil)

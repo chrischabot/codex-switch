@@ -68,17 +68,9 @@ private struct AccountIdentities: View {
                     .frame(width: density.numberWidth, alignment: .leading)
                     Text(hideIdentity ? UsageFormatting.privateEmail(account.email) : account.email)
                         .fixedSize()
-                    // Plan and stored resets, then on a line of its own the state
-                    // that keeps new work off the account. The column may wrap
-                    // rather than widen the panel.
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(([account.planTitle] + resets(account)).joined(separator: " · "))
-                        if let state = state(account) {
-                            Text(state)
-                        }
-                    }
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // One line; the panel widens to fit the longest.
+                    Text(([account.planTitle] + resets(account) + [state(account)].compactMap { $0 }).joined(separator: " · "))
+                        .fixedSize()
                 }
                 .font(density.identityFont)
                 .foregroundStyle(.secondary)
