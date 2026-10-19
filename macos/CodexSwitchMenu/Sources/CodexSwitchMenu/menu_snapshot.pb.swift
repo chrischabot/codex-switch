@@ -189,6 +189,8 @@ nonisolated struct CSSwitch_MenuSnapshot: Sendable {
   /// Each account's usage per UTC date for the last 30 days, oldest first.
   var accountDays: [CSSwitch_AccountDay] = []
 
+  var providerBurns: [CSSwitch_ProviderBurn] = []
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -584,6 +586,20 @@ nonisolated struct CSSwitch_AccountTotal: Sendable {
   fileprivate var _costNanoUsd: Int64? = nil
 }
 
+nonisolated struct CSSwitch_ProviderBurn: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var provider: CSSwitch_Provider = .unspecified
+
+  var accountsPerWeek: Double = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 fileprivate nonisolated let _protobuf_package = "codex_switch.menu"
@@ -602,7 +618,7 @@ nonisolated extension CSSwitch_ReportingPeriodKind: SwiftProtobuf._ProtoNameProv
 
 nonisolated extension CSSwitch_MenuSnapshot: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".MenuSnapshot"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}generated_at\0\u{1}accounts\0\u{2}\u{2}connection\0\u{3}reporting_periods\0\u{3}proxy_activity\0\u{3}account_days\0\u{c}\u{3}\u{1}")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}generated_at\0\u{1}accounts\0\u{2}\u{2}connection\0\u{3}reporting_periods\0\u{3}proxy_activity\0\u{3}account_days\0\u{3}provider_burns\0\u{c}\u{3}\u{1}")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -616,6 +632,7 @@ nonisolated extension CSSwitch_MenuSnapshot: SwiftProtobuf.Message, SwiftProtobu
       case 5: try { try decoder.decodeRepeatedMessageField(value: &self.reportingPeriods) }()
       case 6: try { try decoder.decodeSingularMessageField(value: &self._proxyActivity) }()
       case 7: try { try decoder.decodeRepeatedMessageField(value: &self.accountDays) }()
+      case 8: try { try decoder.decodeRepeatedMessageField(value: &self.providerBurns) }()
       default: break
       }
     }
@@ -644,6 +661,9 @@ nonisolated extension CSSwitch_MenuSnapshot: SwiftProtobuf.Message, SwiftProtobu
     if !self.accountDays.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.accountDays, fieldNumber: 7)
     }
+    if !self.providerBurns.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.providerBurns, fieldNumber: 8)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -654,6 +674,7 @@ nonisolated extension CSSwitch_MenuSnapshot: SwiftProtobuf.Message, SwiftProtobu
     if lhs.reportingPeriods != rhs.reportingPeriods {return false}
     if lhs._proxyActivity != rhs._proxyActivity {return false}
     if lhs.accountDays != rhs.accountDays {return false}
+    if lhs.providerBurns != rhs.providerBurns {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -1260,6 +1281,41 @@ nonisolated extension CSSwitch_AccountTotal: SwiftProtobuf.Message, SwiftProtobu
     if lhs.accountKey != rhs.accountKey {return false}
     if lhs.tokens != rhs.tokens {return false}
     if lhs._costNanoUsd != rhs._costNanoUsd {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension CSSwitch_ProviderBurn: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".ProviderBurn"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}provider\0\u{3}accounts_per_week\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularEnumField(value: &self.provider) }()
+      case 2: try { try decoder.decodeSingularDoubleField(value: &self.accountsPerWeek) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.provider != .unspecified {
+      try visitor.visitSingularEnumField(value: self.provider, fieldNumber: 1)
+    }
+    if self.accountsPerWeek.bitPattern != 0 {
+      try visitor.visitSingularDoubleField(value: self.accountsPerWeek, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: CSSwitch_ProviderBurn, rhs: CSSwitch_ProviderBurn) -> Bool {
+    if lhs.provider != rhs.provider {return false}
+    if lhs.accountsPerWeek != rhs.accountsPerWeek {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

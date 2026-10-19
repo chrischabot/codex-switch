@@ -55,7 +55,7 @@ struct CodexSwitchPanel: View {
                                     currentCheckSucceeded: store.currentCheckSucceeded,
                                     privacyModeEnabled: $privacyModeEnabled
                                 )
-                                let pace = WeeklyPace.lines(snapshot, now: snapshot.generatedAt.date)
+                                let pace = WeeklyPace.lines(snapshot)
                                 if !pace.isEmpty {
                                     VStack(alignment: .leading, spacing: 2) {
                                         ForEach(pace, id: \.self) { line in

@@ -36,6 +36,10 @@ func OpenStoreDatabase(databasePath string) (*StoreDatabase, error) {
 		sqlDatabase.Close()
 		return nil, fmt.Errorf("create allowance window identity schema: %w", err)
 	}
+	if err := createWeeklyAllowanceSchema(sqlDatabase); err != nil {
+		sqlDatabase.Close()
+		return nil, fmt.Errorf("create weekly allowance schema: %w", err)
+	}
 	return &StoreDatabase{sqlDatabase: sqlDatabase}, nil
 }
 

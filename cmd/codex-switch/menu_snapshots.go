@@ -40,6 +40,7 @@ type menuSnapshots struct {
 	// codexBaseURL is the openai_base_url that sends Codex work to this proxy.
 	codexBaseURL string
 	router       *routing.TaskRouter
+	database     *store.StoreDatabase
 	usageLedger  *usage.UsageLedger
 	codex        *codexstate.LocalReader
 
@@ -84,6 +85,9 @@ func (snapshots *menuSnapshots) compose(ctx context.Context) error {
 		return err
 	}
 	snapshot.Connection.NewTasksConfigured = config.Provider == "openai" && config.OpenAIBaseURL != nil && strings.TrimRight(*config.OpenAIBaseURL, "/") == snapshots.codexBaseURL
+	if err := readProviderBurns(snapshots.database, snapshot); err != nil {
+		return err
+	}
 	var accountKeys []string
 	for _, account := range snapshot.Accounts {
 		accountKeys = append(accountKeys, account.Key)
@@ -106,6 +110,25 @@ func (snapshots *menuSnapshots) compose(ctx context.Context) error {
 	snapshots.mutex.Lock()
 	snapshots.encoded = encoded
 	snapshots.mutex.Unlock()
+	return nil
+}
+
+func readProviderBurns(database *store.StoreDatabase, snapshot *menupb.MenuSnapshot) error {
+	for _, provider := range []menupb.Provider{menupb.Provider_PROVIDER_CHATGPT, menupb.Provider_PROVIDER_CLAUDE} {
+		var accountNames []store.AccountName
+		for _, account := range snapshot.Accounts {
+			if account.Provider == provider {
+				accountNames = append(accountNames, store.AccountName(account.Key))
+			}
+		}
+		burn, err := database.ReadWeeklyAllowanceBurn(accountNames, snapshot.GeneratedAt.AsTime())
+		if err != nil {
+			return fmt.Errorf("read weekly allowance burn: %w", err)
+		}
+		if burn != nil {
+			snapshot.ProviderBurns = append(snapshot.ProviderBurns, &menupb.ProviderBurn{Provider: provider, AccountsPerWeek: *burn})
+		}
+	}
 	return nil
 }
 
