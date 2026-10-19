@@ -1,7 +1,6 @@
 package usage
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/joshp123/codex-switch/internal/store"
@@ -40,7 +39,13 @@ func attributeAccounts(completions []reconciledCompletion, native []sessionUsage
 	checked := make(map[allowanceIdentityKey]bool)
 	for index := range completions {
 		completion := &completions[index]
+		// The proxy's own record of the serving account is the truth. Allowance
+		// windows only attribute usage the proxy did not serve: accounts can share
+		// a reset time (OpenAI resets several at once), so a window is a guess.
 		completion.ProviderAccountID = providerByName[completion.AccountName]
+		if completion.ProviderAccountID != "" {
+			continue
+		}
 		allowance := responseAllowances[string(completion.ResponseID)]
 		if source := completion.NativeSource; allowance == nil && source != nil {
 			allowance = locationAllowances[nativeLocation{source.SourcePath, source.SourceOffset}]
@@ -70,9 +75,6 @@ func attributeAccounts(completions []reconciledCompletion, native []sessionUsage
 			owner := owners[key]
 			if owner == "" {
 				continue
-			}
-			if completion.ProviderAccountID != "" && completion.ProviderAccountID != owner {
-				return fmt.Errorf("allowance ownership disagrees with recorded account for task %s at %s", completion.TaskID, completion.At)
 			}
 			completion.ProviderAccountID = owner
 		}
