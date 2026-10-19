@@ -68,8 +68,17 @@ private struct AccountIdentities: View {
                     .frame(width: density.numberWidth, alignment: .leading)
                     Text(hideIdentity ? UsageFormatting.privateEmail(account.email) : account.email)
                         .fixedSize()
-                    Text(([account.planTitle] + extras(account)).filter { !$0.isEmpty }.joined(separator: " · "))
-                        .fixedSize()
+                    // Plan and stored resets, then on a line of its own the state
+                    // that keeps new work off the account. The column may wrap
+                    // rather than widen the panel.
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(([account.planTitle] + resets(account)).joined(separator: " · "))
+                        if let state = state(account) {
+                            Text(state)
+                        }
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .font(density.identityFont)
                 .foregroundStyle(.secondary)
@@ -77,17 +86,23 @@ private struct AccountIdentities: View {
         }
     }
 
-    /// "3 stored resets", "held back · 10% reserve", "not in pool": what is
-    /// worth knowing beyond the plan, in the proxy's words.
-    private func extras(_ account: CSSwitch_Account) -> [String] {
+    /// "3 stored resets", or "not in pool" for an account whose plan cannot
+    /// run the configured model.
+    private func resets(_ account: CSSwitch_Account) -> [String] {
         var parts: [String] = []
         if account.allowance.hasAvailableResetCredits, account.allowance.availableResetCredits > 0 {
             let count = account.allowance.availableResetCredits
             parts.append(count == 1 ? "1 stored reset" : "\(count) stored resets")
         }
         if !account.offersConfiguredModel { parts.append("not in pool") }
-        parts.append(account.usable ? account.reserveStatus : account.offersConfiguredModel ? account.unavailableReason : "")
         return parts
+    }
+
+    /// "no new work · 15% reserve", "held back · 10% reserve", or a limit, in
+    /// the proxy's words.
+    private func state(_ account: CSSwitch_Account) -> String? {
+        let state = account.usable ? account.reserveStatus : account.offersConfiguredModel ? account.unavailableReason : ""
+        return state.isEmpty ? nil : state
     }
 }
 

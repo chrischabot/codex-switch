@@ -89,7 +89,7 @@ func ReserveStatus(fact AccountRoutingFact, now time.Time) string {
 		return reason
 	}
 	if SoftReserveReached(fact, now) {
-		return fmt.Sprintf("new work elsewhere · %d%% reserve", fact.Reserve.SoftPercent)
+		return fmt.Sprintf("no new work · %d%% reserve", fact.Reserve.SoftPercent)
 	}
 	return ""
 }

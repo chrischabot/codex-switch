@@ -208,7 +208,7 @@ extension CSSwitch_MenuSnapshot {
         var copy = self
         let codex = copy.accounts.indices.filter { copy.accounts[$0].menuProvider == .chatgpt && copy.accounts[$0].usable }
         if let second = codex.dropFirst().first {
-            copy.accounts[second].reserveStatus = "new work elsewhere · 15% reserve"
+            copy.accounts[second].reserveStatus = "no new work · 15% reserve"
         }
         if let claude = copy.accounts.lastIndex(where: { $0.menuProvider == .claude }) {
             copy.accounts[claude].usable = false

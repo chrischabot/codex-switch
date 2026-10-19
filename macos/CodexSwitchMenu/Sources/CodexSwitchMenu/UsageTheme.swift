@@ -4,7 +4,7 @@ import SwiftUI
 enum UsageTheme {
     /// Wider than OpenUsage's 360 so the bar, the thing a person scans, is the
     /// widest part of a row even with "100% left" and "Resets Wed 18:00" beside it.
-    static let panelWidth: CGFloat = 472
+    static let panelWidth: CGFloat = 500
     static let outerInset: CGFloat = 14
     static let cardRadius: CGFloat = 12
     static let traySurface = Color(nsColor: .textBackgroundColor)
