@@ -34,6 +34,15 @@ func TestWeeklyAllowanceBurn(t *testing.T) {
 			want: 1.2, visible: true,
 		},
 		{
+			name: "a reset reported a minute apart is the same window",
+			readings: []WeeklyAllowanceReading{
+				reading("first", 2, 1, 80),
+				{AccountName: "first", ObservedAt: now.Add(-day), ResetsAt: now.Add(7*day - time.Minute), UsedPercent: 85},
+				reading("first", 0, 1, 90),
+			},
+			want: 0.1 * 7 / 2, visible: true,
+		},
+		{
 			name: "early reset does not project the old window",
 			readings: []WeeklyAllowanceReading{
 				reading("first", 2, 1, 0), reading("first", 1, 1, 69),

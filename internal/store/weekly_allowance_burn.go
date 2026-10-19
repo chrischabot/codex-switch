@@ -92,7 +92,9 @@ ORDER BY account_name, observed_at_unix_nano`, now.Add(-8*24*time.Hour).UnixNano
 		}
 		if previous.AccountName == reading.AccountName && !reading.ObservedAt.Before(now.Add(-allowanceWeek)) {
 			increase := reading.UsedPercent
-			if reading.ResetsAt.Equal(previous.ResetsAt) {
+			// Providers report the same reset a second or a minute apart; only a
+			// reset that moves by more than that starts a new window.
+			if reading.ResetsAt.Sub(previous.ResetsAt).Abs() < time.Hour {
 				increase -= previous.UsedPercent
 			}
 			usedPercent += math.Max(0, increase)
