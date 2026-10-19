@@ -107,6 +107,7 @@ func (monitor *Monitor) readAllowanceSample(ctx context.Context, account PoolAcc
 	if err != nil {
 		return AllowanceSample{}, err
 	}
+	monitor.recordWeeklyAllowance(account.Name, sample)
 	for _, window := range []*usageWindow{usage.RateLimit.Primary, usage.RateLimit.Secondary} {
 		if window == nil || *window.UsedPercent <= 0 || window.ResetAt == nil || *window.ResetAt <= 0 {
 			continue
@@ -122,6 +123,20 @@ func (monitor *Monitor) readAllowanceSample(ctx context.Context, account PoolAcc
 		}
 	}
 	return sample, nil
+}
+
+func (monitor *Monitor) recordWeeklyAllowance(accountName string, sample AllowanceSample) {
+	for _, window := range sample.Windows {
+		if window.DurationSeconds != 7*86400 || window.ModelID != "" || window.ModelName != "" || window.ResetsAt.IsZero() {
+			continue
+		}
+		if err := monitor.storeDatabase.RecordWeeklyAllowanceReading(store.WeeklyAllowanceReading{
+			AccountName: store.AccountName(accountName), ResetsAt: window.ResetsAt,
+			UsedPercent: window.UsedPercent, ObservedAt: sample.ObservedAt,
+		}); err != nil {
+			log.Printf("%s: could not record weekly allowance: %v", accountName, err)
+		}
+	}
 }
 
 // readSupportedModelSlugs reads the model catalogue Codex itself would see, so

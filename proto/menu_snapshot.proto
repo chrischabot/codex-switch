@@ -13,6 +13,7 @@ message MenuSnapshot {
   ProxyActivity proxy_activity = 6;
   // Each account's usage per UTC date for the last 30 days, oldest first.
   repeated AccountDay account_days = 7;
+  repeated ProviderBurn provider_burns = 8;
 }
 message AccountDay {
   string account_key = 1;
@@ -116,4 +117,8 @@ message AccountTotal {
  string account_key = 1;
  int64 tokens = 2;
  optional int64 cost_nano_usd = 3;
+}
+message ProviderBurn {
+  Provider provider = 1;
+  double accounts_per_week = 2;
 }

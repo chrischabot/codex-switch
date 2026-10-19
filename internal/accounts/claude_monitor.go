@@ -123,6 +123,9 @@ func (monitor *Monitor) readClaudeAllowance(ctx context.Context, account PoolAcc
 		return AllowanceSample{}, time.Time{}, err
 	}
 	sample, err := usage.sample(account, time.Now())
+	if err == nil {
+		monitor.recordWeeklyAllowance(account.Name, sample)
+	}
 	return sample, time.Time{}, err
 }
 
