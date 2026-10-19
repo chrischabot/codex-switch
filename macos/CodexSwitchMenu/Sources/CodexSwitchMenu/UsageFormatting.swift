@@ -17,14 +17,14 @@ enum UsageFormatting {
         return "\(first)•••••@•••••\(suffix)"
     }
 
-    /// When the window refills, as a clock time: "Resets Sat 02:49" within
-    /// a week, "Resets Sun 8 Nov" beyond that. Weekdays, dates and the clock
-    /// follow the Mac.
+    /// When the window refills: "Resets Wed 21, 18:00", in the Mac's
+    /// weekday, day and clock format. Windows are at most a month long, so
+    /// the day of the month is never ambiguous.
     static func resetLabel(_ date: Date, now: Date, locale: Locale = .autoupdatingCurrent, timeZone: TimeZone = .autoupdatingCurrent) -> String {
         let formatter = DateFormatter()
         formatter.locale = locale
         formatter.timeZone = timeZone
-        formatter.setLocalizedDateFormatFromTemplate(date.timeIntervalSince(now) < 6 * 86_400 ? "EEEjmm" : "EEEdMMM")
+        formatter.setLocalizedDateFormatFromTemplate("EEEdjmm")
         return "Resets " + formatter.string(from: date)
     }
 

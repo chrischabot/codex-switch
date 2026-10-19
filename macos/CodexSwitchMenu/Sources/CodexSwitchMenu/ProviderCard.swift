@@ -177,7 +177,7 @@ private struct AllowanceGridRow: View {
                 .monospacedDigit()
                 .lineLimit(1)
                 .frame(width: density.percentWidth, alignment: .trailing)
-            Text(allowance.hasResetAt ? UsageFormatting.resetLabel(allowance.resetAt.date, now: now) : "")
+            Text(resetText)
                 .font(density.rowFont)
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
@@ -186,7 +186,14 @@ private struct AllowanceGridRow: View {
         }
         .frame(height: density.rowHeight)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Account \(number): \(allowance.isEmpty ? "empty" : "\(UsageFormatting.percent(allowance.freePercent)) left"), \(allowance.hasResetAt ? UsageFormatting.resetLabel(allowance.resetAt.date, now: now) : "")")
+        .accessibilityLabel("Account \(number): \(allowance.isEmpty ? "empty" : "\(UsageFormatting.percent(allowance.freePercent)) left"), \(resetText)")
+    }
+
+    /// A reset already past means the window refilled and has not started
+    /// again, so there is no time to show.
+    private var resetText: String {
+        guard allowance.hasResetAt, allowance.resetAt.date > now else { return "" }
+        return UsageFormatting.resetLabel(allowance.resetAt.date, now: now)
     }
 
     let now: Date
