@@ -83,11 +83,16 @@ final class StatusBarController: NSObject {
         button.sendAction(on: [.leftMouseUp])
         updateStatusItem()
 
+        // The proxy answers when its snapshot changes, so the menu does
+        // nothing while nothing changes.
         refreshTask = Task { [weak self] in
+            await self?.store.refresh()
+            self?.updateStatusItem()
             while let self, !Task.isCancelled {
-                await self.store.refresh()
+                if !(await self.store.waitForChange()) {
+                    try? await Task.sleep(for: .seconds(5))
+                }
                 self.updateStatusItem()
-                try? await Task.sleep(for: OverviewStore.refreshInterval)
             }
         }
     }

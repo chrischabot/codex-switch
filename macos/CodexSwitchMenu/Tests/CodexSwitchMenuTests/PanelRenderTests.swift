@@ -170,7 +170,7 @@ final class PanelRenderTests: XCTestCase {
 
 private struct SavedSnapshot: SnapshotLoading {
     let bytes: Data
-    func loadSnapshot() async throws -> Data { bytes }
+    func loadSnapshot(after version: String?) async throws -> SnapshotFetch { .changed(bytes, version: "saved") }
 }
 
 /// The states the panel must show, derived from the real snapshot so the

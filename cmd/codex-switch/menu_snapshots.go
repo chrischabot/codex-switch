@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log"
@@ -17,6 +18,7 @@ import (
 	"github.com/joshp123/codex-switch/internal/clientcapability"
 	"github.com/joshp123/codex-switch/internal/codexstate"
 	"github.com/joshp123/codex-switch/internal/menupb"
+	"github.com/joshp123/codex-switch/internal/relay"
 	"github.com/joshp123/codex-switch/internal/routing"
 	"github.com/joshp123/codex-switch/internal/store"
 	"github.com/joshp123/codex-switch/internal/usage"
@@ -31,10 +33,22 @@ const menuSnapshotEndpoint = "/codex-switch/menu-snapshot"
 // command read it; each generation writes it once it listens.
 const menuSnapshotURLFilename = "menu-snapshot-url"
 
-const menuSnapshotInterval = time.Minute
+// The snapshot is composed once a minute, for allowance and work the proxy did
+// not serve, and soon after the proxy finishes a response: menuSnapshotAfterWork
+// after the first one, then at most every menuSnapshotWorkInterval while work
+// continues.
+const (
+	menuSnapshotInterval     = time.Minute
+	menuSnapshotAfterWork    = 5 * time.Second
+	menuSnapshotWorkInterval = 15 * time.Second
+	// A menu waiting for a newer snapshot is answered within this, so it learns
+	// the snapshot is still current.
+	menuSnapshotLongestWait = 55 * time.Second
+)
 
-// menuSnapshots composes the menu snapshot once a minute and serves the
-// latest one, so a reader never waits for accounts, usage or task names.
+// menuSnapshots composes the menu snapshot and serves the latest one, so a
+// reader never waits for accounts, usage or task names. A reader that already
+// has the latest snapshot waits until it changes.
 type menuSnapshots struct {
 	dataDirectory string
 	// codexBaseURL is the openai_base_url that sends Codex work to this proxy.
@@ -46,6 +60,19 @@ type menuSnapshots struct {
 
 	mutex   sync.Mutex
 	encoded []byte
+	// content is the latest snapshot without the time it was composed, and
+	// version counts changes to it. changed is closed and replaced at each
+	// change, waking every waiting reader; stopping wakes them when this
+	// generation stops serving.
+	content []byte
+	// version is unique to this process, so a menu that held a snapshot from
+	// the previous generation never takes this one's for the same version.
+	generation int64
+	version    uint64
+	changed    chan struct{}
+	stopping   chan struct{}
+	// workDone asks for a snapshot soon, because the proxy finished a response.
+	workDone chan struct{}
 	// lastCodexConfig is Codex's effective config as last read, and
 	// lastCodexConfigInputs the identity of the files it was read from. Codex
 	// is asked again only when those files change. While Codex cannot answer,
@@ -66,11 +93,47 @@ type codexTaskTitles struct {
 	unnamed map[string]bool
 }
 
+func newMenuSnapshots(dataDirectory string, router *routing.TaskRouter, database *store.StoreDatabase, usageLedger *usage.UsageLedger, codex *codexstate.LocalReader) *menuSnapshots {
+	return &menuSnapshots{
+		dataDirectory: dataDirectory, router: router, database: database, usageLedger: usageLedger, codex: codex,
+		generation: time.Now().UnixNano(),
+		changed:    make(chan struct{}), stopping: make(chan struct{}), workDone: make(chan struct{}, 1),
+	}
+}
+
+// composeAfterCompletedResponse records each completed response and asks for
+// the menu to show it soon.
+type composeAfterCompletedResponse struct {
+	ledger    relay.CompletionLedger
+	snapshots *menuSnapshots
+}
+
+func (recorder composeAfterCompletedResponse) RecordCompletedResponse(record store.CompletedResponseRecord) error {
+	if err := recorder.ledger.RecordCompletedResponse(record); err != nil {
+		return err
+	}
+	select {
+	case recorder.snapshots.workDone <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+// StopWaiting answers every waiting reader at once, so a stopping generation
+// holds no request open and the menu moves to the next generation.
+func (snapshots *menuSnapshots) StopWaiting() {
+	snapshots.mutex.Lock()
+	defer snapshots.mutex.Unlock()
+	select {
+	case <-snapshots.stopping:
+	default:
+		close(snapshots.stopping)
+	}
+}
+
 func (snapshots *menuSnapshots) Run(ctx context.Context) {
-	ticker := time.NewTicker(menuSnapshotInterval)
-	defer ticker.Stop()
 	for {
-		wait := ticker.C
+		wait := time.After(menuSnapshotInterval)
 		started := time.Now()
 		err := snapshots.compose(ctx)
 		if took := time.Since(started); took > 10*time.Second {
@@ -85,6 +148,13 @@ func (snapshots *menuSnapshots) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-wait:
+		case <-snapshots.workDone:
+			delay := max(menuSnapshotAfterWork, time.Until(started.Add(menuSnapshotWorkInterval)))
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(delay):
+			}
 		}
 	}
 }
@@ -123,13 +193,27 @@ func (snapshots *menuSnapshots) compose(ctx context.Context) error {
 			return err
 		}
 	}
-	encoded, err := proto.Marshal(snapshot)
+	deterministic := proto.MarshalOptions{Deterministic: true}
+	composedAt := snapshot.GeneratedAt
+	snapshot.GeneratedAt = nil
+	content, err := deterministic.Marshal(snapshot)
+	if err != nil {
+		return err
+	}
+	snapshot.GeneratedAt = composedAt
+	encoded, err := deterministic.Marshal(snapshot)
 	if err != nil {
 		return err
 	}
 	snapshots.mutex.Lock()
+	defer snapshots.mutex.Unlock()
 	snapshots.encoded = encoded
-	snapshots.mutex.Unlock()
+	if !bytes.Equal(content, snapshots.content) {
+		snapshots.content = content
+		snapshots.version++
+		close(snapshots.changed)
+		snapshots.changed = make(chan struct{})
+	}
 	return nil
 }
 
@@ -222,6 +306,10 @@ func (snapshots *menuSnapshots) nameCodexTasks(ctx context.Context, snapshot *me
 	return nil
 }
 
+// serveOrRelay serves the latest snapshot. A reader that passes the version
+// it has (?after=N) waits until a newer one exists, up to
+// menuSnapshotLongestWait; if none came, it gets 304 Not Modified with the time
+// the snapshot was last confirmed current.
 func (snapshots *menuSnapshots) serveOrRelay(capability string, next http.Handler) http.Handler {
 	path := clientcapability.PathPrefix(capability) + menuSnapshotEndpoint
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -233,15 +321,39 @@ func (snapshots *menuSnapshots) serveOrRelay(capability string, next http.Handle
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		snapshots.mutex.Lock()
-		encoded := snapshots.encoded
-		snapshots.mutex.Unlock()
+		read := func() ([]byte, string, chan struct{}) {
+			snapshots.mutex.Lock()
+			defer snapshots.mutex.Unlock()
+			return snapshots.encoded, fmt.Sprintf("%d.%d", snapshots.generation, snapshots.version), snapshots.changed
+		}
+		encoded, version, changed := read()
 		if encoded == nil {
 			http.Error(w, "the first menu snapshot is not ready", http.StatusServiceUnavailable)
 			return
 		}
-		w.Header().Set("Content-Type", "application/x-protobuf")
+		after := r.URL.Query().Get("after")
+		if after == version {
+			select {
+			case <-changed:
+			case <-snapshots.stopping:
+			case <-r.Context().Done():
+				return
+			case <-time.After(menuSnapshotLongestWait):
+			}
+			encoded, version, _ = read()
+		}
 		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Snapshot-Version", version)
+		if after == version {
+			// The reader's snapshot is current; it learns when that was confirmed.
+			var latest menupb.MenuSnapshot
+			if err := proto.Unmarshal(encoded, &latest); err == nil {
+				w.Header().Set("X-Snapshot-Composed-At", latest.GeneratedAt.AsTime().UTC().Format(time.RFC3339Nano))
+			}
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-protobuf")
 		_, _ = w.Write(encoded)
 	})
 }
