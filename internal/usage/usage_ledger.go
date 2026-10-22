@@ -24,13 +24,14 @@ import (
 const usageRefreshInterval = 10 * time.Minute
 
 type UsageLedger struct {
-	database      *store.StoreDatabase
-	sqlDatabase   *sql.DB
-	dataDirectory string
-	httpClient    *http.Client
-	sessionFiles  sessionFileCache
-	usageMutex    sync.Mutex
-	fold          *usageFold
+	database       *store.StoreDatabase
+	sqlDatabase    *sql.DB
+	dataDirectory  string
+	httpClient     *http.Client
+	sessionFiles   sessionFileCache
+	codexDiscovery codexSessionDiscovery
+	usageMutex     sync.Mutex
+	fold           *usageFold
 
 	logMutex      sync.Mutex
 	lastLoggedFor map[string]string

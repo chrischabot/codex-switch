@@ -3,13 +3,17 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"sync"
 
 	_ "modernc.org/sqlite"
 )
 
 // StoreDatabase is shared by old and new proxy generations during a live drain.
 type StoreDatabase struct {
-	sqlDatabase *sql.DB
+	sqlDatabase              *sql.DB
+	weeklyAllowanceBurnMutex sync.Mutex
+	weeklyAllowanceBurnRowID int64
+	weeklyAllowanceBurns     []weeklyAllowanceBurn
 }
 
 // OpenStoreDatabase enables WAL before exposing the database to concurrent proxy generations.

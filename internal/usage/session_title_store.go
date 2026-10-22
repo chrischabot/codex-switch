@@ -87,11 +87,13 @@ type cachedTitleDirectory struct {
 // Keep parsed metadata only; session contents remain on disk.
 type sessionFileCache struct {
 	sync.Mutex
-	Titles       map[sessionTitleKey]cachedSessionTitle
-	Headers      map[string]cachedPiHeader
-	CustomTitles map[string]cachedCustomTitle
-	Directories  map[string]cachedTitleDirectory
-	TitlePaths   map[string]map[string][]string
+	Titles         map[sessionTitleKey]cachedSessionTitle
+	Headers        map[string]cachedPiHeader
+	CustomTitles   map[string]cachedCustomTitle
+	Directories    map[string]cachedTitleDirectory
+	TitlePaths     map[string]map[string][]string
+	ClaudeRegistry map[string]cachedClaudeRegistryEntry
+	ClaudeTitles   map[string]cachedClaudeTaskTitle
 }
 
 func (ledger *UsageLedger) cachedPiSessionHeader(path string) (piSessionHeader, error) {
