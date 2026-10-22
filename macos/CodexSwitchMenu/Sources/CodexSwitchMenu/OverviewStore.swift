@@ -21,6 +21,10 @@ final class OverviewStore {
     private(set) var currentCheckSucceeded = false
 
     private var activeRefreshTask: Task<Void, Never>?
+    /// The bytes of the snapshot last shown. The proxy composes once a minute
+    /// and the menu fetches twice as often, so half the fetches return the
+    /// same snapshot; those change nothing and redraw nothing.
+    private var latestData: Data?
     private let client: any SnapshotLoading
     private let cacheFile: URL
 
@@ -64,8 +68,10 @@ final class OverviewStore {
             return
         }
 
+        if !currentCheckSucceeded { currentCheckSucceeded = true }
+        guard data != latestData else { return }
+        latestData = data
         latestOverview = OverviewSnapshot(menuSnapshot: snapshot)
-        currentCheckSucceeded = true
         do {
             try FileManager.default.createDirectory(
                 at: cacheFile.deletingLastPathComponent(),

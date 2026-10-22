@@ -46,9 +46,24 @@ type menuSnapshots struct {
 
 	mutex   sync.Mutex
 	encoded []byte
-	// lastCodexConfig stands in while Codex cannot answer, for example in the
-	// first seconds after the Mac wakes, so the rest of the menu stays current.
-	lastCodexConfig *codexstate.EffectiveModelConfig
+	// lastCodexConfig is Codex's effective config as last read, and
+	// lastCodexConfigInputs the identity of the files it was read from. Codex
+	// is asked again only when those files change. While Codex cannot answer,
+	// for example in the first seconds after the Mac wakes, the last config
+	// stands in so the rest of the menu stays current.
+	lastCodexConfig       *codexstate.EffectiveModelConfig
+	lastCodexConfigInputs string
+	codexTitles           codexTaskTitles
+}
+
+// codexTaskTitles holds the names Codex gave tasks, read from its thread
+// database while that database is unchanged.
+type codexTaskTitles struct {
+	inputs string
+	titles map[string]string
+	// unnamed lists tasks Codex has no record of, so they are not asked for
+	// again until the database changes.
+	unnamed map[string]bool
 }
 
 func (snapshots *menuSnapshots) Run(ctx context.Context) {
@@ -84,16 +99,7 @@ func (snapshots *menuSnapshots) compose(ctx context.Context) error {
 	})
 	var config codexstate.EffectiveModelConfig
 	if hasChatGPTAccounts {
-		configContext, cancel := context.WithTimeout(ctx, 10*time.Second)
-		config, err = snapshots.codex.ModelConfig(configContext)
-		cancel()
-		switch {
-		case err == nil:
-			snapshots.lastCodexConfig = &config
-		case snapshots.lastCodexConfig != nil:
-			log.Printf("menu snapshot uses the last Codex model settings: %v", err)
-			config = *snapshots.lastCodexConfig
-		default:
+		if config, err = snapshots.codexModelConfig(ctx); err != nil {
 			return err
 		}
 	}
@@ -116,7 +122,7 @@ func (snapshots *menuSnapshots) compose(ctx context.Context) error {
 		return err
 	}
 	if hasChatGPTAccounts {
-		if err := nameCodexTasks(ctx, snapshots.codex, snapshot); err != nil {
+		if err := snapshots.nameCodexTasks(ctx, snapshot); err != nil {
 			return err
 		}
 	}
@@ -149,9 +155,33 @@ func readProviderBurns(database *store.StoreDatabase, snapshot *menupb.MenuSnaps
 	return nil
 }
 
+// codexModelConfig is Codex's effective model config. It starts a Codex
+// app-server to read it only when one of the files Codex reads it from has
+// changed since the last read.
+func (snapshots *menuSnapshots) codexModelConfig(ctx context.Context) (codexstate.EffectiveModelConfig, error) {
+	inputs := snapshots.codex.ModelConfigInputs()
+	if snapshots.lastCodexConfig != nil && inputs == snapshots.lastCodexConfigInputs {
+		return *snapshots.lastCodexConfig, nil
+	}
+	configContext, cancel := context.WithTimeout(ctx, 10*time.Second)
+	config, err := snapshots.codex.ModelConfig(configContext)
+	cancel()
+	switch {
+	case err == nil:
+		snapshots.lastCodexConfig, snapshots.lastCodexConfigInputs = &config, inputs
+		return config, nil
+	case snapshots.lastCodexConfig != nil:
+		log.Printf("menu snapshot uses the last Codex model settings: %v", err)
+		return *snapshots.lastCodexConfig, nil
+	default:
+		return config, err
+	}
+}
+
 // nameCodexTasks gives each task the name Codex knows it by. A task Codex
-// has no record of keeps no name.
-func nameCodexTasks(ctx context.Context, codex *codexstate.LocalReader, snapshot *menupb.MenuSnapshot) error {
+// has no record of keeps no name. Codex's database is read only for tasks
+// not yet named since it last changed.
+func (snapshots *menuSnapshots) nameCodexTasks(ctx context.Context, snapshot *menupb.MenuSnapshot) error {
 	tasks := slices.Clone(snapshot.GetProxyActivity().GetTasks())
 	for _, period := range snapshot.ReportingPeriods {
 		tasks = append(tasks, period.GetTaskUsage().GetTasks()...)
@@ -162,12 +192,33 @@ func nameCodexTasks(ctx context.Context, codex *codexstate.LocalReader, snapshot
 			ids = append(ids, task.TaskId)
 		}
 	}
-	titles, err := codex.TaskTitles(ctx, ids)
+	inputs, err := snapshots.codex.TaskTitleInputs()
 	if err != nil {
 		return fmt.Errorf("read Codex task names: %w", err)
 	}
+	known := &snapshots.codexTitles
+	if known.inputs != inputs || known.titles == nil {
+		*known = codexTaskTitles{inputs: inputs, titles: map[string]string{}, unnamed: map[string]bool{}}
+	}
+	var unknown []string
+	for _, id := range ids {
+		if _, named := known.titles[id]; !named && !known.unnamed[id] {
+			unknown = append(unknown, id)
+		}
+	}
+	titles, err := snapshots.codex.TaskTitles(ctx, unknown)
+	if err != nil {
+		return fmt.Errorf("read Codex task names: %w", err)
+	}
+	for _, id := range unknown {
+		if title, named := titles[id]; named {
+			known.titles[id] = title
+		} else {
+			known.unnamed[id] = true
+		}
+	}
 	for _, task := range tasks {
-		if title, ok := titles[task.TaskId]; ok && task.Title == nil {
+		if title, ok := known.titles[task.TaskId]; ok && task.Title == nil {
 			task.Title = &title
 		}
 	}

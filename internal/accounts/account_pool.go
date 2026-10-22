@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 )
 
 type Provider string
@@ -59,16 +61,12 @@ func ReadPool(dataDirectory string) ([]PoolAccount, error) {
 		if err != nil || index < 1 {
 			continue
 		}
-		account, err := ReadPoolAccount(filepath.Join(dataDirectory, entry.Name()), entry.Name(), index)
+		account, err := readPoolAccountFiles(filepath.Join(dataDirectory, entry.Name()), entry.Name(), index)
 		if os.IsNotExist(err) {
 			continue
 		}
 		if err != nil {
 			return nil, err
-		}
-		account.Reserve, err = readAccountReserve(filepath.Join(dataDirectory, entry.Name()))
-		if err != nil {
-			return nil, fmt.Errorf("read %s reserve: %w", entry.Name(), err)
 		}
 		result = append(result, account)
 	}
@@ -77,6 +75,59 @@ func ReadPool(dataDirectory string) ([]PoolAccount, error) {
 		result[index].DisplayName, result[index].ProviderNumber = AccountDisplayName(result, result[index].Name)
 	}
 	return result, nil
+}
+
+// poolAccountFiles keeps each account as last parsed, with the identity of
+// the files it came from. Routing reads the pool on every request; a file is
+// opened again only after it changes.
+var poolAccountFiles = struct {
+	sync.Mutex
+	byDirectory map[string]parsedPoolAccount
+}{byDirectory: map[string]parsedPoolAccount{}}
+
+type parsedPoolAccount struct {
+	files   string
+	account PoolAccount
+}
+
+// readPoolAccountFiles reads an account's identity and reserve, from memory
+// while its auth.json and reserve-percent are unchanged.
+func readPoolAccountFiles(accountDirectory, name string, index int) (PoolAccount, error) {
+	authentication, err := os.Stat(filepath.Join(accountDirectory, "auth.json"))
+	if err != nil {
+		return PoolAccount{}, err
+	}
+	files := fileIdentity(authentication)
+	if reserve, err := os.Stat(filepath.Join(accountDirectory, reserveFilename)); err == nil {
+		files += " " + fileIdentity(reserve)
+	} else if !os.IsNotExist(err) {
+		return PoolAccount{}, fmt.Errorf("read %s reserve: %w", name, err)
+	}
+	poolAccountFiles.Lock()
+	parsed, known := poolAccountFiles.byDirectory[accountDirectory]
+	poolAccountFiles.Unlock()
+	if known && parsed.files == files && parsed.account.Name == name && parsed.account.Index == index {
+		return parsed.account, nil
+	}
+	account, err := ReadPoolAccount(accountDirectory, name, index)
+	if err != nil {
+		return PoolAccount{}, err
+	}
+	if account.Reserve, err = readAccountReserve(accountDirectory); err != nil {
+		return PoolAccount{}, fmt.Errorf("read %s reserve: %w", name, err)
+	}
+	poolAccountFiles.Lock()
+	poolAccountFiles.byDirectory[accountDirectory] = parsedPoolAccount{files: files, account: account}
+	poolAccountFiles.Unlock()
+	return account, nil
+}
+
+func fileIdentity(info os.FileInfo) string {
+	identity := fmt.Sprintf("%d %d", info.Size(), info.ModTime().UnixNano())
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+		identity += fmt.Sprintf(" %d:%d", stat.Dev, stat.Ino)
+	}
+	return identity
 }
 
 // ReadPoolAccount reads the provider identity from the auth.json in

@@ -19,7 +19,9 @@ import (
 	"github.com/joshp123/codex-switch/internal/store"
 )
 
-const usageRefreshInterval = time.Minute
+// OpenAI reports a day's tokens about 12 hours late and its model shares a
+// day or two late, so reading the report more often shows nothing new.
+const usageRefreshInterval = 10 * time.Minute
 
 type UsageLedger struct {
 	database      *store.StoreDatabase
@@ -50,7 +52,7 @@ func OpenUsageLedger(database *store.StoreDatabase, dataDirectory string, httpCl
 	return ledger, nil
 }
 
-// Run refreshes OpenAI's per-account report once a minute until ctx ends,
+// Run refreshes OpenAI's per-account report every ten minutes until ctx ends,
 // so a slow OpenAI read never delays the local totals.
 func (ledger *UsageLedger) Run(ctx context.Context) {
 	ticker := time.NewTicker(usageRefreshInterval)

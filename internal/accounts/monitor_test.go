@@ -240,7 +240,7 @@ func runScheduledRead(monitor *Monitor, account PoolAccount) {
 	monitored.reading = true
 	scheduled := monitored.fact
 	monitor.mutex.Unlock()
-	monitor.readAccount(context.Background(), account, monitored, scheduled)
+	monitor.readAccount(context.Background(), account, monitored, scheduled, true)
 }
 
 func currentFact(t *testing.T, monitor *Monitor) AccountRoutingFact {

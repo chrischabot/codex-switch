@@ -1,6 +1,7 @@
 package accounts
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -179,6 +180,16 @@ func (monitor *Monitor) withClaudeAllowanceCache(name string, operation func(cla
 		if err != nil {
 			return err
 		}
-		return writeAtomic(path, updated)
+		encoded, err := json.MarshalIndent(updated, "", "  ")
+		if err != nil {
+			return err
+		}
+		encoded = append(encoded, '\n')
+		// Most calls only find the next read is not due yet; they leave the
+		// file as it is.
+		if bytes.Equal(encoded, data) {
+			return nil
+		}
+		return writeAtomicData(path, encoded)
 	})
 }

@@ -15,10 +15,14 @@ import (
 )
 
 // Healthy accounts are read once a minute; waiting work asks for a read at
-// most every five seconds. Network reads never run on the routing path.
+// most every five seconds. Model lists change only when a provider ships or
+// withdraws a model, so they are read every 15 minutes, and again whenever
+// waiting work asks, which covers a model no account was known to offer.
+// Network reads never run on the routing path.
 const (
 	accountReadInterval          = time.Minute
 	requestedAccountReadInterval = 5 * time.Second
+	modelListReadInterval        = 15 * time.Minute
 	accountReadTimeout           = 15 * time.Second
 )
 
@@ -61,10 +65,11 @@ type Monitor struct {
 // monitoredAccount has at most one read in flight. The request path may change
 // its fact during that read; see keepRequestPathObservations.
 type monitoredAccount struct {
-	fact            AccountRoutingFact
-	savedLogin      *savedLogin
-	lastReadStarted time.Time
-	reading         bool
+	fact                     AccountRoutingFact
+	savedLogin               *savedLogin
+	lastReadStarted          time.Time
+	lastModelListReadStarted time.Time
+	reading                  bool
 }
 
 // NewMonitor reads accounts from upstreamOrigin, asking for the model catalogue
@@ -132,20 +137,25 @@ func (monitor *Monitor) startDueReads(ctx context.Context, reads *sync.WaitGroup
 		}
 		monitored.reading = true
 		monitored.lastReadStarted = time.Now()
+		readModelList := readRequested || monitored.fact.SupportedModelSlugs == nil || monitored.fact.ModelListCause != nil ||
+			time.Since(monitored.lastModelListReadStarted) >= modelListReadInterval
+		if readModelList {
+			monitored.lastModelListReadStarted = monitored.lastReadStarted
+		}
 		reads.Add(1)
 		go func(scheduled AccountRoutingFact) {
 			defer reads.Done()
-			monitor.readAccount(ctx, account, monitored, scheduled)
+			monitor.readAccount(ctx, account, monitored, scheduled, readModelList)
 		}(monitored.fact)
 	}
 }
 
-func (monitor *Monitor) readAccount(ctx context.Context, account PoolAccount, monitored *monitoredAccount, scheduled AccountRoutingFact) {
+func (monitor *Monitor) readAccount(ctx context.Context, account PoolAccount, monitored *monitoredAccount, scheduled AccountRoutingFact, readModelList bool) {
 	var read AccountRoutingFact
 	if account.Provider == ProviderClaude {
 		read = monitor.observeClaudeAccount(ctx, account, monitored.savedLogin, scheduled)
 	} else {
-		read = monitor.observeAccount(ctx, account, monitored.savedLogin, scheduled)
+		read = monitor.observeAccount(ctx, account, monitored.savedLogin, scheduled, readModelList)
 	}
 	read.Reserve = account.Reserve
 	monitor.mutex.Lock()

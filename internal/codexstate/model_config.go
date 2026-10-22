@@ -6,7 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
+	"syscall"
 )
 
 type EffectiveModelConfig struct {
@@ -51,6 +55,48 @@ func (r LocalReader) ModelConfig(ctx context.Context) (EffectiveModelConfig, err
 		return EffectiveModelConfig{}, fmt.Errorf("read effective Codex config: %w", err)
 	}
 	return value, nil
+}
+
+// ModelConfigInputs identifies every file Codex layers its effective config
+// from, and the Codex executable, by inode, size and modification time. The
+// effective config can change only when this does, so a caller starts an
+// app-server to read it again only then. An absent file counts as an input:
+// creating one changes the identity.
+func (r LocalReader) ModelConfigInputs() string {
+	executable := r.CodexExecutable
+	if resolved, err := exec.LookPath(executable); err == nil {
+		executable = resolved
+	}
+	paths := []string{
+		executable,
+		filepath.Join(r.CodexHome, "config.toml"),
+		filepath.Join(r.CodexHome, "managed_config.toml"),
+		filepath.Join(r.CodexHome, "requirements.toml"),
+		"/etc/codex/config.toml",
+		"/etc/codex/managed_config.toml",
+		"/etc/codex/requirements.toml",
+		"/Library/Managed Preferences/com.openai.codex.plist",
+	}
+	if user := os.Getenv("USER"); user != "" {
+		paths = append(paths, filepath.Join("/Library/Managed Preferences", user, "com.openai.codex.plist"))
+	}
+	identities := make([]string, 0, len(paths))
+	for _, path := range paths {
+		identities = append(identities, fileIdentity(path))
+	}
+	return strings.Join(identities, "\n")
+}
+
+func fileIdentity(path string) string {
+	info, err := os.Stat(path)
+	if err != nil {
+		return path + " absent"
+	}
+	identity := fmt.Sprintf("%s %d %d", path, info.Size(), info.ModTime().UnixNano())
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+		identity += fmt.Sprintf(" %d:%d", stat.Dev, stat.Ino)
+	}
+	return identity
 }
 
 func (r LocalReader) readModelConfig(ctx context.Context) (EffectiveModelConfig, error) {

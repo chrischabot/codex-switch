@@ -20,6 +20,8 @@ final class StatusBarController: NSObject {
     /// Where the panel's top-left corner sits while it is shown, so it grows
     /// downward when its content changes height.
     private var anchorTopLeft: NSPoint = .zero
+    /// What the status item shows now; it is drawn again only when this changes.
+    private var shownValues: [MenuBarAccountValue]?
 
     /// Space between the menu bar and the panel, and between the panel and the screen's edges.
     private static let screenMargin: CGFloat = 6
@@ -182,6 +184,8 @@ final class StatusBarController: NSObject {
         guard let button = statusItem.button else { return }
         let accounts = store.latestSnapshot?.accounts ?? []
         let values = MenuBarAccountValue.values(for: accounts)
+        guard values != shownValues else { return }
+        shownValues = values
 
         if values.isEmpty {
             showIdentity(button: button, toolTip: "Codex Switch")
