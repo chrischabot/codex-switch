@@ -17,7 +17,14 @@ const (
 	websocketTextOpcode         = 0x1
 	websocketBinaryOpcode       = 0x2
 	websocketMaximumDictionary  = 32 << 10
+	// A connection keeps buffers up to this size between messages. A larger
+	// one, such as a long task's whole context in one request, is released
+	// once its message is handled, so an idle connection holds little.
+	websocketRetainedBufferBytes = 64 << 10
 )
+
+// deflateMessageTail ends a permessage-deflate message for the decompressor.
+var deflateMessageTail = []byte{0x00, 0x00, 0xff, 0xff}
 
 type observedWebSocketConnection struct {
 	io.ReadWriteCloser
@@ -259,15 +266,15 @@ func (observer *websocketServerFrameObserver) observeFramePayload(payload []byte
 		observer.frameOpcode != websocketBinaryOpcode && observer.frameOpcode != websocketContinuationOpcode {
 		return
 	}
-	decodedPayload := payload
+	start := len(observer.messageBytes)
+	observer.messageBytes = append(observer.messageBytes, payload...)
 	if observer.headerBytes[1]&0x80 != 0 {
-		decodedPayload = append([]byte(nil), payload...)
-		for index := range decodedPayload {
-			decodedPayload[index] ^= observer.payloadMask[observer.payloadMaskIndex%4]
+		decoded := observer.messageBytes[start:]
+		for index := range decoded {
+			decoded[index] ^= observer.payloadMask[observer.payloadMaskIndex%4]
 			observer.payloadMaskIndex++
 		}
 	}
-	observer.messageBytes = append(observer.messageBytes, decodedPayload...)
 }
 
 func (observer *websocketServerFrameObserver) finishFrame() error {
@@ -284,7 +291,7 @@ func (observer *websocketServerFrameObserver) finishFrame() error {
 	defer func() {
 		observer.messageActive = false
 		observer.messageCompressed = false
-		observer.messageBytes = observer.messageBytes[:0]
+		observer.messageBytes = reuseOrRelease(observer.messageBytes)
 	}()
 
 	message := observer.messageBytes
@@ -302,15 +309,12 @@ func (observer *websocketServerFrameObserver) finishFrame() error {
 }
 
 func (observer *websocketServerFrameObserver) decompressMessage(compressed []byte) ([]byte, error) {
-	compressedWithTail := make([]byte, 0, len(compressed)+4)
-	compressedWithTail = append(compressedWithTail, compressed...)
-	compressedWithTail = append(compressedWithTail, 0x00, 0x00, 0xff, 0xff)
-
+	compressedWithTail := io.MultiReader(bytes.NewReader(compressed), bytes.NewReader(deflateMessageTail))
 	var decompressor io.ReadCloser
 	if len(observer.compressionDictionary) > 0 {
-		decompressor = flate.NewReaderDict(bytes.NewReader(compressedWithTail), observer.compressionDictionary)
+		decompressor = flate.NewReaderDict(compressedWithTail, observer.compressionDictionary)
 	} else {
-		decompressor = flate.NewReader(bytes.NewReader(compressedWithTail))
+		decompressor = flate.NewReader(compressedWithTail)
 	}
 	decompressed, err := io.ReadAll(decompressor)
 	closeError := decompressor.Close()
@@ -323,14 +327,34 @@ func (observer *websocketServerFrameObserver) decompressMessage(compressed []byt
 	if observer.serverNoContextTakeover {
 		observer.compressionDictionary = observer.compressionDictionary[:0]
 	} else {
-		observer.compressionDictionary = append(observer.compressionDictionary, decompressed...)
-		if len(observer.compressionDictionary) > websocketMaximumDictionary {
-			lastWindow := len(observer.compressionDictionary) - websocketMaximumDictionary
-			copy(observer.compressionDictionary, observer.compressionDictionary[lastWindow:])
-			observer.compressionDictionary = observer.compressionDictionary[:websocketMaximumDictionary]
-		}
+		observer.compressionDictionary = slideDeflateWindow(observer.compressionDictionary, decompressed)
 	}
 	return decompressed, nil
+}
+
+// slideDeflateWindow keeps the last 32 KiB of decompressed output, the most
+// a later message can refer back to, in a buffer that never grows past it.
+func slideDeflateWindow(window, output []byte) []byte {
+	if window == nil {
+		window = make([]byte, 0, websocketMaximumDictionary)
+	}
+	if len(output) >= websocketMaximumDictionary {
+		return append(window[:0], output[len(output)-websocketMaximumDictionary:]...)
+	}
+	if excess := len(window) + len(output) - websocketMaximumDictionary; excess > 0 {
+		copy(window, window[excess:])
+		window = window[:len(window)-excess]
+	}
+	return append(window, output...)
+}
+
+// reuseOrRelease empties a buffer for the next message, keeping its memory
+// only when it is small.
+func reuseOrRelease(buffer []byte) []byte {
+	if cap(buffer) > websocketRetainedBufferBytes {
+		return nil
+	}
+	return buffer[:0]
 }
 
 func (connection *observedWebSocketConnection) observeClientMessages(onMessage func([]byte) bool) {
@@ -378,8 +402,18 @@ func (connection *observedWebSocketConnection) Write(data []byte) (int, error) {
 			if err := writeAllWebSocketBytes(connection.ReadWriteCloser, connection.clientPendingFrames.Bytes()); err != nil {
 				return 0, err
 			}
-			connection.clientPendingFrames.Reset()
+			if connection.clientPendingFrames.Cap() > websocketRetainedBufferBytes {
+				connection.clientPendingFrames = bytes.Buffer{}
+			} else {
+				connection.clientPendingFrames.Reset()
+			}
 		}
+	}
+	if len(connection.clientInput) == 0 {
+		connection.clientInput = reuseOrRelease(connection.clientInput)
+	} else if cap(connection.clientInput) > websocketRetainedBufferBytes {
+		// A partial frame stays; the large buffer behind consumed frames goes.
+		connection.clientInput = append([]byte(nil), connection.clientInput...)
 	}
 	return len(data), nil
 }

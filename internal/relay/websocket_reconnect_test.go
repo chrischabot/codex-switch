@@ -5,8 +5,10 @@ import (
 	"compress/flate"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -153,6 +155,64 @@ func TestWebSocketCompressedMessagesPreserveFramesAndContext(t *testing.T) {
 	}
 }
 
+// Messages larger than the 32 KiB window, each reusing text from the ones
+// before it, decompress exactly while the observer keeps only the window.
+func TestWebSocketCompressedMessagesLargerThanTheWindowKeepTheirContext(t *testing.T) {
+	var compressed bytes.Buffer
+	compressor, err := flate.NewWriter(&compressed, flate.DefaultCompression)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer compressor.Close()
+	words := func(seed, count int) string {
+		var text strings.Builder
+		for index := range count {
+			fmt.Fprintf(&text, "word%d ", (index*7919+seed)%5003)
+		}
+		return text.String()
+	}
+	first := words(1, 9000)
+	messages := []string{
+		`{"type":"response.create","input":"` + first + `"}`,
+		`{"type":"response.create","input":"` + first[len(first)-20000:] + words(2, 300) + `"}`,
+		`{"type":"response.create","input":"` + words(3, 40) + first[len(first)-1000:] + `"}`,
+		`{"type":"response.create","input":"` + words(4, 20000) + `"}`,
+		`{"type":"response.create","input":"short"}`,
+	}
+	var frames []byte
+	for _, message := range messages {
+		compressed.Reset()
+		if _, err := compressor.Write([]byte(message)); err != nil {
+			t.Fatal(err)
+		}
+		if err := compressor.Flush(); err != nil {
+			t.Fatal(err)
+		}
+		payload := compressed.Bytes()
+		frames = append(frames, reconnectTestFrame(0xc1, payload[:len(payload)-4])...)
+	}
+	var observed []string
+	connection := reconnectTestConnection(t, frames, "permessage-deflate", func(message []byte) bool {
+		observed = append(observed, string(message))
+		return false
+	})
+	got, err := io.ReadAll(connection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, frames) {
+		t.Fatal("compressed frame bytes changed")
+	}
+	if len(observed) != len(messages) {
+		t.Fatalf("observed %d messages, want %d", len(observed), len(messages))
+	}
+	for index := range messages {
+		if observed[index] != messages[index] {
+			t.Fatalf("message %d decompressed wrongly", index)
+		}
+	}
+}
+
 type reconnectTestExhaustionRecorder struct {
 	TaskRouter
 	reportCount int
@@ -178,11 +238,15 @@ func reconnectTestConnection(t *testing.T, frames []byte, extensions string, obs
 
 func reconnectTestFrame(firstByte byte, payload []byte) []byte {
 	frame := []byte{firstByte}
-	if len(payload) < 126 {
+	switch {
+	case len(payload) < 126:
 		frame = append(frame, byte(len(payload)))
-	} else {
+	case len(payload) <= 0xffff:
 		frame = append(frame, 126)
 		frame = binary.BigEndian.AppendUint16(frame, uint16(len(payload)))
+	default:
+		frame = append(frame, 127)
+		frame = binary.BigEndian.AppendUint64(frame, uint64(len(payload)))
 	}
 	return append(frame, payload...)
 }
