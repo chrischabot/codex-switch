@@ -33,14 +33,14 @@ const menuSnapshotEndpoint = "/codex-switch/menu-snapshot"
 // command read it; each generation writes it once it listens.
 const menuSnapshotURLFilename = "menu-snapshot-url"
 
-// The snapshot is composed once a minute, for allowance and work the proxy did
-// not serve, and soon after the proxy finishes a response: menuSnapshotAfterWork
-// after the first one, then at most every menuSnapshotWorkInterval while work
-// continues.
+// The snapshot is composed once a minute, and menuSnapshotAfterWork after the
+// proxy finishes a response when the last snapshot is older than that, so
+// work after a quiet spell shows within seconds while continuous work costs
+// no more than one snapshot a minute.
 const (
 	menuSnapshotInterval     = time.Minute
 	menuSnapshotAfterWork    = 5 * time.Second
-	menuSnapshotWorkInterval = 15 * time.Second
+	menuSnapshotWorkInterval = time.Minute
 	// A menu waiting for a newer snapshot is answered within this, so it learns
 	// the snapshot is still current.
 	menuSnapshotLongestWait = 55 * time.Second
