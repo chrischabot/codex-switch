@@ -46,19 +46,30 @@ type menuSnapshots struct {
 
 	mutex   sync.Mutex
 	encoded []byte
+	// lastCodexConfig stands in while Codex cannot answer, for example in the
+	// first seconds after the Mac wakes, so the rest of the menu stays current.
+	lastCodexConfig *codexstate.EffectiveModelConfig
 }
 
 func (snapshots *menuSnapshots) Run(ctx context.Context) {
 	ticker := time.NewTicker(menuSnapshotInterval)
 	defer ticker.Stop()
 	for {
-		if err := snapshots.compose(ctx); err != nil && ctx.Err() == nil {
+		wait := ticker.C
+		started := time.Now()
+		err := snapshots.compose(ctx)
+		if took := time.Since(started); took > 10*time.Second {
+			log.Printf("menu snapshot took %s to compose", took.Round(time.Second))
+		}
+		if err != nil && ctx.Err() == nil {
 			log.Printf("could not compose the menu snapshot: %v", err)
+			// Try again soon rather than leaving the menu a minute behind.
+			wait = time.After(5 * time.Second)
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-wait:
 		}
 	}
 }
@@ -76,7 +87,13 @@ func (snapshots *menuSnapshots) compose(ctx context.Context) error {
 		configContext, cancel := context.WithTimeout(ctx, 10*time.Second)
 		config, err = snapshots.codex.ModelConfig(configContext)
 		cancel()
-		if err != nil {
+		switch {
+		case err == nil:
+			snapshots.lastCodexConfig = &config
+		case snapshots.lastCodexConfig != nil:
+			log.Printf("menu snapshot uses the last Codex model settings: %v", err)
+			config = *snapshots.lastCodexConfig
+		default:
 			return err
 		}
 	}
