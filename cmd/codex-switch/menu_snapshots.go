@@ -193,6 +193,7 @@ func (snapshots *menuSnapshots) compose(ctx context.Context) error {
 			return err
 		}
 	}
+	keepShownTaskRows(snapshot)
 	deterministic := proto.MarshalOptions{Deterministic: true}
 	composedAt := snapshot.GeneratedAt
 	snapshot.GeneratedAt = nil
