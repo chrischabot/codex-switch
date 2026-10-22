@@ -82,17 +82,9 @@ type sessionReadResult struct {
 	Cursor       sessionReadCursor
 	Observations []sessionUsageObservation
 	ChildTasks   []childTaskRecord
-	BytesRead    int64
 }
 
 type childTaskRecord struct {
 	TaskID       string
 	SourceOffset int64
-}
-
-type sessionImportSummary struct {
-	FilesDiscovered   int
-	FilesRead         int
-	UsageObservations int
-	BytesRead         int64
 }

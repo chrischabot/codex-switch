@@ -28,6 +28,9 @@ type UsageLedger struct {
 	sqlDatabase   *sql.DB
 	dataDirectory string
 	httpClient    *http.Client
+	sessionFiles  sessionFileCache
+	usageMutex    sync.Mutex
+	fold          *usageFold
 
 	logMutex      sync.Mutex
 	lastLoggedFor map[string]string

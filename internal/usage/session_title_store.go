@@ -3,10 +3,13 @@ package usage
 import (
 	"bufio"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"sync"
 	"syscall"
+	"time"
 )
 
 type sessionTitleState struct {
@@ -27,36 +30,135 @@ func createSessionTitleSchema(database *sql.DB) error {
 	return err
 }
 
+type sessionFileNode struct {
+	Device           uint64
+	Inode            uint64
+	ModifiedFallback int64
+}
+
+type sessionFileFingerprint struct {
+	Identity sessionFileNode
+	Size     int64
+	Modified time.Time
+}
+
+func fingerprintSessionFile(info os.FileInfo) sessionFileFingerprint {
+	fingerprint := sessionFileFingerprint{Size: info.Size(), Modified: info.ModTime()}
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+		fingerprint.Identity = sessionFileNode{Device: uint64(stat.Dev), Inode: uint64(stat.Ino)}
+	} else {
+		fingerprint.Identity.ModifiedFallback = info.ModTime().UnixNano()
+	}
+	return fingerprint
+}
+
+func sessionFileIdentity(info os.FileInfo) string {
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+		return fmt.Sprintf("%d:%d", stat.Dev, stat.Ino)
+	}
+	return fmt.Sprintf("%d", info.ModTime().UnixNano())
+}
+
+type sessionTitleKey struct {
+	Path, Kind string
+}
+
+type cachedSessionTitle struct {
+	Fingerprint sessionFileFingerprint
+	Visible     sessionTitleState
+}
+
+type cachedPiHeader struct {
+	Fingerprint sessionFileFingerprint
+	Header      piSessionHeader
+	Err         error
+}
+
+type cachedCustomTitle struct {
+	Fingerprint sessionFileFingerprint
+	Name        string
+}
+
+type cachedTitleDirectory struct {
+	Fingerprint sessionFileFingerprint
+	Entries     []os.DirEntry
+}
+
+// Keep parsed metadata only; session contents remain on disk.
+type sessionFileCache struct {
+	sync.Mutex
+	Titles       map[sessionTitleKey]cachedSessionTitle
+	Headers      map[string]cachedPiHeader
+	CustomTitles map[string]cachedCustomTitle
+	Directories  map[string]cachedTitleDirectory
+	TitlePaths   map[string]map[string][]string
+}
+
+func (ledger *UsageLedger) cachedPiSessionHeader(path string) (piSessionHeader, error) {
+	cache := &ledger.sessionFiles
+	cache.Lock()
+	defer cache.Unlock()
+	info, err := os.Stat(path)
+	if err != nil {
+		return piSessionHeader{}, err
+	}
+	fingerprint := fingerprintSessionFile(info)
+	if previous, exists := cache.Headers[path]; exists && previous.Fingerprint == fingerprint {
+		return previous.Header, previous.Err
+	}
+	header, err := readPiSessionHeader(path)
+	if err == nil || errors.Is(err, io.EOF) || errors.Is(err, errNotPiSession) {
+		if cache.Headers == nil {
+			cache.Headers = make(map[string]cachedPiHeader)
+		}
+		cache.Headers[path] = cachedPiHeader{Fingerprint: fingerprint, Header: header, Err: err}
+	}
+	return header, err
+}
+
 // Persist only complete lines, so a writer's unfinished last record is reread
-// after its next append. A valid unterminated line still supplies today's title.
+// after its next append. Cache only the visible title; the complete-line cursor
+// stays in SQLite, so an unfinished last line cannot advance the next import.
 func (ledger *UsageLedger) readSessionTitle(path, kind string, consume func(*sessionTitleState, []byte)) (sessionTitleState, error) {
+	cache := &ledger.sessionFiles
+	cache.Lock()
+	defer cache.Unlock()
 	var state sessionTitleState
+	info, err := os.Stat(path)
+	if err != nil {
+		return state, err
+	}
+	fingerprint := fingerprintSessionFile(info)
+	key := sessionTitleKey{Path: path, Kind: kind}
+	previous, cached := cache.Titles[key]
+	if cached && previous.Fingerprint == fingerprint {
+		return previous.Visible, nil
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		return state, err
 	}
 	defer file.Close()
-	info, err := file.Stat()
+	info, err = file.Stat()
 	if err != nil {
 		return state, err
 	}
-	identity := fmt.Sprintf("%d", info.ModTime().UnixNano())
-	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-		identity = fmt.Sprintf("%d:%d", stat.Dev, stat.Ino)
-	}
+	fingerprint = fingerprintSessionFile(info)
+	identity := sessionFileIdentity(info)
+	var previousFingerprint sessionFileFingerprint
+	var previousModified int64
 	var previousIdentity string
-	var previousSize, previousModified int64
-	err = ledger.sqlDatabase.QueryRow(`SELECT identity,size,modified,offset,name,generated,summary,first_prompt,folder FROM session_titles WHERE path=? AND kind=?`, path, kind).Scan(&previousIdentity, &previousSize, &previousModified, &state.Offset, &state.Name, &state.Generated, &state.Summary, &state.FirstPrompt, &state.Folder)
+	err = ledger.sqlDatabase.QueryRow(`SELECT identity,size,modified,offset,name,generated,summary,first_prompt,folder FROM session_titles WHERE path=? AND kind=?`, path, kind).Scan(&previousIdentity, &previousFingerprint.Size, &previousModified, &state.Offset, &state.Name, &state.Generated, &state.Summary, &state.FirstPrompt, &state.Folder)
 	if err != nil && err != sql.ErrNoRows {
 		return state, err
 	}
-	reset := err == sql.ErrNoRows || identity != previousIdentity || info.Size() < previousSize || (info.Size() == previousSize && info.ModTime().UnixNano() != previousModified)
+	previousFingerprint.Modified = time.Unix(0, previousModified)
+	identityChanged := identity != previousIdentity
+	reset := err == sql.ErrNoRows || identityChanged || fingerprint.Size < previousFingerprint.Size || (fingerprint.Size == previousFingerprint.Size && !fingerprint.Modified.Equal(previousFingerprint.Modified))
 	if reset {
 		state = sessionTitleState{}
 	}
-	if !reset && info.Size() == previousSize && info.ModTime().UnixNano() == previousModified && state.Offset == info.Size() {
-		return state, nil
-	}
+
 	if _, err = file.Seek(state.Offset, io.SeekStart); err != nil {
 		return state, err
 	}
@@ -95,5 +197,9 @@ func (ledger *UsageLedger) readSessionTitle(path, kind string, consume func(*ses
 		return state, err
 	}
 	consume(&state, tail)
+	if cache.Titles == nil {
+		cache.Titles = make(map[sessionTitleKey]cachedSessionTitle)
+	}
+	cache.Titles[key] = cachedSessionTitle{Fingerprint: fingerprint, Visible: state}
 	return state, nil
 }

@@ -255,7 +255,6 @@ func readCodexSession(ctx context.Context, source sessionFile, cursor sessionRea
 			return result, readErr
 		}
 		result.Cursor.Offset = offset
-		result.BytesRead = offset - cursor.Offset
 		if !keep {
 			continue
 		}

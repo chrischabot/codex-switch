@@ -60,7 +60,7 @@ func readPiSessionHeader(path string) (piSessionHeader, error) {
 	return header, nil
 }
 
-func discoverPiSessions(sessionDirectory string, since time.Time) ([]sessionFile, error) {
+func (ledger *UsageLedger) discoverPiSessions(sessionDirectory string, since time.Time) ([]sessionFile, error) {
 	var sources []sessionFile
 	err := filepath.WalkDir(sessionDirectory, func(path string, entry fs.DirEntry, err error) error {
 		if os.IsNotExist(err) {
@@ -79,7 +79,7 @@ func discoverPiSessions(sessionDirectory string, since time.Time) ([]sessionFile
 		if info.ModTime().Before(since) {
 			return nil
 		}
-		header, err := readPiSessionHeader(path)
+		header, err := ledger.cachedPiSessionHeader(path)
 		if err == io.EOF || errors.Is(err, errNotPiSession) {
 			return nil
 		}
@@ -120,9 +120,9 @@ type piSessionLine struct {
 	} `json:"message"`
 }
 
-func readPiSession(ctx context.Context, source sessionFile, cursor sessionReadCursor) (sessionReadResult, error) {
+func (ledger *UsageLedger) readPiSession(ctx context.Context, source sessionFile, cursor sessionReadCursor) (sessionReadResult, error) {
 	result := sessionReadResult{Cursor: cursor}
-	header, err := readPiSessionHeader(source.Path)
+	header, err := ledger.cachedPiSessionHeader(source.Path)
 	if err != nil {
 		return result, err
 	}
@@ -131,7 +131,7 @@ func readPiSession(ctx context.Context, source sessionFile, cursor sessionReadCu
 	}
 	result.Metadata = taskMetadata{TaskID: source.TaskID, CreatedAt: header.Timestamp, SourceKind: piSessionSourceKind}
 	if header.ParentSession != "" {
-		parent, err := readPiSessionHeader(header.ParentSession)
+		parent, err := ledger.cachedPiSessionHeader(header.ParentSession)
 		if os.IsNotExist(err) && cursor.KnownParentTaskID != "" {
 			result.Metadata.ParentTaskID = cursor.KnownParentTaskID
 		} else if filename := standardPiSessionFilename.FindStringSubmatch(filepath.Base(header.ParentSession)); os.IsNotExist(err) && filename != nil {
@@ -165,7 +165,6 @@ func readPiSession(ctx context.Context, source sessionFile, cursor sessionReadCu
 			return result, err
 		}
 		result.Cursor.Offset += int64(len(line))
-		result.BytesRead = result.Cursor.Offset - cursor.Offset
 		if !bytes.Contains(line, []byte(`"usage"`)) && !bytes.Contains(line, []byte(`subagent-record`)) {
 			continue
 		}
@@ -177,7 +176,7 @@ func readPiSession(ctx context.Context, source sessionFile, cursor sessionReadCu
 			continue
 		}
 		if record.Type == "custom" && (record.CustomType == "subagent-record" || record.CustomType == "luna:subagent-record") && record.Data.SessionFile != "" {
-			child, err := readPiSessionHeader(record.Data.SessionFile)
+			child, err := ledger.cachedPiSessionHeader(record.Data.SessionFile)
 			if filename := standardPiSessionFilename.FindStringSubmatch(filepath.Base(record.Data.SessionFile)); os.IsNotExist(err) && filename != nil {
 				child.ID = filename[1]
 			} else if err != nil {

@@ -27,7 +27,7 @@ func TestCodexSessionDiscoveryMatchesImportedFilesAfterChanges(t *testing.T) {
 	write(path, "first-task")
 	write(filepath.Join(home, "archived_sessions", "duplicate.jsonl"), "first-task")
 	since := time.Unix(0, 0)
-	if _, err := ledger.importCodexSessions(context.Background(), home, since); err != nil {
+	if err := ledger.importNativeSessions(context.Background(), home, t.TempDir(), since); err != nil {
 		t.Fatal(err)
 	}
 	imported, err := ledger.readImportedSessionFiles(context.Background())

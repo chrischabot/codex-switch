@@ -115,10 +115,7 @@ func (snapshots *menuSnapshots) compose(ctx context.Context) error {
 	for _, account := range snapshot.Accounts {
 		accountKeys = append(accountKeys, account.Key)
 	}
-	if snapshot.ProxyActivity, err = snapshots.usageLedger.ReadRoutedWork(accountKeys); err != nil {
-		return err
-	}
-	if snapshot.ReportingPeriods, snapshot.AccountDays, err = snapshots.usageLedger.TotalUsage(ctx); err != nil {
+	if snapshot.ReportingPeriods, snapshot.AccountDays, snapshot.ProxyActivity, err = snapshots.usageLedger.ReadUsage(ctx, accountKeys); err != nil {
 		return err
 	}
 	if hasChatGPTAccounts {

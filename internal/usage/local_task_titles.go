@@ -67,19 +67,6 @@ func (ledger *UsageLedger) piSessionTitle(path string) (string, error) {
 	return "pi", nil
 }
 
-func (ledger *UsageLedger) populateLocalTaskTitles(metadata []taskMetadata) error {
-	for index := range metadata {
-		if metadata[index].SourceKind == piSessionSourceKind {
-			title, err := ledger.piSessionTitle(metadata[index].SourcePath)
-			if err != nil {
-				return err
-			}
-			metadata[index].Title = title
-		}
-	}
-	return nil
-}
-
 func projectFolderName(directory string) string {
 	name := filepath.Base(filepath.Clean(directory))
 	if name == "." || name == string(filepath.Separator) {
