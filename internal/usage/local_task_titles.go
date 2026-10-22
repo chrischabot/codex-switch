@@ -31,6 +31,12 @@ func localTaskTitle(taskID string, system bool, metadata taskMetadata) string {
 // piSessionTitle is the session's latest name when Pi has one, otherwise
 // "pi" and the session's project folder. It never shows prompt text or a path.
 func (ledger *UsageLedger) piSessionTitle(path string) (string, error) {
+	if ledger.piDiscovery.Started {
+		if title, known := ledger.piDiscovery.Titles[path]; known {
+			return title, nil
+		}
+	}
+
 	state, err := ledger.readSessionTitle(path, "pi", func(state *sessionTitleState, line []byte) {
 		// Keep Pi's existing rule: oversized lines are tool output, never names.
 		if len(line) > 64*1024 || !bytes.Contains(line, []byte(`"type":"session`)) {
@@ -58,13 +64,21 @@ func (ledger *UsageLedger) piSessionTitle(path string) (string, error) {
 			return "", err
 		}
 	}
+	title := piVisibleTitle(state)
+	if ledger.piDiscovery.Started {
+		ledger.piDiscovery.Titles[path] = title
+	}
+	return title, nil
+}
+
+func piVisibleTitle(state sessionTitleState) string {
 	switch {
 	case state.Name != "":
-		return state.Name, nil
+		return state.Name
 	case state.Folder != "":
-		return "pi · " + state.Folder, nil
+		return "pi · " + state.Folder
 	}
-	return "pi", nil
+	return "pi"
 }
 
 func projectFolderName(directory string) string {

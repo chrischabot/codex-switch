@@ -49,7 +49,11 @@ func (ledger *UsageLedger) visitClaudeTaskMetadata(taskIDs iter.Seq[string], vis
 		if err != nil {
 			return err
 		}
-		pathsByClient[client], err = ledger.cachedTitlePaths(directory, true, sessions[client])
+		if ledger.piDiscovery.Started && ledger.piDiscovery.Directory == directory {
+			pathsByClient[client], err = ledger.discoveredPiTitlePaths(sessions[client])
+		} else {
+			pathsByClient[client], err = ledger.cachedTitlePaths(directory, true, sessions[client])
+		}
 		if err != nil {
 			return err
 		}
@@ -495,4 +499,26 @@ func (ledger *UsageLedger) cachedTitlePaths(directory string, pi bool, sessions 
 		paths[session] = found[session]
 	}
 	return paths, nil
+}
+
+// Refresh Pi title lookup only for sessions not covered by the last walk.
+// The existing lookup retains its filename ordering and symlink handling.
+func (ledger *UsageLedger) discoveredPiTitlePaths(sessions map[string]bool) (map[string][]string, error) {
+	state := &ledger.piDiscovery
+	missing := make(map[string]bool)
+	for session := range sessions {
+		if _, known := state.TitlePaths[session]; !known {
+			missing[session] = true
+		}
+	}
+	if len(missing) > 0 {
+		found, err := ledger.cachedTitlePaths(state.Directory, true, missing)
+		if err != nil {
+			return nil, err
+		}
+		for session := range missing {
+			state.TitlePaths[session] = found[session]
+		}
+	}
+	return state.TitlePaths, nil
 }

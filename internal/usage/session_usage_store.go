@@ -97,11 +97,7 @@ func (ledger *UsageLedger) importNativeSessions(ctx context.Context, codexHome, 
 		ledger.codexDiscovery = previousDiscovery
 		return err
 	}
-	piSources, err := ledger.discoverPiSessions(piSessions, since)
-	if err != nil {
-		return err
-	}
-	return ledger.importSessionFiles(ctx, piSources, ledger.readPiSession)
+	return ledger.importPiSessions(ctx, piSessions, since, time.Now())
 }
 
 func (ledger *UsageLedger) importSessionFiles(ctx context.Context, sources []sessionFile, read func(context.Context, sessionFile, sessionReadCursor) (sessionReadResult, error)) error {

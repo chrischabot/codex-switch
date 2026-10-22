@@ -30,6 +30,7 @@ type UsageLedger struct {
 	httpClient     *http.Client
 	sessionFiles   sessionFileCache
 	codexDiscovery codexSessionDiscovery
+	piDiscovery    piSessionDiscovery
 	usageMutex     sync.Mutex
 	fold           *usageFold
 
