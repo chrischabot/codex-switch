@@ -208,11 +208,14 @@ func (ledger *UsageLedger) readLocalCompletions(ctx context.Context, start, now 
 	if err != nil {
 		return nil, nil, err
 	}
-	claudeMetadata, err := claudeTaskMetadata(responses)
+	claudeMetadata, err := ledger.claudeTaskMetadata(responses)
 	if err != nil {
 		return nil, nil, err
 	}
 	metadata = append(metadata, claudeMetadata...)
+	if err := ledger.populateLocalTaskTitles(metadata); err != nil {
+		return nil, nil, err
+	}
 	completions, err := reconcileCompletions(native, responses)
 	if err != nil {
 		return nil, nil, err

@@ -44,6 +44,9 @@ func OpenUsageLedger(database *store.StoreDatabase, dataDirectory string, httpCl
 	if err := createSessionUsageSchema(ledger.sqlDatabase); err != nil {
 		return nil, fmt.Errorf("create native usage schema: %w", err)
 	}
+	if err := createSessionTitleSchema(ledger.sqlDatabase); err != nil {
+		return nil, fmt.Errorf("create session title schema: %w", err)
+	}
 	return ledger, nil
 }
 
