@@ -33,11 +33,34 @@ CREATE TABLE IF NOT EXISTS native_task_child_records (
 }
 
 func (ledger *UsageLedger) importCodexSessions(ctx context.Context, home string, since time.Time) (sessionImportSummary, error) {
-	sources, err := discoverCodexSessions(home, since)
+	importedByPath, err := ledger.readImportedSessionFiles(ctx)
+	if err != nil {
+		return sessionImportSummary{}, err
+	}
+	sources, err := discoverCodexSessions(home, since, importedByPath)
 	if err != nil {
 		return sessionImportSummary{}, err
 	}
 	return ledger.importSessionFiles(ctx, sources, readCodexSession)
+}
+
+func (ledger *UsageLedger) readImportedSessionFiles(ctx context.Context) (map[string]sessionFile, error) {
+	rows, err := ledger.sqlDatabase.QueryContext(ctx, `SELECT task_id,path,identity,size,modified FROM native_usage_sources`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	importedByPath := make(map[string]sessionFile)
+	for rows.Next() {
+		var source sessionFile
+		var modified int64
+		if err := rows.Scan(&source.TaskID, &source.Path, &source.Identity, &source.Size, &modified); err != nil {
+			return nil, err
+		}
+		source.ModifiedAt = time.Unix(0, modified)
+		importedByPath[source.Path] = source
+	}
+	return importedByPath, rows.Err()
 }
 
 func (ledger *UsageLedger) importPiSessions(ctx context.Context, sessionDirectory string, since time.Time) (sessionImportSummary, error) {

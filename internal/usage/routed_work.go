@@ -21,7 +21,7 @@ func (ledger *UsageLedger) ReadRoutedWork(accountKeys []string) (*menupb.ProxyAc
 	if err != nil {
 		return nil, err
 	}
-	claudeMetadata, err := claudeTaskMetadata(records)
+	claudeMetadata, err := ledger.claudeTaskMetadata(records)
 	if err != nil {
 		return nil, err
 	}
@@ -30,6 +30,9 @@ func (ledger *UsageLedger) ReadRoutedWork(accountKeys []string) (*menupb.ProxyAc
 		return nil, err
 	}
 	metadata = append(metadata, claudeMetadata...)
+	if err := ledger.populateLocalTaskTitles(metadata); err != nil {
+		return nil, err
+	}
 	activity := &menupb.ProxyActivity{StartedAt: timestamppb.New(start), EndedAt: timestamppb.New(now)}
 	accountActivity := make(map[string]*menupb.ProxyAccountActivity)
 	for _, key := range accountKeys {

@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-func discoverCodexSessions(home string, since time.Time) ([]sessionFile, error) {
+func discoverCodexSessions(home string, since time.Time, importedByPath map[string]sessionFile) ([]sessionFile, error) {
 	byTask := map[string]sessionFile{}
 	for _, directory := range []string{"archived_sessions", "sessions"} {
 		err := filepath.WalkDir(filepath.Join(home, directory), func(path string, entry fs.DirEntry, err error) error {
@@ -35,6 +35,14 @@ func discoverCodexSessions(home string, since time.Time) ([]sessionFile, error) 
 				return err
 			}
 			if info.ModTime().Before(since) {
+				return nil
+			}
+			identity := fmt.Sprintf("%v", info.ModTime().UnixNano())
+			if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+				identity = fmt.Sprintf("%d:%d", stat.Dev, stat.Ino)
+			}
+			if imported, found := importedByPath[path]; found && imported.Identity == identity && imported.Size == info.Size() && imported.ModifiedAt.Equal(info.ModTime()) {
+				byTask[imported.TaskID] = imported
 				return nil
 			}
 			file, err := os.Open(path)
@@ -58,10 +66,6 @@ func discoverCodexSessions(home string, since time.Time) ([]sessionFile, error) 
 			}
 			taskID := metadata.Payload.ID
 
-			identity := fmt.Sprintf("%v", info.ModTime().UnixNano())
-			if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-				identity = fmt.Sprintf("%d:%d", stat.Dev, stat.Ino)
-			}
 			byTask[taskID] = sessionFile{Path: path, TaskID: taskID, Size: info.Size(), ModifiedAt: info.ModTime(), Identity: identity}
 			return nil
 		})

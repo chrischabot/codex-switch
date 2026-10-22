@@ -1,9 +1,9 @@
 package usage
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,7 +21,7 @@ func localTaskTitle(taskID string, system bool, metadata taskMetadata) string {
 	case system:
 		return "System"
 	case metadata.SourceKind == piSessionSourceKind:
-		return piSessionTitle(metadata.SourcePath)
+		return "pi"
 	case taskidentity.IsPiSession(taskID):
 		return "pi"
 	}
@@ -30,47 +30,54 @@ func localTaskTitle(taskID string, system bool, metadata taskMetadata) string {
 
 // piSessionTitle is the session's latest name when Pi has one, otherwise
 // "pi" and the session's project folder. It never shows prompt text or a path.
-func piSessionTitle(path string) string {
-	file, err := os.Open(path)
+func (ledger *UsageLedger) piSessionTitle(path string) (string, error) {
+	state, err := ledger.readSessionTitle(path, "pi", func(state *sessionTitleState, line []byte) {
+		// Keep Pi's existing rule: oversized lines are tool output, never names.
+		if len(line) > 64*1024 || !bytes.Contains(line, []byte(`"type":"session`)) {
+			return
+		}
+		var record struct {
+			Type string `json:"type"`
+			Cwd  string `json:"cwd"`
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(line, &record) != nil {
+			return
+		}
+		switch {
+		case record.Type == "session":
+			state.Folder = projectFolderName(record.Cwd)
+		case record.Type == "session_info" && strings.TrimSpace(record.Name) != "":
+			state.Name = strings.TrimSpace(record.Name)
+		}
+	})
 	if err != nil {
-		return "pi"
-	}
-	defer file.Close()
-	reader := bufio.NewReaderSize(file, 64*1024)
-	var name, folder string
-	for {
-		line, err := reader.ReadSlice('\n')
-		for err == bufio.ErrBufferFull {
-			// A line longer than the buffer is tool output, never a name.
-			line = nil
-			_, err = reader.ReadSlice('\n')
-		}
-		if bytes.Contains(line, []byte(`"type":"session`)) {
-			var record struct {
-				Type string `json:"type"`
-				Cwd  string `json:"cwd"`
-				Name string `json:"name"`
-			}
-			if json.Unmarshal(line, &record) == nil {
-				switch {
-				case record.Type == "session":
-					folder = projectFolderName(record.Cwd)
-				case record.Type == "session_info" && strings.TrimSpace(record.Name) != "":
-					name = strings.TrimSpace(record.Name)
-				}
-			}
-		}
-		if err != nil {
-			break
+		// Pi sessions may disappear while the menu is being composed.
+		var pathError *os.PathError
+		if !errors.As(err, &pathError) {
+			return "", err
 		}
 	}
 	switch {
-	case name != "":
-		return name
-	case folder != "":
-		return "pi · " + folder
+	case state.Name != "":
+		return state.Name, nil
+	case state.Folder != "":
+		return "pi · " + state.Folder, nil
 	}
-	return "pi"
+	return "pi", nil
+}
+
+func (ledger *UsageLedger) populateLocalTaskTitles(metadata []taskMetadata) error {
+	for index := range metadata {
+		if metadata[index].SourceKind == piSessionSourceKind {
+			title, err := ledger.piSessionTitle(metadata[index].SourcePath)
+			if err != nil {
+				return err
+			}
+			metadata[index].Title = title
+		}
+	}
+	return nil
 }
 
 func projectFolderName(directory string) string {
