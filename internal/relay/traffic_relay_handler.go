@@ -301,6 +301,9 @@ func (handler *TrafficRelayHandler) createBytePreservingReverseProxy() *httputil
 			}
 			proxyRequest.Out.Header.Set("Authorization", "Bearer "+routedRequest.routeDecision.Credentials.AccessToken)
 			if routedRequest.provider == accounts.ProviderClaude {
+				if routedRequest.workKind == store.ModelTurnWorkKind && routedRequest.responseStreamRequested {
+					proxyRequest.Out.Header.Set("Accept-Encoding", "identity")
+				}
 				prepareClaudeHeaders(proxyRequest.Out.Header)
 			} else {
 				proxyRequest.Out.Header.Set(chatGPTAccountIDHeader, routedRequest.routeDecision.Credentials.AccountID)
@@ -338,7 +341,7 @@ func (handler *TrafficRelayHandler) createBytePreservingReverseProxy() *httputil
 				observedConnection := createObservedWebSocketConnection(
 					upgradedConnection,
 					upstreamResponse.Header.Get("Sec-WebSocket-Extensions"),
-					responseObserver.observeStructuredEvent,
+					responseObserver.observeWebSocketServerEvent,
 				)
 				observedConnection.observeClientMessages(responseObserver.routeClientMessage)
 				observedConnection.reportReadError = responseObserver.logReadError
@@ -351,7 +354,7 @@ func (handler *TrafficRelayHandler) createBytePreservingReverseProxy() *httputil
 			if strings.HasPrefix(contentType, "text/event-stream") || (routedRequest.responseStreamRequested && upstreamResponse.StatusCode == http.StatusOK) {
 				observedBody := createObservedResponseBody(
 					upstreamResponse.Body,
-					createServerSentEventObserver(responseObserver.observeStructuredEvent),
+					createServerSentEventObserver(responseObserver.observeStructuredEvent, responseObserver.shouldObserveStreamEvent),
 				)
 				observedBody.reportReadError = responseObserver.logReadError
 				upstreamResponse.Body = observedBody

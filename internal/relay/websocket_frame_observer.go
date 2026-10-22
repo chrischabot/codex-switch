@@ -378,11 +378,7 @@ func (connection *observedWebSocketConnection) Write(data []byte) (int, error) {
 		if frameLength == 0 {
 			break
 		}
-		source := bytes.NewReader(connection.clientInput[:frameLength])
-		frame, err := readUpstreamWebSocketFrame(source)
-		if err != nil {
-			return 0, err
-		}
+		frame := connection.clientInput[:frameLength]
 		connection.clientInput = connection.clientInput[frameLength:]
 		// Control frames must pass even while a fragmented message is buffered.
 		if frame[0]&0x08 != 0 {
@@ -391,15 +387,22 @@ func (connection *observedWebSocketConnection) Write(data []byte) (int, error) {
 			}
 			continue
 		}
-		connection.clientPendingFrames.Write(frame)
+		bufferedMessage := connection.clientPendingFrames.Len() > 0
 		if err := connection.clientFrameObserver.ObserveFrames(frame); err != nil {
 			return 0, err
 		}
 		if connection.clientFrameObserver.TerminalLimitObserved() {
 			return 0, errCloseWebSocketAfterTerminalLimit
 		}
+		if connection.clientFrameObserver.messageActive || bufferedMessage {
+			connection.clientPendingFrames.Write(frame)
+		}
 		if !connection.clientFrameObserver.messageActive {
-			if err := writeAllWebSocketBytes(connection.ReadWriteCloser, connection.clientPendingFrames.Bytes()); err != nil {
+			messageFrames := frame
+			if bufferedMessage {
+				messageFrames = connection.clientPendingFrames.Bytes()
+			}
+			if err := writeAllWebSocketBytes(connection.ReadWriteCloser, messageFrames); err != nil {
 				return 0, err
 			}
 			if connection.clientPendingFrames.Cap() > websocketRetainedBufferBytes {
