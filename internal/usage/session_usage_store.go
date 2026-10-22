@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -51,44 +52,64 @@ END;
 	return err
 }
 
-func (ledger *UsageLedger) readImportedSessionFiles(ctx context.Context) (map[string]sessionFile, error) {
-	rows, err := ledger.sqlDatabase.QueryContext(ctx, `SELECT task_id,path,identity,size,modified FROM native_usage_sources`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	importedByPath := make(map[string]sessionFile)
-	for rows.Next() {
-		var source sessionFile
-		var modified int64
-		if err := rows.Scan(&source.TaskID, &source.Path, &source.Identity, &source.Size, &modified); err != nil {
+// Read fingerprints only for the candidates discovered this cycle. Chunking
+// keeps startup and hourly walks within SQLite's parameter limit.
+func (ledger *UsageLedger) readImportedSources(ctx context.Context, sources []sessionFile) (map[string]sessionFile, error) {
+	imported := make(map[string]sessionFile, len(sources))
+	for start := 0; start < len(sources); start += 500 {
+		batch := sources[start:min(start+500, len(sources))]
+		arguments := make([]any, len(batch))
+		for i, source := range batch {
+			arguments[i] = source.TaskID
+		}
+		rows, err := ledger.sqlDatabase.QueryContext(ctx, `SELECT task_id,path,identity,size,modified FROM native_usage_sources WHERE task_id IN (`+strings.TrimSuffix(strings.Repeat("?,", len(batch)), ",")+`)`, arguments...)
+		if err != nil {
 			return nil, err
 		}
-		source.ModifiedAt = time.Unix(0, modified)
-		importedByPath[source.Path] = source
+		for rows.Next() {
+			var source sessionFile
+			var modified int64
+			if err := rows.Scan(&source.TaskID, &source.Path, &source.Identity, &source.Size, &modified); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			source.ModifiedAt = time.Unix(0, modified)
+			imported[source.Path] = source
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
 	}
-	return importedByPath, rows.Err()
+	return imported, nil
 }
 
-// importNativeSessions shares one source fingerprint read across both clients.
 func (ledger *UsageLedger) importNativeSessions(ctx context.Context, codexHome, piSessions string, since time.Time) error {
-	importedByPath, err := ledger.readImportedSessionFiles(ctx)
+	// A failed import must not advance discovery past the bytes still unread.
+	previousDiscovery := ledger.codexDiscovery
+	codexSources, err := ledger.discoverCodexSessionChanges(ctx, codexHome, since, time.Now())
 	if err != nil {
+		ledger.codexDiscovery = previousDiscovery
 		return err
 	}
-	codexSources, err := discoverCodexSessions(codexHome, since, importedByPath)
-	if err != nil {
-		return err
-	}
-	if err = ledger.importSessionFilesWithKnownFiles(ctx, codexSources, readCodexSession, importedByPath); err != nil {
+	if err = ledger.importSessionFiles(ctx, codexSources, readCodexSession); err != nil {
+		ledger.codexDiscovery = previousDiscovery
 		return err
 	}
 	piSources, err := ledger.discoverPiSessions(piSessions, since)
 	if err != nil {
 		return err
 	}
-	err = ledger.importSessionFilesWithKnownFiles(ctx, piSources, ledger.readPiSession, importedByPath)
-	return err
+	return ledger.importSessionFiles(ctx, piSources, ledger.readPiSession)
+}
+
+func (ledger *UsageLedger) importSessionFiles(ctx context.Context, sources []sessionFile, read func(context.Context, sessionFile, sessionReadCursor) (sessionReadResult, error)) error {
+	imported, err := ledger.readImportedSources(ctx, sources)
+	if err != nil {
+		return err
+	}
+	return ledger.importSessionFilesWithKnownFiles(ctx, sources, read, imported)
 }
 
 func (ledger *UsageLedger) importSessionFilesWithKnownFiles(ctx context.Context, sources []sessionFile, read func(context.Context, sessionFile, sessionReadCursor) (sessionReadResult, error), importedByPath map[string]sessionFile) error {

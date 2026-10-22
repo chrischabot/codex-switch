@@ -101,28 +101,31 @@ func (monitor *Monitor) WaitForFirstRead() {
 func (monitor *Monitor) Run(ctx context.Context) {
 	var firstReads, reads sync.WaitGroup
 	defer func() { firstReads.Wait(); reads.Wait() }()
-	monitor.startDueReads(ctx, &firstReads, false)
+	nextRead := monitor.startDueReads(ctx, &firstReads, false)
 	go func() { firstReads.Wait(); close(monitor.firstReadDone) }()
-	ticker := time.NewTicker(requestedAccountReadInterval)
-	defer ticker.Stop()
+	timer := time.NewTimer(time.Until(nextRead))
+	defer timer.Stop()
 	for {
 		readRequested := false
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-timer.C:
 		case <-monitor.readRequested:
 			readRequested = true
 		}
-		monitor.startDueReads(ctx, &reads, readRequested)
+		nextRead = monitor.startDueReads(ctx, &reads, readRequested)
+		timer.Reset(time.Until(nextRead))
 	}
 }
 
-func (monitor *Monitor) startDueReads(ctx context.Context, reads *sync.WaitGroup, readRequested bool) {
+func (monitor *Monitor) startDueReads(ctx context.Context, reads *sync.WaitGroup, readRequested bool) time.Time {
+	now := time.Now()
+	nextRead := time.Time{}
 	pool, err := ReadPool(monitor.dataDirectory)
 	if err != nil {
 		log.Printf("could not read the account pool: %v", err)
-		return
+		return now.Add(accountReadInterval)
 	}
 	interval := accountReadInterval
 	if readRequested {
@@ -132,11 +135,22 @@ func (monitor *Monitor) startDueReads(ctx context.Context, reads *sync.WaitGroup
 	defer monitor.mutex.Unlock()
 	for _, account := range pool {
 		monitored := monitor.monitoredAccountLocked(store.AccountName(account.Name), account.Provider)
-		if monitored.reading || time.Since(monitored.lastReadStarted) < interval {
+		if monitored.reading || now.Sub(monitored.lastReadStarted) < interval {
+			dueAt := monitored.lastReadStarted.Add(accountReadInterval)
+			if monitored.reading && !dueAt.After(now) {
+				dueAt = now.Add(accountReadInterval)
+			}
+			if nextRead.IsZero() || dueAt.Before(nextRead) {
+				nextRead = dueAt
+			}
 			continue
 		}
 		monitored.reading = true
-		monitored.lastReadStarted = time.Now()
+		monitored.lastReadStarted = now
+		dueAt := now.Add(accountReadInterval)
+		if nextRead.IsZero() || dueAt.Before(nextRead) {
+			nextRead = dueAt
+		}
 		readModelList := readRequested || monitored.fact.SupportedModelSlugs == nil || monitored.fact.ModelListCause != nil ||
 			time.Since(monitored.lastModelListReadStarted) >= modelListReadInterval
 		if readModelList {
@@ -148,6 +162,10 @@ func (monitor *Monitor) startDueReads(ctx context.Context, reads *sync.WaitGroup
 			monitor.readAccount(ctx, account, monitored, scheduled, readModelList)
 		}(monitored.fact)
 	}
+	if nextRead.IsZero() {
+		nextRead = now.Add(accountReadInterval)
+	}
+	return nextRead
 }
 
 func (monitor *Monitor) readAccount(ctx context.Context, account PoolAccount, monitored *monitoredAccount, scheduled AccountRoutingFact, readModelList bool) {

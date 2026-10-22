@@ -44,6 +44,8 @@ func TestUsageReportsRefreshTitleAndRequestCountsWithoutNewUsage(t *testing.T) {
 	ledger := openTestUsageLedger(t)
 	directory := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", directory)
+	registry := filepath.Join(directory, "sessions", "123.json")
+	writeClaudeRegistryFixture(t, registry, "session", "", 1)
 	project := filepath.Join(directory, "projects", "project")
 	if err := os.MkdirAll(project, 0700); err != nil {
 		t.Fatal(err)
@@ -68,6 +70,7 @@ func TestUsageReportsRefreshTitleAndRequestCountsWithoutNewUsage(t *testing.T) {
 	if err != nil || closeErr != nil {
 		t.Fatalf("append title: %v %v", err, closeErr)
 	}
+	writeClaudeRegistryFixture(t, registry, "session", "", 2)
 	second, _, _, err := ledger.readUsageReports(context.Background(), nil, now.Add(time.Second))
 	if err != nil {
 		t.Fatal(err)

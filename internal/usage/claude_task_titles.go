@@ -2,6 +2,7 @@ package usage
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"iter"
 	"os"
@@ -9,7 +10,8 @@ import (
 	"strings"
 )
 
-// Claude names come from its own session files. Usage comes from served responses.
+// Claude names come from its running-session registry and session files.
+// Usage comes from served responses.
 func (ledger *UsageLedger) visitClaudeTaskMetadata(taskIDs iter.Seq[string], visit func(taskMetadata)) error {
 	var ids []string
 	seen := make(map[string]bool)
@@ -28,6 +30,7 @@ func (ledger *UsageLedger) visitClaudeTaskMetadata(taskIDs iter.Seq[string], vis
 			sessions[client][session] = true
 		}
 	}
+	titlesBySession := make(map[string]string)
 	pathsByClient := make(map[string]map[string][]string)
 	for _, client := range []string{"code", "pi"} {
 		if len(sessions[client]) == 0 {
@@ -36,22 +39,17 @@ func (ledger *UsageLedger) visitClaudeTaskMetadata(taskIDs iter.Seq[string], vis
 		var directory string
 		var err error
 		if client == "code" {
-			directory = os.Getenv("CLAUDE_CONFIG_DIR")
-			if directory == "" {
-				home, homeErr := os.UserHomeDir()
-				if homeErr != nil {
-					return homeErr
-				}
-				directory = filepath.Join(home, ".claude")
-			}
-			directory = filepath.Join(directory, "projects")
-		} else {
-			directory, err = piSessionDirectory()
+			titlesBySession, err = ledger.claudeCodeTaskTitles(sessions[client])
 			if err != nil {
 				return err
 			}
+			continue
 		}
-		pathsByClient[client], err = ledger.cachedTitlePaths(directory, client == "pi", sessions[client])
+		directory, err = piSessionDirectory()
+		if err != nil {
+			return err
+		}
+		pathsByClient[client], err = ledger.cachedTitlePaths(directory, true, sessions[client])
 		if err != nil {
 			return err
 		}
@@ -59,19 +57,194 @@ func (ledger *UsageLedger) visitClaudeTaskMetadata(taskIDs iter.Seq[string], vis
 	for _, id := range ids {
 		client, session, _ := strings.Cut(strings.TrimPrefix(id, "claude:"), ":")
 		item := taskMetadata{TaskID: id, SourceKind: "claude:" + client}
+		if client == "code" {
+			item.Title = titlesBySession[session]
+		}
 		for _, path := range pathsByClient[client][session] {
 			var err error
-			if client == "pi" {
-				item.Title, err = ledger.piSessionTitle(path)
-			} else {
-				item.Title, err = ledger.claudeCodeSessionTitle(path, session)
-			}
+			item.Title, err = ledger.piSessionTitle(path)
 			if err != nil {
 				return err
 			}
 		}
 		visit(item)
 	}
+	return nil
+}
+
+type claudeRegistrySession struct {
+	SessionID string `json:"sessionId"`
+	Name      string `json:"name"`
+}
+
+type cachedClaudeRegistryEntry struct {
+	Fingerprint sessionFileFingerprint
+	Session     claudeRegistrySession
+}
+
+type claudeTitleSource struct {
+	Path        string
+	Fingerprint sessionFileFingerprint
+}
+
+type cachedClaudeTaskTitle struct {
+	Title    string
+	Source   claudeTitleSource
+	Resolved bool
+}
+
+func claudeConfigDirectory() (string, error) {
+	if directory := os.Getenv("CLAUDE_CONFIG_DIR"); directory != "" {
+		return directory, nil
+	}
+	home, err := os.UserHomeDir()
+	return filepath.Join(home, ".claude"), err
+}
+
+func (ledger *UsageLedger) readClaudeRunningSessions(directory string) (map[string]cachedClaudeTaskTitle, error) {
+	cache := &ledger.sessionFiles
+	cache.Lock()
+	defer cache.Unlock()
+	entries, err := os.ReadDir(directory)
+	if os.IsNotExist(err) {
+		cache.ClaudeRegistry = nil
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	next := make(map[string]cachedClaudeRegistryEntry, len(entries))
+	running := make(map[string]cachedClaudeTaskTitle, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(directory, entry.Name())
+		info, err := entry.Info()
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		fingerprint := fingerprintSessionFile(info)
+		previous, known := cache.ClaudeRegistry[path]
+		if !known || previous.Fingerprint != fingerprint {
+			data, err := os.ReadFile(path)
+			if os.IsNotExist(err) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			previous = cachedClaudeRegistryEntry{Fingerprint: fingerprint}
+			if json.Unmarshal(data, &previous.Session) != nil {
+				// An incomplete entry keeps the last title and is retried next cycle.
+				continue
+			}
+		}
+		next[path] = previous
+		if previous.Session.SessionID != "" {
+			running[previous.Session.SessionID] = cachedClaudeTaskTitle{
+				Title:  strings.TrimSpace(previous.Session.Name),
+				Source: claudeTitleSource{Path: path, Fingerprint: fingerprint},
+			}
+		}
+	}
+	cache.ClaudeRegistry = next
+	return running, nil
+}
+
+func (ledger *UsageLedger) claudeCodeTaskTitles(sessions map[string]bool) (map[string]string, error) {
+	directory, err := claudeConfigDirectory()
+	if err != nil {
+		return nil, err
+	}
+	running, err := ledger.readClaudeRunningSessions(filepath.Join(directory, "sessions"))
+	if err != nil {
+		return nil, err
+	}
+	titles := make(map[string]string, len(sessions))
+	readTranscripts := make(map[string]bool)
+	for session := range sessions {
+		current, active := running[session]
+		previous, known, err := ledger.cachedClaudeTaskTitle(directory, session)
+		if err != nil {
+			return nil, err
+		}
+		if known && (!active || previous.Source == current.Source) {
+			titles[session] = previous.Title
+			continue
+		}
+		if current.Title == "" {
+			readTranscripts[session] = true
+			continue
+		}
+		titles[session] = current.Title
+		if err := ledger.rememberClaudeTaskTitle(directory, session, current); err != nil {
+			return nil, err
+		}
+	}
+	if len(readTranscripts) == 0 {
+		return titles, nil
+	}
+	paths, err := ledger.cachedTitlePaths(filepath.Join(directory, "projects"), false, readTranscripts)
+	if err != nil {
+		return nil, err
+	}
+	for session := range readTranscripts {
+		current := running[session]
+		for _, path := range paths[session] {
+			current.Title, err = ledger.claudeCodeSessionTitle(path, session)
+			if err != nil {
+				return nil, err
+			}
+		}
+		titles[session] = current.Title
+		if len(paths[session]) != 0 {
+			if err := ledger.rememberClaudeTaskTitle(directory, session, current); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return titles, nil
+}
+
+func (ledger *UsageLedger) cachedClaudeTaskTitle(directory, session string) (cachedClaudeTaskTitle, bool, error) {
+	cache := &ledger.sessionFiles
+	cache.Lock()
+	defer cache.Unlock()
+	if previous, loaded := cache.ClaudeTitles[session]; loaded {
+		return previous, previous.Resolved, nil
+	}
+	key := filepath.Join(directory, "sessions", session)
+	var previous cachedClaudeTaskTitle
+	err := ledger.sqlDatabase.QueryRow(`SELECT name FROM session_titles WHERE path=? AND kind='claude-title'`, key).Scan(&previous.Title)
+	if err != nil && err != sql.ErrNoRows {
+		return previous, false, err
+	}
+	previous.Resolved = err == nil
+	if cache.ClaudeTitles == nil {
+		cache.ClaudeTitles = make(map[string]cachedClaudeTaskTitle)
+	}
+	cache.ClaudeTitles[session] = previous
+	return previous, previous.Resolved, nil
+}
+
+func (ledger *UsageLedger) rememberClaudeTaskTitle(directory, session string, title cachedClaudeTaskTitle) error {
+	cache := &ledger.sessionFiles
+	cache.Lock()
+	defer cache.Unlock()
+	key := filepath.Join(directory, "sessions", session)
+	previous := cache.ClaudeTitles[session]
+	if !previous.Resolved || previous.Title != title.Title {
+		_, err := ledger.sqlDatabase.Exec(`INSERT INTO session_titles VALUES (?,'claude-title','',0,0,0,?,'','','','') ON CONFLICT(path,kind) DO UPDATE SET name=excluded.name`, key, title.Title)
+		if err != nil {
+			return err
+		}
+	}
+	title.Resolved = true
+	cache.ClaudeTitles[session] = title
 	return nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"time"
 )
 
@@ -58,9 +59,84 @@ WHERE NOT EXISTS (SELECT 1 FROM latest)
 	return nil
 }
 
+type weeklyAllowanceBurn struct {
+	accountNames        []AccountName
+	computedAt          time.Time
+	expiresAt           time.Time
+	earliestObservation time.Time
+	usedPercent         float64
+}
+
+func (burn weeklyAllowanceBurn) selects(accountNames []AccountName) bool {
+	for _, name := range accountNames {
+		if !slices.Contains(burn.accountNames, name) {
+			return false
+		}
+	}
+	for _, name := range burn.accountNames {
+		if !slices.Contains(accountNames, name) {
+			return false
+		}
+	}
+	return true
+}
+
+func (burn weeklyAllowanceBurn) value(now time.Time) *float64 {
+	if burn.earliestObservation.IsZero() || now.Sub(burn.earliestObservation) < 24*time.Hour {
+		return nil
+	}
+	coveredFor := min(now.Sub(burn.earliestObservation), allowanceWeek)
+	accounts := burn.usedPercent / 100 * float64(allowanceWeek) / float64(coveredFor)
+	return &accounts
+}
+
 // ReadWeeklyAllowanceBurn counts increases at their observation time. The first
 // reading of an account is a baseline; the first reading after a reset is usage.
+// Until a reading is added or ages out, only the observed coverage changes.
 func (database *StoreDatabase) ReadWeeklyAllowanceBurn(accountNames []AccountName, now time.Time) (*float64, error) {
+	database.weeklyAllowanceBurnMutex.Lock()
+	defer database.weeklyAllowanceBurnMutex.Unlock()
+	var latestRowID sql.NullInt64
+	if err := database.sqlDatabase.QueryRow(`SELECT MAX(rowid) FROM weekly_allowance_readings`).Scan(&latestRowID); err != nil {
+		return nil, fmt.Errorf("read weekly allowance changes: %w", err)
+	}
+	if latestRowID.Int64 != database.weeklyAllowanceBurnRowID {
+		database.weeklyAllowanceBurns = nil
+		database.weeklyAllowanceBurnRowID = latestRowID.Int64
+	}
+	cachedIndex := -1
+	for index, burn := range database.weeklyAllowanceBurns {
+		if !burn.selects(accountNames) {
+			continue
+		}
+		if !now.Before(burn.computedAt) && (burn.expiresAt.IsZero() || now.Before(burn.expiresAt)) {
+			if index == 0 && len(database.weeklyAllowanceBurns) == 2 {
+				database.weeklyAllowanceBurns[0], database.weeklyAllowanceBurns[1] = database.weeklyAllowanceBurns[1], burn
+			}
+			return burn.value(now), nil
+		}
+		cachedIndex = index
+		break
+	}
+	burn, err := database.readWeeklyAllowanceBurn(accountNames, now)
+	if err != nil {
+		return nil, err
+	}
+	if cachedIndex >= 0 {
+		database.weeklyAllowanceBurns[cachedIndex] = burn
+	} else if len(database.weeklyAllowanceBurns) == 2 {
+		// The menu reads ChatGPT and Claude separately. Keep their two most
+		// recent selections without retaining historical pool combinations.
+		database.weeklyAllowanceBurns[0] = database.weeklyAllowanceBurns[1]
+		database.weeklyAllowanceBurns[1] = burn
+	} else {
+		database.weeklyAllowanceBurns = append(database.weeklyAllowanceBurns, burn)
+	}
+	return burn.value(now), nil
+}
+
+func (database *StoreDatabase) readWeeklyAllowanceBurn(accountNames []AccountName, now time.Time) (weeklyAllowanceBurn, error) {
+	burn := weeklyAllowanceBurn{accountNames: slices.Clone(accountNames), computedAt: now}
 	selectedAccounts := make(map[AccountName]bool, len(accountNames))
 	for _, accountName := range accountNames {
 		selectedAccounts[accountName] = true
@@ -68,46 +144,47 @@ func (database *StoreDatabase) ReadWeeklyAllowanceBurn(accountNames []AccountNam
 	rows, err := database.sqlDatabase.Query(`
 SELECT account_name, resets_at_unix, used_percent, observed_at_unix_nano
 FROM weekly_allowance_readings
-WHERE observed_at_unix_nano >= ? AND observed_at_unix_nano <= ?
-ORDER BY account_name, observed_at_unix_nano`, now.Add(-8*24*time.Hour).UnixNano(), now.UnixNano())
+WHERE observed_at_unix_nano >= ?
+ORDER BY account_name, observed_at_unix_nano`, now.Add(-8*24*time.Hour).UnixNano())
 	if err != nil {
-		return nil, fmt.Errorf("read weekly allowance burn: %w", err)
+		return burn, fmt.Errorf("read weekly allowance burn: %w", err)
 	}
 	defer rows.Close()
-	var earliestObservation time.Time
+	expiresAt := func(at time.Time) {
+		if burn.expiresAt.IsZero() || at.Before(burn.expiresAt) {
+			burn.expiresAt = at
+		}
+	}
 	var previous WeeklyAllowanceReading
-	var usedPercent float64
 	for rows.Next() {
 		var reading WeeklyAllowanceReading
 		var resetsAt, observedAt int64
 		if err := rows.Scan(&reading.AccountName, &resetsAt, &reading.UsedPercent, &observedAt); err != nil {
-			return nil, err
+			return burn, err
 		}
 		if !selectedAccounts[reading.AccountName] {
 			continue
 		}
 		reading.ResetsAt, reading.ObservedAt = time.Unix(resetsAt, 0), time.Unix(0, observedAt)
-		if earliestObservation.IsZero() || reading.ObservedAt.Before(earliestObservation) {
-			earliestObservation = reading.ObservedAt
+		if reading.ObservedAt.After(now) {
+			expiresAt(reading.ObservedAt)
+			continue
+		}
+		expiresAt(reading.ObservedAt.Add(8*24*time.Hour + time.Nanosecond))
+		if burn.earliestObservation.IsZero() || reading.ObservedAt.Before(burn.earliestObservation) {
+			burn.earliestObservation = reading.ObservedAt
 		}
 		if previous.AccountName == reading.AccountName && !reading.ObservedAt.Before(now.Add(-allowanceWeek)) {
+			expiresAt(reading.ObservedAt.Add(allowanceWeek + time.Nanosecond))
 			increase := reading.UsedPercent
 			// Providers report the same reset a second or a minute apart; only a
 			// reset that moves by more than that starts a new window.
 			if reading.ResetsAt.Sub(previous.ResetsAt).Abs() < time.Hour {
 				increase -= previous.UsedPercent
 			}
-			usedPercent += math.Max(0, increase)
+			burn.usedPercent += math.Max(0, increase)
 		}
 		previous = reading
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if earliestObservation.IsZero() || now.Sub(earliestObservation) < 24*time.Hour {
-		return nil, nil
-	}
-	coveredFor := min(now.Sub(earliestObservation), allowanceWeek)
-	accounts := usedPercent / 100 * float64(allowanceWeek) / float64(coveredFor)
-	return &accounts, nil
+	return burn, rows.Err()
 }

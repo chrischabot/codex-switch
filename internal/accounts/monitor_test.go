@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -294,4 +295,82 @@ func unexpiringAccessToken(subject string) string {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))
 	payload := []byte(fmt.Sprintf(`{"exp":4102444800,"sub":%q}`, subject))
 	return header + "." + base64.RawURLEncoding.EncodeToString(payload) + ".signature"
+}
+
+func TestAccountMonitorWakesAtNextReadDeadline(t *testing.T) {
+	data := t.TempDir()
+	account := writeAccountFixture(t, filepath.Join(data, "account-1"), "deadline-user", "deadline@example.test", unexpiringAccessToken("deadline-user"))
+	reads := make(chan struct{}, 10)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/backend-api/codex/models" {
+			_, _ = w.Write([]byte(`{"models":[{"slug":"astra"}]}`))
+			return
+		}
+		reads <- struct{}{}
+		_, _ = w.Write([]byte(`{"plan_type":"pro","rate_limit":{"allowed":true,"limit_reached":false}}`))
+	}))
+	defer upstream.Close()
+	origin, _ := url.Parse(upstream.URL)
+	monitor := NewMonitor(data, origin, "", upstream.Client(), monitorTestDatabase(t))
+	monitored := monitor.monitoredAccountLocked(store.AccountName(account.Name))
+	monitored.lastReadStarted = time.Now().Add(-accountReadInterval + 100*time.Millisecond)
+	expectedDue := monitored.lastReadStarted.Add(accountReadInterval)
+	var pending sync.WaitGroup
+	if got := monitor.startDueReads(t.Context(), &pending, false); !got.Equal(expectedDue) {
+		t.Fatalf("next read %s, want %s", got, expectedDue)
+	}
+	select {
+	case <-reads:
+		t.Fatal("account was read before due")
+	default:
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	stopped := make(chan struct{})
+	go func() { defer close(stopped); monitor.Run(ctx) }()
+	defer func() { cancel(); <-stopped }()
+	select {
+	case <-reads:
+	case <-time.After(2 * time.Second):
+		t.Fatal("monitor did not wake at the account deadline")
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		monitor.mutex.Lock()
+		finished := !monitored.reading
+		if finished {
+			monitored.lastReadStarted = time.Now().Add(-requestedAccountReadInterval - time.Second)
+		}
+		monitor.mutex.Unlock()
+		if finished {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("scheduled read did not finish")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	// A routing request wakes the monitor even though its regular read is not due.
+	monitor.RequestAccountRoutingFactsRefresh()
+	select {
+	case <-reads:
+	case <-time.After(2 * time.Second):
+		t.Fatal("routing request did not wake the monitor")
+	}
+}
+
+func TestAccountMonitorWaitsWhileOverdueReadIsInFlight(t *testing.T) {
+	data := t.TempDir()
+	account := writeAccountFixture(t, filepath.Join(data, "account-1"), "inflight-user", "inflight@example.test", unexpiringAccessToken("inflight-user"))
+	origin, _ := url.Parse("http://127.0.0.1")
+	monitor := NewMonitor(data, origin, "", http.DefaultClient, monitorTestDatabase(t))
+	monitored := monitor.monitoredAccountLocked(store.AccountName(account.Name))
+	monitored.reading = true
+	monitored.lastReadStarted = time.Now().Add(-2 * accountReadInterval)
+	before := time.Now()
+	var pending sync.WaitGroup
+	nextRead := monitor.startDueReads(t.Context(), &pending, false)
+	after := time.Now()
+	if nextRead.Before(before.Add(accountReadInterval)) || nextRead.After(after.Add(accountReadInterval)) {
+		t.Fatalf("in-flight read scheduled an overdue timer: next read %s, now %s", nextRead, after)
+	}
 }
