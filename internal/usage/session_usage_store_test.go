@@ -59,6 +59,8 @@ func TestTwoGenerationsImportSameSessionWithoutReplacingRows(t *testing.T) {
 	if err = file.Close(); err != nil {
 		t.Fatal(err)
 	}
+	// A title-only append has no completed response; the hourly audit finds it.
+	second.piDiscovery.LastWalk = time.Now().Add(-time.Hour)
 	if err = second.importNativeSessions(context.Background(), t.TempDir(), directory, time.Time{}); err != nil {
 		t.Fatal(err)
 	}

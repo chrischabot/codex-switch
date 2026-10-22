@@ -50,6 +50,7 @@ func TestNativePiUsageImportsOnceAndJoinsItsRoutedResponse(t *testing.T) {
 	if err = file.Close(); err != nil {
 		t.Fatal(err)
 	}
+	recordFoldProxy(t, ledger, "response", taskidentity.PiSession("01a00000-0000-7000-8000-000000000001"), time.Date(2026, 9, 6, 10, 51, 55, 0, time.UTC), 5176, 73)
 	err = ledger.importNativeSessions(ctx, t.TempDir(), sessions, time.Time{})
 	if err != nil {
 		t.Fatal(err)
@@ -180,7 +181,11 @@ func TestPiParentRecordsImportIncrementallyAndRespectHeaderAncestry(t *testing.T
 	ctx := context.Background()
 	importSessions := func() {
 		t.Helper()
-		if err := ledger.importNativeSessions(ctx, t.TempDir(), directory, time.Time{}); err != nil {
+		sources, err := ledger.discoverPiSessions(directory, time.Time{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ledger.importSessionFiles(ctx, sources, ledger.readPiSession); err != nil {
 			t.Fatal(err)
 		}
 	}
