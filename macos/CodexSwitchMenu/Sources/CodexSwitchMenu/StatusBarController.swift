@@ -1,6 +1,12 @@
 import AppKit
 import SwiftUI
 
+/// What a closed panel shows: a store that never changes, so the panel's views
+/// do no work while the real store takes new snapshots.
+private struct ClosedPanelSnapshots: SnapshotLoading {
+    func loadSnapshot(after version: String?) async throws -> SnapshotFetch { throw CancellationError() }
+}
+
 /// A borderless panel that can take key input without activating the app,
 /// so Escape closes it and its menus open, while the app behind keeps focus.
 private final class MenuBarPanel: NSPanel {
@@ -14,6 +20,7 @@ final class StatusBarController: NSObject {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let panel: MenuBarPanel
     private let panelController: NSHostingController<CodexSwitchPanel>
+    private let closedPanelStore = OverviewStore(client: ClosedPanelSnapshots(), cacheFile: URL(filePath: "/dev/null"))
     private var refreshTask: Task<Void, Never>?
     private var eventMonitors: [Any] = []
     private var resizeObserver: NSObjectProtocol?
@@ -31,7 +38,7 @@ final class StatusBarController: NSObject {
         self.updates = updates
         panelController = NSHostingController(
             rootView: CodexSwitchPanel(
-                store: store,
+                store: closedPanelStore,
                 maximumHeight: NSScreen.main?.visibleFrame.height ?? 700,
                 updates: updates
             )
@@ -144,6 +151,7 @@ final class StatusBarController: NSObject {
     private func closePanel() {
         stopDismissMonitors()
         panel.orderOut(nil)
+        panelController.rootView = CodexSwitchPanel(store: closedPanelStore, maximumHeight: panelController.rootView.maximumHeight, updates: updates)
     }
 
     private func keepAnchored() {

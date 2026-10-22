@@ -158,6 +158,41 @@ func TestLateAllowanceRefoldsNativeOnlyWorkIntoItsAccount(t *testing.T) {
 	}
 }
 
+// A new allowance window no counted usage went through changes nothing; a
+// second owner for a window that attributed usage takes the attribution away.
+func TestOnlyAllowanceWindowsThatAttributedUsageRefold(t *testing.T) {
+	ledger := openTestUsageLedger(t)
+	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	reset := now.Add(time.Hour)
+	record := func(provider string, resetsAt time.Time) {
+		t.Helper()
+		if err := ledger.database.RecordAccountAllowanceWindowIdentity(store.AccountAllowanceWindowIdentity{ProviderAccountID: store.ProviderAccountID(provider), DurationSeconds: 5 * 60 * 60, ResetsAt: resetsAt, ObservedAt: now.Add(-time.Minute), UsedPercent: 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record("provider", reset)
+	insertFoldNative(t, ledger, sessionUsageObservation{TaskID: "task", ResponseID: "response", At: now.Add(-2 * time.Second), Model: "gpt-5.6-luna", Usage: &tokenUsage{InputTokens: 10, OutputTokens: 2},
+		Allowance: &sessionAllowance{LimitID: "codex", PlanType: "pro", Primary: &sessionAllowanceWindow{UsedPercent: 1, WindowMinutes: 300, ResetsAt: reset}}})
+	before := refreshTestFold(t, ledger, now)
+	if task := testFoldTasks(t, ledger, before)["task"]; len(task.Accounts) != 1 || task.Accounts[0] != "account" {
+		t.Fatalf("attribution through the window: %+v", task)
+	}
+
+	record("provider", reset.Add(5*time.Hour))
+	if after := refreshTestFold(t, ledger, now); after != before {
+		t.Fatal("a window no counted usage went through rebuilt the totals")
+	}
+
+	record("another provider", reset)
+	after := refreshTestFold(t, ledger, now)
+	if after == before {
+		t.Fatal("a second owner for a window that attributed usage did not rebuild the totals")
+	}
+	if task := testFoldTasks(t, ledger, after)["task"]; task.Tokens != 12 || len(task.Accounts) != 0 {
+		t.Fatalf("a window with two owners still attributed usage: %+v", task)
+	}
+}
+
 func TestFutureAllowanceTriggersRefoldWhenItsTimestampArrives(t *testing.T) {
 	ledger := openTestUsageLedger(t)
 	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)

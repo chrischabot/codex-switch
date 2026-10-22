@@ -78,6 +78,9 @@ type usageFold struct {
 	providerByName                 map[store.AccountName]store.ProviderAccountID
 	namesByProvider                map[store.ProviderAccountID]store.AccountName
 	allowanceOwners                map[allowanceIdentityKey]store.ProviderAccountID
+	// consultedAllowanceWindows are the windows some counted usage was
+	// attributed through; only a change to one of their owners matters.
+	consultedAllowanceWindows map[allowanceIdentityKey]bool
 }
 
 type usageRefoldReason string
@@ -92,7 +95,7 @@ func newUsageFold(today, localDay, standardStart time.Time, providers map[store.
 		responses: make(map[uint64]responseCounted), pending: make(map[uint64]pendingUsageContribution),
 		settled: make(map[usageCohortKey]usageCohortAmount), proxyActivity: make(map[usageCohortKey]usageCohortAmount), standardCost: make(map[string]map[modelDay]nanoUSD),
 		metadata: make(map[string]*taskMetadata), childParents: make(map[string]map[string]bool), turnOwners: make(map[string]usageTurnOwner), firstProxy: make(map[string]time.Time), latestLegacy: make(map[string]time.Time),
-		providerByName: providers, namesByProvider: names, allowanceOwners: owners,
+		providerByName: providers, namesByProvider: names, allowanceOwners: owners, consultedAllowanceWindows: make(map[allowanceIdentityKey]bool),
 	}
 }
 
@@ -148,12 +151,16 @@ func (ledger *UsageLedger) refreshUsageFold(ctx context.Context, now time.Time, 
 		rebuildReason = "recorded usage was deleted or a session file was rewritten"
 	case !maps.Equal(state.providerByName, providers) || !maps.Equal(state.namesByProvider, names):
 		rebuildReason = "an account's identity changed"
-	case !maps.Equal(state.allowanceOwners, owners):
-		rebuildReason = "an allowance window's account changed"
+	case consultedOwnerChanged(state, owners):
+		rebuildReason = "the account of an allowance window that attributed usage changed"
 	case !state.deferredUntil.IsZero() && !now.Before(state.deferredUntil):
 		rebuildReason = "a previously future-dated usage record became current"
 	}
 	refold := rebuildReason != ""
+	if !refold {
+		// New windows, or windows no counted usage went through, change nothing.
+		state.allowanceOwners = owners
+	}
 	var rebuildStarted time.Time
 	if refold {
 		rebuildStarted = time.Now()
@@ -287,7 +294,7 @@ func (ledger *UsageLedger) foldRows(ctx context.Context, query usageQuery, state
 				return err
 			}
 		}
-		attributeCompletion(&completion, allowance, state.providerByName, state.allowanceOwners)
+		attributeCompletion(&completion, allowance, state.providerByName, state.allowanceOwners, state.consultedAllowanceWindows)
 		state.canonicalAccount(&completion)
 		completion.TaskID = state.canonicalTaskID(completion.TaskID)
 		key, amount := completionCohort(completion)
@@ -374,7 +381,7 @@ func (ledger *UsageLedger) foldRows(ctx context.Context, query usageQuery, state
 				allowance = latest
 			}
 		}
-		attributeCompletion(&completion, allowance, state.providerByName, state.allowanceOwners)
+		attributeCompletion(&completion, allowance, state.providerByName, state.allowanceOwners, state.consultedAllowanceWindows)
 		state.canonicalAccount(&completion)
 		completion.TaskID = state.canonicalTaskID(completion.TaskID)
 		key, amount := completionCohort(completion)
@@ -524,4 +531,15 @@ func (state *usageFold) canonicalTaskID(task string) string {
 
 func (state *usageFold) turnOwnerTask(turn string) string {
 	return state.turnOwners[turn].TaskID
+}
+
+// consultedOwnerChanged reports whether a window some counted usage was
+// attributed through now has a different owner, or none.
+func consultedOwnerChanged(state *usageFold, owners map[allowanceIdentityKey]store.ProviderAccountID) bool {
+	for key := range state.consultedAllowanceWindows {
+		if state.allowanceOwners[key] != owners[key] {
+			return true
+		}
+	}
+	return false
 }
