@@ -156,6 +156,11 @@ ORDER BY account_name, observed_at_unix_nano`, now.Add(-8*24*time.Hour).UnixNano
 		}
 	}
 	var previous WeeklyAllowanceReading
+	// windowHigh is the highest reading of the account's current window. Two
+	// sources report the same window with different rounding and lag (Claude's
+	// usage API and its response headers), so readings within a window go up
+	// and down; only usage above the window's earlier high is new.
+	var windowHigh float64
 	for rows.Next() {
 		var reading WeeklyAllowanceReading
 		var resetsAt, observedAt int64
@@ -179,12 +184,23 @@ ORDER BY account_name, observed_at_unix_nano`, now.Add(-8*24*time.Hour).UnixNano
 			increase := reading.UsedPercent
 			// Providers report the same reset a second or a minute apart; only a
 			// reset that moves by more than that starts a new window.
-			if reading.ResetsAt.Sub(previous.ResetsAt).Abs() < time.Hour {
-				increase -= previous.UsedPercent
+			if sameAllowanceWindow(previous, reading) {
+				increase -= windowHigh
 			}
 			burn.usedPercent += math.Max(0, increase)
+		}
+		if previous.AccountName == reading.AccountName && sameAllowanceWindow(previous, reading) {
+			windowHigh = math.Max(windowHigh, reading.UsedPercent)
+		} else {
+			windowHigh = reading.UsedPercent
 		}
 		previous = reading
 	}
 	return burn, rows.Err()
+}
+
+// sameAllowanceWindow reports whether two readings of an account belong to
+// the same allowance window.
+func sameAllowanceWindow(previous, reading WeeklyAllowanceReading) bool {
+	return reading.ResetsAt.Sub(previous.ResetsAt).Abs() < time.Hour
 }

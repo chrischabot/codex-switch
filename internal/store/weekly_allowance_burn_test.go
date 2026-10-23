@@ -65,12 +65,21 @@ func TestWeeklyAllowanceBurn(t *testing.T) {
 			want: 0.2, visible: true,
 		},
 		{
-			name: "drops do not subtract usage and next increases count",
+			name: "a drop within a window counts only usage above its earlier high",
 			readings: []WeeklyAllowanceReading{
 				reading("first", 7, 1, 60), reading("first", 6, 1, 40),
 				reading("first", 4, 1, 50), reading("first", 0, 1, 70),
 			},
-			want: 0.3, visible: true,
+			want: 0.1, visible: true,
+		},
+		{
+			name: "two sources alternating a point apart add nothing",
+			readings: []WeeklyAllowanceReading{
+				reading("first", 7, 1, 87), reading("first", 6, 1, 88), reading("first", 5, 1, 87),
+				reading("first", 4, 1, 88), reading("first", 3, 1, 87), reading("first", 2, 1, 89),
+				reading("first", 1, 1, 88), reading("first", 0, 1, 90),
+			},
+			want: 0.03, visible: true,
 		},
 		{
 			name: "provider coverage scales the sum once and excludes new account baseline",
