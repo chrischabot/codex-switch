@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -24,35 +25,95 @@ CREATE TABLE IF NOT EXISTS native_usage_observations (
  PRIMARY KEY(task_id,source_offset)
 ) STRICT;
 CREATE INDEX IF NOT EXISTS native_usage_observed ON native_usage_observations(observed);
+-- Reconciliation reads the latest allowance for a response, rather than scanning history.
+CREATE INDEX IF NOT EXISTS native_usage_response_id ON native_usage_observations(response_id) WHERE response_id!='' AND limit_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS native_task_child_records (
  source_task_id TEXT NOT NULL, source_offset INTEGER NOT NULL, child_task_id TEXT NOT NULL,
  PRIMARY KEY(source_task_id,source_offset)
 ) STRICT;
+CREATE TABLE IF NOT EXISTS usage_mutation_counter (
+ singleton INTEGER PRIMARY KEY CHECK(singleton=1), generation INTEGER NOT NULL
+) STRICT;
+INSERT OR IGNORE INTO usage_mutation_counter VALUES(1,0);
+CREATE TRIGGER IF NOT EXISTS usage_completed_response_deleted AFTER DELETE ON completed_responses BEGIN
+ UPDATE usage_mutation_counter SET generation=generation+1 WHERE singleton=1;
+END;
+CREATE TRIGGER IF NOT EXISTS usage_native_observation_deleted AFTER DELETE ON native_usage_observations BEGIN
+ UPDATE usage_mutation_counter SET generation=generation+1 WHERE singleton=1;
+END;
+DROP TRIGGER IF EXISTS usage_native_source_inserted;
+CREATE TRIGGER IF NOT EXISTS usage_native_source_deleted AFTER DELETE ON native_usage_sources BEGIN
+ UPDATE usage_mutation_counter SET generation=generation+1 WHERE singleton=1;
+END;
+CREATE TRIGGER IF NOT EXISTS usage_native_child_deleted AFTER DELETE ON native_task_child_records BEGIN
+ UPDATE usage_mutation_counter SET generation=generation+1 WHERE singleton=1;
+END;
 `)
 	return err
 }
 
-func (ledger *UsageLedger) importCodexSessions(ctx context.Context, home string, since time.Time) (sessionImportSummary, error) {
-	sources, err := discoverCodexSessions(home, since)
-	if err != nil {
-		return sessionImportSummary{}, err
+// Read fingerprints only for the candidates discovered this cycle. Chunking
+// keeps startup and hourly walks within SQLite's parameter limit.
+func (ledger *UsageLedger) readImportedSources(ctx context.Context, sources []sessionFile) (map[string]sessionFile, error) {
+	imported := make(map[string]sessionFile, len(sources))
+	for start := 0; start < len(sources); start += 500 {
+		batch := sources[start:min(start+500, len(sources))]
+		arguments := make([]any, len(batch))
+		for i, source := range batch {
+			arguments[i] = source.TaskID
+		}
+		rows, err := ledger.sqlDatabase.QueryContext(ctx, `SELECT task_id,path,identity,size,modified FROM native_usage_sources WHERE task_id IN (`+strings.TrimSuffix(strings.Repeat("?,", len(batch)), ",")+`)`, arguments...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var source sessionFile
+			var modified int64
+			if err := rows.Scan(&source.TaskID, &source.Path, &source.Identity, &source.Size, &modified); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			source.ModifiedAt = time.Unix(0, modified)
+			imported[source.Path] = source
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
 	}
-	return ledger.importSessionFiles(ctx, sources, readCodexSession)
+	return imported, nil
 }
 
-func (ledger *UsageLedger) importPiSessions(ctx context.Context, sessionDirectory string, since time.Time) (sessionImportSummary, error) {
-	sources, err := discoverPiSessions(sessionDirectory, since)
+func (ledger *UsageLedger) importNativeSessions(ctx context.Context, codexHome, piSessions string, since time.Time) error {
+	// A failed import must not advance discovery past the bytes still unread.
+	previousDiscovery := ledger.codexDiscovery
+	codexSources, err := ledger.discoverCodexSessionChanges(ctx, codexHome, since, time.Now())
 	if err != nil {
-		return sessionImportSummary{}, err
+		ledger.codexDiscovery = previousDiscovery
+		return err
 	}
-	return ledger.importSessionFiles(ctx, sources, readPiSession)
+	if err = ledger.importSessionFiles(ctx, codexSources, readCodexSession); err != nil {
+		ledger.codexDiscovery = previousDiscovery
+		return err
+	}
+	return ledger.importPiSessions(ctx, piSessions, since, time.Now())
 }
 
-func (ledger *UsageLedger) importSessionFiles(ctx context.Context, sources []sessionFile, read func(context.Context, sessionFile, sessionReadCursor) (sessionReadResult, error)) (sessionImportSummary, error) {
-	var result sessionImportSummary
+func (ledger *UsageLedger) importSessionFiles(ctx context.Context, sources []sessionFile, read func(context.Context, sessionFile, sessionReadCursor) (sessionReadResult, error)) error {
+	imported, err := ledger.readImportedSources(ctx, sources)
+	if err != nil {
+		return err
+	}
+	return ledger.importSessionFilesWithKnownFiles(ctx, sources, read, imported)
+}
+
+func (ledger *UsageLedger) importSessionFilesWithKnownFiles(ctx context.Context, sources []sessionFile, read func(context.Context, sessionFile, sessionReadCursor) (sessionReadResult, error), importedByPath map[string]sessionFile) error {
 	var err error
-	result.FilesDiscovered = len(sources)
 	for _, source := range sources {
+		if previous, known := importedByPath[source.Path]; known && previous.TaskID == source.TaskID && previous.Identity == source.Identity && previous.Size == source.Size && previous.ModifiedAt.UnixNano() == source.ModifiedAt.UnixNano() {
+			continue
+		}
 		var cursor sessionReadCursor
 		var previousIdentity, previousPath, previousParentTaskID string
 		var previousSize, modified int64
@@ -60,7 +121,11 @@ func (ledger *UsageLedger) importSessionFiles(ctx context.Context, sources []ses
 		var pendingInput, pendingCached, pendingCacheWrite, pendingOutput, pendingReasoning, pendingTotal sql.NullInt64
 		err = ledger.sqlDatabase.QueryRowContext(ctx, `SELECT path,identity,parent_task_id,size,modified,offset,model,tier,turn_id,history_ended,canonical_seen,previous_input,previous_cached,previous_cache_write,previous_output,previous_reasoning,previous_total,pending_response_id,pending_input,pending_cached,pending_cache_write,pending_output,pending_reasoning,pending_total FROM native_usage_sources WHERE task_id=?`, source.TaskID).Scan(&previousPath, &previousIdentity, &previousParentTaskID, &previousSize, &modified, &cursor.Offset, &cursor.Model, &cursor.ServiceTier, &cursor.TurnID, &cursor.ChildHistoryEnded, &cursor.CanonicalUsageSeen, &input, &cached, &cacheWrite, &output, &reasoning, &total, &cursor.PendingResponseID, &pendingInput, &pendingCached, &pendingCacheWrite, &pendingOutput, &pendingReasoning, &pendingTotal)
 		if err != nil && err != sql.ErrNoRows {
-			return result, err
+			return err
+		}
+		var expectedSource *sessionFile
+		if err == nil {
+			expectedSource = &sessionFile{TaskID: source.TaskID, Path: previousPath, Identity: previousIdentity, Size: previousSize, ModifiedAt: time.Unix(0, modified)}
 		}
 		reset := err == sql.ErrNoRows || previousIdentity != source.Identity || previousPath != source.Path || source.Size < previousSize || (source.Size == previousSize && source.ModifiedAt.UnixNano() != modified)
 		if !reset && source.Size == previousSize && source.ModifiedAt.UnixNano() == modified {
@@ -83,20 +148,13 @@ func (ledger *UsageLedger) importSessionFiles(ctx context.Context, sources []ses
 		}
 		parsed, readErr := read(ctx, source, cursor)
 		if readErr != nil {
-			return result, readErr
+			return readErr
 		}
-		if err = ledger.saveSessionFile(ctx, source, parsed, reset); err != nil {
-			return result, err
-		}
-		result.FilesRead++
-		result.BytesRead += parsed.BytesRead
-		for _, observation := range parsed.Observations {
-			if observation.Usage != nil {
-				result.UsageObservations++
-			}
+		if err = ledger.saveSessionFile(ctx, source, parsed, reset, expectedSource); err != nil {
+			return err
 		}
 	}
-	return result, nil
+	return nil
 }
 
 func tokenArguments(usage *tokenUsage) []any {
@@ -111,12 +169,31 @@ func windowArguments(window *sessionAllowanceWindow) []any {
 	}
 	return []any{window.UsedPercent, window.WindowMinutes, window.ResetsAt.UnixNano()}
 }
-func (ledger *UsageLedger) saveSessionFile(ctx context.Context, source sessionFile, parsed sessionReadResult, reset bool) error {
+func (ledger *UsageLedger) saveSessionFile(ctx context.Context, source sessionFile, parsed sessionReadResult, reset bool, expectedSource *sessionFile) error {
 	transaction, err := ledger.sqlDatabase.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer transaction.Rollback()
+	// Acquire the writer lock before checking the cursor: another generation
+	// may have imported this file while this process was reading its bytes.
+	if _, err = transaction.ExecContext(ctx, `UPDATE usage_mutation_counter SET generation=generation WHERE singleton=1`); err != nil {
+		return err
+	}
+	var current sessionFile
+	var modified int64
+	err = transaction.QueryRowContext(ctx, `SELECT path,identity,size,modified FROM native_usage_sources WHERE task_id=?`, source.TaskID).Scan(&current.Path, &current.Identity, &current.Size, &modified)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	if expectedSource == nil {
+		if err == nil {
+			return nil
+		}
+	} else if err == sql.ErrNoRows || current.Path != expectedSource.Path || current.Identity != expectedSource.Identity || current.Size != expectedSource.Size || modified != expectedSource.ModifiedAt.UnixNano() {
+		// The next discovery reads that generation's cursor and any bytes beyond it.
+		return nil
+	}
 	if reset {
 		if _, err = transaction.ExecContext(ctx, `DELETE FROM native_usage_observations WHERE task_id=?`, source.TaskID); err != nil {
 			return err
@@ -126,7 +203,7 @@ func (ledger *UsageLedger) saveSessionFile(ctx context.Context, source sessionFi
 		}
 	}
 	for _, child := range parsed.ChildTasks {
-		if _, err = transaction.ExecContext(ctx, `INSERT OR REPLACE INTO native_task_child_records VALUES (?,?,?)`, source.TaskID, child.SourceOffset, child.TaskID); err != nil {
+		if err = insertIdenticalNativeRow(ctx, transaction, "native_task_child_records", []string{"source_task_id", "source_offset", "child_task_id"}, []any{source.TaskID, child.SourceOffset, child.TaskID}, 2); err != nil {
 			return fmt.Errorf("save native child relationship: %w", err)
 		}
 	}
@@ -140,7 +217,7 @@ func (ledger *UsageLedger) saveSessionFile(ctx context.Context, source sessionFi
 		} else {
 			arguments = append(arguments, nil, nil, nil, nil, nil, nil, nil, nil)
 		}
-		if _, err = transaction.ExecContext(ctx, `INSERT OR REPLACE INTO native_usage_observations VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, arguments...); err != nil {
+		if err = insertIdenticalNativeRow(ctx, transaction, "native_usage_observations", nativeObservationColumns, arguments, 2); err != nil {
 			return fmt.Errorf("save native observation: %w", err)
 		}
 	}
@@ -149,76 +226,15 @@ func (ledger *UsageLedger) saveSessionFile(ctx context.Context, source sessionFi
 	arguments = append(arguments, tokenArguments(cursor.PreviousTotals)...)
 	arguments = append(arguments, parsed.Metadata.ParentTaskID, parsed.Metadata.ForkedFromTaskID, parsed.Metadata.CreatedAt.UnixNano(), parsed.Metadata.SourceKind, cursor.PendingResponseID)
 	arguments = append(arguments, tokenArguments(cursor.PendingUsage)...)
-	if _, err = transaction.ExecContext(ctx, `INSERT OR REPLACE INTO native_usage_sources VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, arguments...); err != nil {
+	// Source cursor updates need a fresh, increasing rowid so readers see them
+	// above their watermark, including when this source had the highest rowid.
+	var nextSourceRowID int64
+	if err = transaction.QueryRowContext(ctx, `SELECT COALESCE(MAX(rowid),0)+1 FROM native_usage_sources`).Scan(&nextSourceRowID); err != nil {
+		return err
+	}
+	arguments = append([]any{nextSourceRowID}, arguments...)
+	if _, err = transaction.ExecContext(ctx, `INSERT INTO native_usage_sources (rowid,task_id,path,identity,size,modified,offset,model,tier,turn_id,history_ended,canonical_seen,previous_input,previous_cached,previous_cache_write,previous_output,previous_reasoning,previous_total,parent_task_id,forked_from_task_id,created,source_kind,pending_response_id,pending_input,pending_cached,pending_cache_write,pending_output,pending_reasoning,pending_total) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(task_id) DO UPDATE SET rowid=excluded.rowid,path=excluded.path,identity=excluded.identity,size=excluded.size,modified=excluded.modified,offset=excluded.offset,model=excluded.model,tier=excluded.tier,turn_id=excluded.turn_id,history_ended=excluded.history_ended,canonical_seen=excluded.canonical_seen,previous_input=excluded.previous_input,previous_cached=excluded.previous_cached,previous_cache_write=excluded.previous_cache_write,previous_output=excluded.previous_output,previous_reasoning=excluded.previous_reasoning,previous_total=excluded.previous_total,parent_task_id=excluded.parent_task_id,forked_from_task_id=excluded.forked_from_task_id,created=excluded.created,source_kind=excluded.source_kind,pending_response_id=excluded.pending_response_id,pending_input=excluded.pending_input,pending_cached=excluded.pending_cached,pending_cache_write=excluded.pending_cache_write,pending_output=excluded.pending_output,pending_reasoning=excluded.pending_reasoning,pending_total=excluded.pending_total`, arguments...); err != nil {
 		return fmt.Errorf("save native cursor: %w", err)
 	}
 	return transaction.Commit()
-}
-
-func (ledger *UsageLedger) readSessionUsageObservations(ctx context.Context, start, end time.Time) ([]sessionUsageObservation, error) {
-	rows, err := ledger.sqlDatabase.QueryContext(ctx, `SELECT o.task_id,s.path,s.source_kind,o.source_offset,o.response_id,o.root_turn_id,o.session_id,o.turn_id,o.observed,o.model,o.tier,o.input,o.cached,o.cache_write,o.output,o.reasoning,o.total,o.limit_id,o.plan_type,o.primary_used,o.primary_minutes,o.primary_resets,o.secondary_used,o.secondary_minutes,o.secondary_resets FROM native_usage_observations o JOIN native_usage_sources s ON o.task_id=s.task_id WHERE o.observed>=? AND o.observed<? ORDER BY o.observed,o.task_id,o.source_offset`, start.UnixNano(), end.UnixNano())
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var observations []sessionUsageObservation
-	for rows.Next() {
-		var observation sessionUsageObservation
-		var observed int64
-		var input, cached, cacheWrite, output, reasoning, total, primaryMinutes, primaryResets, secondaryMinutes, secondaryResets sql.NullInt64
-		var limitID, planType sql.NullString
-		var primaryUsed, secondaryUsed sql.NullFloat64
-		if err = rows.Scan(&observation.TaskID, &observation.SourcePath, &observation.SourceKind, &observation.SourceOffset, &observation.ResponseID, &observation.RootTurnID, &observation.SessionID, &observation.TurnID, &observed, &observation.Model, &observation.ServiceTier, &input, &cached, &cacheWrite, &output, &reasoning, &total, &limitID, &planType, &primaryUsed, &primaryMinutes, &primaryResets, &secondaryUsed, &secondaryMinutes, &secondaryResets); err != nil {
-			return nil, err
-		}
-		observation.At = time.Unix(0, observed)
-		if input.Valid {
-			observation.Usage = &tokenUsage{InputTokens: input.Int64, CachedInputTokens: cached.Int64, OutputTokens: output.Int64, ReasoningOutputTokens: reasoning.Int64, TotalTokens: total.Int64}
-			if cacheWrite.Valid {
-				observation.Usage.CacheWriteInputTokens = &cacheWrite.Int64
-			}
-		}
-		if limitID.Valid {
-			observation.Allowance = &sessionAllowance{LimitID: limitID.String, PlanType: planType.String}
-			if primaryUsed.Valid {
-				observation.Allowance.Primary = &sessionAllowanceWindow{UsedPercent: primaryUsed.Float64, WindowMinutes: primaryMinutes.Int64, ResetsAt: time.Unix(0, primaryResets.Int64)}
-			}
-			if secondaryUsed.Valid {
-				observation.Allowance.Secondary = &sessionAllowanceWindow{UsedPercent: secondaryUsed.Float64, WindowMinutes: secondaryMinutes.Int64, ResetsAt: time.Unix(0, secondaryResets.Int64)}
-			}
-		}
-		observations = append(observations, observation)
-	}
-	return observations, rows.Err()
-}
-func (ledger *UsageLedger) readTaskMetadata(ctx context.Context) ([]taskMetadata, error) {
-	rows, err := ledger.sqlDatabase.QueryContext(ctx, `SELECT s.task_id,s.path,s.parent_task_id,s.forked_from_task_id,s.created,s.source_kind,
- COALESCE(c.parent_task_id,''),COALESCE(c.parent_count,0)
- FROM native_usage_sources s LEFT JOIN (
-  SELECT child_task_id,MIN(source_task_id) AS parent_task_id,COUNT(DISTINCT source_task_id) AS parent_count
-  FROM native_task_child_records GROUP BY child_task_id
- ) c ON c.child_task_id=s.task_id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var metadata []taskMetadata
-	for rows.Next() {
-		var item taskMetadata
-		var created int64
-		var recordedParent string
-		var parentCount int
-		if err = rows.Scan(&item.TaskID, &item.SourcePath, &item.ParentTaskID, &item.ForkedFromTaskID, &created, &item.SourceKind, &recordedParent, &parentCount); err != nil {
-			return nil, err
-		}
-		if item.ParentTaskID == "" {
-			if parentCount > 1 {
-				return nil, fmt.Errorf("conflicting native parent records for task %s", item.TaskID)
-			}
-			item.ParentTaskID = recordedParent
-		}
-		item.CreatedAt = time.Unix(0, created)
-		metadata = append(metadata, item)
-	}
-	return metadata, rows.Err()
 }

@@ -189,7 +189,8 @@ type MenuSnapshot struct {
 	ReportingPeriods []*ReportingPeriod     `protobuf:"bytes,5,rep,name=reporting_periods,json=reportingPeriods,proto3" json:"reporting_periods,omitempty"`
 	ProxyActivity    *ProxyActivity         `protobuf:"bytes,6,opt,name=proxy_activity,json=proxyActivity,proto3" json:"proxy_activity,omitempty"`
 	// Each account's usage per UTC date for the last 30 days, oldest first.
-	AccountDays   []*AccountDay `protobuf:"bytes,7,rep,name=account_days,json=accountDays,proto3" json:"account_days,omitempty"`
+	AccountDays   []*AccountDay   `protobuf:"bytes,7,rep,name=account_days,json=accountDays,proto3" json:"account_days,omitempty"`
+	ProviderBurns []*ProviderBurn `protobuf:"bytes,8,rep,name=provider_burns,json=providerBurns,proto3" json:"provider_burns,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -262,6 +263,13 @@ func (x *MenuSnapshot) GetProxyActivity() *ProxyActivity {
 func (x *MenuSnapshot) GetAccountDays() []*AccountDay {
 	if x != nil {
 		return x.AccountDays
+	}
+	return nil
+}
+
+func (x *MenuSnapshot) GetProviderBurns() []*ProviderBurn {
+	if x != nil {
+		return x.ProviderBurns
 	}
 	return nil
 }
@@ -1135,11 +1143,63 @@ func (x *AccountTotal) GetCostNanoUsd() int64 {
 	return 0
 }
 
+type ProviderBurn struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Provider        Provider               `protobuf:"varint,1,opt,name=provider,proto3,enum=codex_switch.menu.Provider" json:"provider,omitempty"`
+	AccountsPerWeek float64                `protobuf:"fixed64,2,opt,name=accounts_per_week,json=accountsPerWeek,proto3" json:"accounts_per_week,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ProviderBurn) Reset() {
+	*x = ProviderBurn{}
+	mi := &file_menu_snapshot_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProviderBurn) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProviderBurn) ProtoMessage() {}
+
+func (x *ProviderBurn) ProtoReflect() protoreflect.Message {
+	mi := &file_menu_snapshot_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProviderBurn.ProtoReflect.Descriptor instead.
+func (*ProviderBurn) Descriptor() ([]byte, []int) {
+	return file_menu_snapshot_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ProviderBurn) GetProvider() Provider {
+	if x != nil {
+		return x.Provider
+	}
+	return Provider_PROVIDER_UNSPECIFIED
+}
+
+func (x *ProviderBurn) GetAccountsPerWeek() float64 {
+	if x != nil {
+		return x.AccountsPerWeek
+	}
+	return 0
+}
+
 var File_menu_snapshot_proto protoreflect.FileDescriptor
 
 const file_menu_snapshot_proto_rawDesc = "" +
 	"\n" +
-	"\x13menu_snapshot.proto\x12\x11codex_switch.menu\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa6\x03\n" +
+	"\x13menu_snapshot.proto\x12\x11codex_switch.menu\x1a\x1fgoogle/protobuf/timestamp.proto\"\xee\x03\n" +
 	"\fMenuSnapshot\x12=\n" +
 	"\fgenerated_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\vgeneratedAt\x126\n" +
 	"\baccounts\x18\x02 \x03(\v2\x1a.codex_switch.menu.AccountR\baccounts\x12=\n" +
@@ -1148,7 +1208,8 @@ const file_menu_snapshot_proto_rawDesc = "" +
 	"connection\x12O\n" +
 	"\x11reporting_periods\x18\x05 \x03(\v2\".codex_switch.menu.ReportingPeriodR\x10reportingPeriods\x12G\n" +
 	"\x0eproxy_activity\x18\x06 \x01(\v2 .codex_switch.menu.ProxyActivityR\rproxyActivity\x12@\n" +
-	"\faccount_days\x18\a \x03(\v2\x1d.codex_switch.menu.AccountDayR\vaccountDaysJ\x04\b\x03\x10\x04\"\xbb\x01\n" +
+	"\faccount_days\x18\a \x03(\v2\x1d.codex_switch.menu.AccountDayR\vaccountDays\x12F\n" +
+	"\x0eprovider_burns\x18\b \x03(\v2\x1f.codex_switch.menu.ProviderBurnR\rproviderBurnsJ\x04\b\x03\x10\x04\"\xbb\x01\n" +
 	"\n" +
 	"AccountDay\x12\x1f\n" +
 	"\vaccount_key\x18\x01 \x01(\tR\n" +
@@ -1234,7 +1295,10 @@ const file_menu_snapshot_proto_rawDesc = "" +
 	"accountKey\x12\x16\n" +
 	"\x06tokens\x18\x02 \x01(\x03R\x06tokens\x12'\n" +
 	"\rcost_nano_usd\x18\x03 \x01(\x03H\x00R\vcostNanoUsd\x88\x01\x01B\x10\n" +
-	"\x0e_cost_nano_usd*O\n" +
+	"\x0e_cost_nano_usd\"s\n" +
+	"\fProviderBurn\x127\n" +
+	"\bprovider\x18\x01 \x01(\x0e2\x1b.codex_switch.menu.ProviderR\bprovider\x12*\n" +
+	"\x11accounts_per_week\x18\x02 \x01(\x01R\x0faccountsPerWeek*O\n" +
 	"\bProvider\x12\x18\n" +
 	"\x14PROVIDER_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10PROVIDER_CHATGPT\x10\x01\x12\x13\n" +
@@ -1265,7 +1329,7 @@ func file_menu_snapshot_proto_rawDescGZIP() []byte {
 }
 
 var file_menu_snapshot_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_menu_snapshot_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_menu_snapshot_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_menu_snapshot_proto_goTypes = []any{
 	(Provider)(0),                 // 0: codex_switch.menu.Provider
 	(AccountState)(0),             // 1: codex_switch.menu.AccountState
@@ -1283,40 +1347,43 @@ var file_menu_snapshot_proto_goTypes = []any{
 	(*ReportingPeriod)(nil),       // 13: codex_switch.menu.ReportingPeriod
 	(*TaskUsageReport)(nil),       // 14: codex_switch.menu.TaskUsageReport
 	(*AccountTotal)(nil),          // 15: codex_switch.menu.AccountTotal
-	(*timestamppb.Timestamp)(nil), // 16: google.protobuf.Timestamp
+	(*ProviderBurn)(nil),          // 16: codex_switch.menu.ProviderBurn
+	(*timestamppb.Timestamp)(nil), // 17: google.protobuf.Timestamp
 }
 var file_menu_snapshot_proto_depIdxs = []int32{
-	16, // 0: codex_switch.menu.MenuSnapshot.generated_at:type_name -> google.protobuf.Timestamp
+	17, // 0: codex_switch.menu.MenuSnapshot.generated_at:type_name -> google.protobuf.Timestamp
 	8,  // 1: codex_switch.menu.MenuSnapshot.accounts:type_name -> codex_switch.menu.Account
 	12, // 2: codex_switch.menu.MenuSnapshot.connection:type_name -> codex_switch.menu.Connection
 	13, // 3: codex_switch.menu.MenuSnapshot.reporting_periods:type_name -> codex_switch.menu.ReportingPeriod
 	5,  // 4: codex_switch.menu.MenuSnapshot.proxy_activity:type_name -> codex_switch.menu.ProxyActivity
 	4,  // 5: codex_switch.menu.MenuSnapshot.account_days:type_name -> codex_switch.menu.AccountDay
-	16, // 6: codex_switch.menu.AccountDay.started_at:type_name -> google.protobuf.Timestamp
-	16, // 7: codex_switch.menu.ProxyActivity.started_at:type_name -> google.protobuf.Timestamp
-	16, // 8: codex_switch.menu.ProxyActivity.ended_at:type_name -> google.protobuf.Timestamp
-	6,  // 9: codex_switch.menu.ProxyActivity.accounts:type_name -> codex_switch.menu.ProxyAccountActivity
-	11, // 10: codex_switch.menu.ProxyActivity.tasks:type_name -> codex_switch.menu.CompletedTask
-	16, // 11: codex_switch.menu.ProxyActivity.requests_started_at:type_name -> google.protobuf.Timestamp
-	7,  // 12: codex_switch.menu.ProxyAccountActivity.request_counts:type_name -> codex_switch.menu.ModelRequestCounts
-	1,  // 13: codex_switch.menu.Account.state:type_name -> codex_switch.menu.AccountState
-	9,  // 14: codex_switch.menu.Account.allowance:type_name -> codex_switch.menu.AllowanceObservation
-	0,  // 15: codex_switch.menu.Account.provider:type_name -> codex_switch.menu.Provider
-	16, // 16: codex_switch.menu.AllowanceObservation.observed_at:type_name -> google.protobuf.Timestamp
-	10, // 17: codex_switch.menu.AllowanceObservation.windows:type_name -> codex_switch.menu.AllowanceWindow
-	16, // 18: codex_switch.menu.AllowanceWindow.reset_at:type_name -> google.protobuf.Timestamp
-	16, // 19: codex_switch.menu.CompletedTask.last_completed_at:type_name -> google.protobuf.Timestamp
-	2,  // 20: codex_switch.menu.ReportingPeriod.kind:type_name -> codex_switch.menu.ReportingPeriodKind
-	16, // 21: codex_switch.menu.ReportingPeriod.started_at:type_name -> google.protobuf.Timestamp
-	16, // 22: codex_switch.menu.ReportingPeriod.ended_at:type_name -> google.protobuf.Timestamp
-	15, // 23: codex_switch.menu.ReportingPeriod.accounts:type_name -> codex_switch.menu.AccountTotal
-	14, // 24: codex_switch.menu.ReportingPeriod.task_usage:type_name -> codex_switch.menu.TaskUsageReport
-	11, // 25: codex_switch.menu.TaskUsageReport.tasks:type_name -> codex_switch.menu.CompletedTask
-	26, // [26:26] is the sub-list for method output_type
-	26, // [26:26] is the sub-list for method input_type
-	26, // [26:26] is the sub-list for extension type_name
-	26, // [26:26] is the sub-list for extension extendee
-	0,  // [0:26] is the sub-list for field type_name
+	16, // 6: codex_switch.menu.MenuSnapshot.provider_burns:type_name -> codex_switch.menu.ProviderBurn
+	17, // 7: codex_switch.menu.AccountDay.started_at:type_name -> google.protobuf.Timestamp
+	17, // 8: codex_switch.menu.ProxyActivity.started_at:type_name -> google.protobuf.Timestamp
+	17, // 9: codex_switch.menu.ProxyActivity.ended_at:type_name -> google.protobuf.Timestamp
+	6,  // 10: codex_switch.menu.ProxyActivity.accounts:type_name -> codex_switch.menu.ProxyAccountActivity
+	11, // 11: codex_switch.menu.ProxyActivity.tasks:type_name -> codex_switch.menu.CompletedTask
+	17, // 12: codex_switch.menu.ProxyActivity.requests_started_at:type_name -> google.protobuf.Timestamp
+	7,  // 13: codex_switch.menu.ProxyAccountActivity.request_counts:type_name -> codex_switch.menu.ModelRequestCounts
+	1,  // 14: codex_switch.menu.Account.state:type_name -> codex_switch.menu.AccountState
+	9,  // 15: codex_switch.menu.Account.allowance:type_name -> codex_switch.menu.AllowanceObservation
+	0,  // 16: codex_switch.menu.Account.provider:type_name -> codex_switch.menu.Provider
+	17, // 17: codex_switch.menu.AllowanceObservation.observed_at:type_name -> google.protobuf.Timestamp
+	10, // 18: codex_switch.menu.AllowanceObservation.windows:type_name -> codex_switch.menu.AllowanceWindow
+	17, // 19: codex_switch.menu.AllowanceWindow.reset_at:type_name -> google.protobuf.Timestamp
+	17, // 20: codex_switch.menu.CompletedTask.last_completed_at:type_name -> google.protobuf.Timestamp
+	2,  // 21: codex_switch.menu.ReportingPeriod.kind:type_name -> codex_switch.menu.ReportingPeriodKind
+	17, // 22: codex_switch.menu.ReportingPeriod.started_at:type_name -> google.protobuf.Timestamp
+	17, // 23: codex_switch.menu.ReportingPeriod.ended_at:type_name -> google.protobuf.Timestamp
+	15, // 24: codex_switch.menu.ReportingPeriod.accounts:type_name -> codex_switch.menu.AccountTotal
+	14, // 25: codex_switch.menu.ReportingPeriod.task_usage:type_name -> codex_switch.menu.TaskUsageReport
+	11, // 26: codex_switch.menu.TaskUsageReport.tasks:type_name -> codex_switch.menu.CompletedTask
+	0,  // 27: codex_switch.menu.ProviderBurn.provider:type_name -> codex_switch.menu.Provider
+	28, // [28:28] is the sub-list for method output_type
+	28, // [28:28] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_menu_snapshot_proto_init() }
@@ -1334,7 +1401,7 @@ func file_menu_snapshot_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_menu_snapshot_proto_rawDesc), len(file_menu_snapshot_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   13,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

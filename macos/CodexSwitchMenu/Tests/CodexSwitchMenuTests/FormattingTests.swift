@@ -22,9 +22,9 @@ final class FormattingTests: XCTestCase {
         let november = try Date.ISO8601FormatStyle().parse("2026-11-08T11:20:00Z")
         let utc = TimeZone(identifier: "UTC")!
 
-        XCTAssertEqual(UsageFormatting.resetLabel(tonight, now: now, locale: locale, timeZone: utc), "Resets Sun 23:36")
-        XCTAssertEqual(UsageFormatting.resetLabel(saturday, now: now, locale: locale, timeZone: utc), "Resets Sat 05:52")
-        XCTAssertEqual(UsageFormatting.resetLabel(november, now: now, locale: locale, timeZone: utc), "Resets Sun 8 Nov")
+        XCTAssertEqual(UsageFormatting.resetLabel(tonight, now: now, locale: locale, timeZone: utc), "Resets Sun 11, 23:36")
+        XCTAssertEqual(UsageFormatting.resetLabel(saturday, now: now, locale: locale, timeZone: utc), "Resets Sat 17, 05:52")
+        XCTAssertEqual(UsageFormatting.resetLabel(november, now: now, locale: locale, timeZone: utc), "Resets Sun 8, 11:20")
     }
 
     func testAmountsUseThreeSignificantFigures() {

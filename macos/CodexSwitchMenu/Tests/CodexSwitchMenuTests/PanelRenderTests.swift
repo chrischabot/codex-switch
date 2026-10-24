@@ -74,6 +74,7 @@ final class PanelRenderTests: XCTestCase {
             ("one-limited", real.oneLimited()),
             ("reserve", real.withReserves()),
             ("six-accounts", real.withSixthAccount()),
+            ("burn-visible", real.withProviderBurns()),
         ]
         for (state, snapshot) in states {
             for dark in [false, true] {
@@ -227,12 +228,24 @@ private struct ContentBoundsKey: PreferenceKey {
 
 private struct SavedSnapshot: SnapshotLoading {
     let bytes: Data
-    func loadSnapshot() async throws -> Data { bytes }
+    func loadSnapshot(after version: String?) async throws -> SnapshotFetch { .changed(bytes, version: "saved") }
 }
 
 /// The states the panel must show, derived from the real snapshot so the
 /// names, totals and tasks stay real.
 extension CSSwitch_MenuSnapshot {
+    /// Exercise the header after each provider has enough observation history.
+    func withProviderBurns() -> CSSwitch_MenuSnapshot {
+        var copy = self
+        copy.providerBurns = providers.map { provider in
+            var burn = CSSwitch_ProviderBurn()
+            burn.provider = provider
+            burn.accountsPerWeek = 2.5
+            return burn
+        }
+        return copy
+    }
+
     /// Every window a fifth used with its reset ahead: nothing runs out.
     func allFine() -> CSSwitch_MenuSnapshot {
         var copy = self
@@ -265,7 +278,7 @@ extension CSSwitch_MenuSnapshot {
         var copy = self
         let codex = copy.accounts.indices.filter { copy.accounts[$0].menuProvider == .chatgpt && copy.accounts[$0].usable }
         if let second = codex.dropFirst().first {
-            copy.accounts[second].reserveStatus = "new work elsewhere · 15% reserve"
+            copy.accounts[second].reserveStatus = "no new work · 15% reserve"
         }
         if let claude = copy.accounts.lastIndex(where: { $0.menuProvider == .claude }) {
             copy.accounts[claude].usable = false

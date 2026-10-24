@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log"
@@ -17,6 +18,7 @@ import (
 	"github.com/joshp123/codex-switch/internal/clientcapability"
 	"github.com/joshp123/codex-switch/internal/codexstate"
 	"github.com/joshp123/codex-switch/internal/menupb"
+	"github.com/joshp123/codex-switch/internal/relay"
 	"github.com/joshp123/codex-switch/internal/routing"
 	"github.com/joshp123/codex-switch/internal/store"
 	"github.com/joshp123/codex-switch/internal/usage"
@@ -31,33 +33,128 @@ const menuSnapshotEndpoint = "/codex-switch/menu-snapshot"
 // command read it; each generation writes it once it listens.
 const menuSnapshotURLFilename = "menu-snapshot-url"
 
-const menuSnapshotInterval = time.Minute
+// The snapshot is composed once a minute, and menuSnapshotAfterWork after the
+// proxy finishes a response when the last snapshot is older than that, so
+// work after a quiet spell shows within seconds while continuous work costs
+// no more than one snapshot a minute.
+const (
+	menuSnapshotInterval     = time.Minute
+	menuSnapshotAfterWork    = 5 * time.Second
+	menuSnapshotWorkInterval = time.Minute
+	// A menu waiting for a newer snapshot is answered within this, so it learns
+	// the snapshot is still current.
+	menuSnapshotLongestWait = 55 * time.Second
+)
 
-// menuSnapshots composes the menu snapshot once a minute and serves the
-// latest one, so a reader never waits for accounts, usage or task names.
+// menuSnapshots composes the menu snapshot and serves the latest one, so a
+// reader never waits for accounts, usage or task names. A reader that already
+// has the latest snapshot waits until it changes.
 type menuSnapshots struct {
 	dataDirectory string
 	// codexBaseURL is the openai_base_url that sends Codex work to this proxy.
 	codexBaseURL string
 	router       *routing.TaskRouter
+	database     *store.StoreDatabase
 	usageLedger  *usage.UsageLedger
 	codex        *codexstate.LocalReader
 
 	mutex   sync.Mutex
 	encoded []byte
+	// content is the latest snapshot without the time it was composed, and
+	// version counts changes to it. changed is closed and replaced at each
+	// change, waking every waiting reader; stopping wakes them when this
+	// generation stops serving.
+	content []byte
+	// version is unique to this process, so a menu that held a snapshot from
+	// the previous generation never takes this one's for the same version.
+	generation int64
+	version    uint64
+	changed    chan struct{}
+	stopping   chan struct{}
+	// workDone asks for a snapshot soon, because the proxy finished a response.
+	workDone chan struct{}
+	// lastCodexConfig is Codex's effective config as last read, and
+	// lastCodexConfigInputs the identity of the files it was read from. Codex
+	// is asked again only when those files change. While Codex cannot answer,
+	// for example in the first seconds after the Mac wakes, the last config
+	// stands in so the rest of the menu stays current.
+	lastCodexConfig       *codexstate.EffectiveModelConfig
+	lastCodexConfigInputs string
+	codexTitles           codexTaskTitles
+}
+
+// codexTaskTitles holds the names Codex gave tasks, read from its thread
+// database while that database is unchanged.
+type codexTaskTitles struct {
+	inputs string
+	titles map[string]string
+	// unnamed lists tasks Codex has no record of, so they are not asked for
+	// again until the database changes.
+	unnamed map[string]bool
+}
+
+func newMenuSnapshots(dataDirectory string, router *routing.TaskRouter, database *store.StoreDatabase, usageLedger *usage.UsageLedger, codex *codexstate.LocalReader) *menuSnapshots {
+	return &menuSnapshots{
+		dataDirectory: dataDirectory, router: router, database: database, usageLedger: usageLedger, codex: codex,
+		generation: time.Now().UnixNano(),
+		changed:    make(chan struct{}), stopping: make(chan struct{}), workDone: make(chan struct{}, 1),
+	}
+}
+
+// composeAfterCompletedResponse records each completed response and asks for
+// the menu to show it soon.
+type composeAfterCompletedResponse struct {
+	ledger    relay.CompletionLedger
+	snapshots *menuSnapshots
+}
+
+func (recorder composeAfterCompletedResponse) RecordCompletedResponse(record store.CompletedResponseRecord) error {
+	if err := recorder.ledger.RecordCompletedResponse(record); err != nil {
+		return err
+	}
+	select {
+	case recorder.snapshots.workDone <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+// StopWaiting answers every waiting reader at once, so a stopping generation
+// holds no request open and the menu moves to the next generation.
+func (snapshots *menuSnapshots) StopWaiting() {
+	snapshots.mutex.Lock()
+	defer snapshots.mutex.Unlock()
+	select {
+	case <-snapshots.stopping:
+	default:
+		close(snapshots.stopping)
+	}
 }
 
 func (snapshots *menuSnapshots) Run(ctx context.Context) {
-	ticker := time.NewTicker(menuSnapshotInterval)
-	defer ticker.Stop()
 	for {
-		if err := snapshots.compose(ctx); err != nil && ctx.Err() == nil {
+		wait := time.After(menuSnapshotInterval)
+		started := time.Now()
+		err := snapshots.compose(ctx)
+		if took := time.Since(started); took > 10*time.Second {
+			log.Printf("menu snapshot took %s to compose", took.Round(time.Second))
+		}
+		if err != nil && ctx.Err() == nil {
 			log.Printf("could not compose the menu snapshot: %v", err)
+			// Try again soon rather than leaving the menu a minute behind.
+			wait = time.After(5 * time.Second)
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-wait:
+		case <-snapshots.workDone:
+			delay := max(menuSnapshotAfterWork, time.Until(started.Add(menuSnapshotWorkInterval)))
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(delay):
+			}
 		}
 	}
 }
@@ -72,10 +169,7 @@ func (snapshots *menuSnapshots) compose(ctx context.Context) error {
 	})
 	var config codexstate.EffectiveModelConfig
 	if hasChatGPTAccounts {
-		configContext, cancel := context.WithTimeout(ctx, 10*time.Second)
-		config, err = snapshots.codex.ModelConfig(configContext)
-		cancel()
-		if err != nil {
+		if config, err = snapshots.codexModelConfig(ctx); err != nil {
 			return err
 		}
 	}
@@ -84,34 +178,92 @@ func (snapshots *menuSnapshots) compose(ctx context.Context) error {
 		return err
 	}
 	snapshot.Connection.NewTasksConfigured = config.Provider == "openai" && config.OpenAIBaseURL != nil && strings.TrimRight(*config.OpenAIBaseURL, "/") == snapshots.codexBaseURL
+	if err := readProviderBurns(snapshots.database, snapshot); err != nil {
+		return err
+	}
 	var accountKeys []string
 	for _, account := range snapshot.Accounts {
 		accountKeys = append(accountKeys, account.Key)
 	}
-	if snapshot.ProxyActivity, err = snapshots.usageLedger.ReadRoutedWork(accountKeys); err != nil {
-		return err
-	}
-	if snapshot.ReportingPeriods, snapshot.AccountDays, err = snapshots.usageLedger.TotalUsage(ctx); err != nil {
+	if snapshot.ReportingPeriods, snapshot.AccountDays, snapshot.ProxyActivity, err = snapshots.usageLedger.ReadUsage(ctx, accountKeys); err != nil {
 		return err
 	}
 	if hasChatGPTAccounts {
-		if err := nameCodexTasks(ctx, snapshots.codex, snapshot); err != nil {
+		if err := snapshots.nameCodexTasks(ctx, snapshot); err != nil {
 			return err
 		}
 	}
-	encoded, err := proto.Marshal(snapshot)
+	keepShownTaskRows(snapshot)
+	deterministic := proto.MarshalOptions{Deterministic: true}
+	composedAt := snapshot.GeneratedAt
+	snapshot.GeneratedAt = nil
+	content, err := deterministic.Marshal(snapshot)
+	if err != nil {
+		return err
+	}
+	snapshot.GeneratedAt = composedAt
+	encoded, err := deterministic.Marshal(snapshot)
 	if err != nil {
 		return err
 	}
 	snapshots.mutex.Lock()
+	defer snapshots.mutex.Unlock()
 	snapshots.encoded = encoded
-	snapshots.mutex.Unlock()
+	if !bytes.Equal(content, snapshots.content) {
+		snapshots.content = content
+		snapshots.version++
+		close(snapshots.changed)
+		snapshots.changed = make(chan struct{})
+	}
 	return nil
 }
 
+func readProviderBurns(database *store.StoreDatabase, snapshot *menupb.MenuSnapshot) error {
+	for _, provider := range []menupb.Provider{menupb.Provider_PROVIDER_CHATGPT, menupb.Provider_PROVIDER_CLAUDE} {
+		var accountNames []store.AccountName
+		for _, account := range snapshot.Accounts {
+			if account.Provider == provider {
+				accountNames = append(accountNames, store.AccountName(account.Key))
+			}
+		}
+		burn, err := database.ReadWeeklyAllowanceBurn(accountNames, snapshot.GeneratedAt.AsTime())
+		if err != nil {
+			return fmt.Errorf("read weekly allowance burn: %w", err)
+		}
+		if burn != nil {
+			snapshot.ProviderBurns = append(snapshot.ProviderBurns, &menupb.ProviderBurn{Provider: provider, AccountsPerWeek: *burn})
+		}
+	}
+	return nil
+}
+
+// codexModelConfig is Codex's effective model config. It starts a Codex
+// app-server to read it only when one of the files Codex reads it from has
+// changed since the last read.
+func (snapshots *menuSnapshots) codexModelConfig(ctx context.Context) (codexstate.EffectiveModelConfig, error) {
+	inputs := snapshots.codex.ModelConfigInputs()
+	if snapshots.lastCodexConfig != nil && inputs == snapshots.lastCodexConfigInputs {
+		return *snapshots.lastCodexConfig, nil
+	}
+	configContext, cancel := context.WithTimeout(ctx, 10*time.Second)
+	config, err := snapshots.codex.ModelConfig(configContext)
+	cancel()
+	switch {
+	case err == nil:
+		snapshots.lastCodexConfig, snapshots.lastCodexConfigInputs = &config, inputs
+		return config, nil
+	case snapshots.lastCodexConfig != nil:
+		log.Printf("menu snapshot uses the last Codex model settings: %v", err)
+		return *snapshots.lastCodexConfig, nil
+	default:
+		return config, err
+	}
+}
+
 // nameCodexTasks gives each task the name Codex knows it by. A task Codex
-// has no record of keeps no name.
-func nameCodexTasks(ctx context.Context, codex *codexstate.LocalReader, snapshot *menupb.MenuSnapshot) error {
+// has no record of keeps no name. Codex's database is read only for tasks
+// not yet named since it last changed.
+func (snapshots *menuSnapshots) nameCodexTasks(ctx context.Context, snapshot *menupb.MenuSnapshot) error {
 	tasks := slices.Clone(snapshot.GetProxyActivity().GetTasks())
 	for _, period := range snapshot.ReportingPeriods {
 		tasks = append(tasks, period.GetTaskUsage().GetTasks()...)
@@ -122,18 +274,43 @@ func nameCodexTasks(ctx context.Context, codex *codexstate.LocalReader, snapshot
 			ids = append(ids, task.TaskId)
 		}
 	}
-	titles, err := codex.TaskTitles(ctx, ids)
+	inputs, err := snapshots.codex.TaskTitleInputs()
 	if err != nil {
 		return fmt.Errorf("read Codex task names: %w", err)
 	}
+	known := &snapshots.codexTitles
+	if known.inputs != inputs || known.titles == nil {
+		*known = codexTaskTitles{inputs: inputs, titles: map[string]string{}, unnamed: map[string]bool{}}
+	}
+	var unknown []string
+	for _, id := range ids {
+		if _, named := known.titles[id]; !named && !known.unnamed[id] {
+			unknown = append(unknown, id)
+		}
+	}
+	titles, err := snapshots.codex.TaskTitles(ctx, unknown)
+	if err != nil {
+		return fmt.Errorf("read Codex task names: %w", err)
+	}
+	for _, id := range unknown {
+		if title, named := titles[id]; named {
+			known.titles[id] = title
+		} else {
+			known.unnamed[id] = true
+		}
+	}
 	for _, task := range tasks {
-		if title, ok := titles[task.TaskId]; ok && task.Title == nil {
+		if title, ok := known.titles[task.TaskId]; ok && task.Title == nil {
 			task.Title = &title
 		}
 	}
 	return nil
 }
 
+// serveOrRelay serves the latest snapshot. A reader that passes the version
+// it has (?after=N) waits until a newer one exists, up to
+// menuSnapshotLongestWait; if none came, it gets 304 Not Modified with the time
+// the snapshot was last confirmed current.
 func (snapshots *menuSnapshots) serveOrRelay(capability string, next http.Handler) http.Handler {
 	path := clientcapability.PathPrefix(capability) + menuSnapshotEndpoint
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -145,15 +322,39 @@ func (snapshots *menuSnapshots) serveOrRelay(capability string, next http.Handle
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		snapshots.mutex.Lock()
-		encoded := snapshots.encoded
-		snapshots.mutex.Unlock()
+		read := func() ([]byte, string, chan struct{}) {
+			snapshots.mutex.Lock()
+			defer snapshots.mutex.Unlock()
+			return snapshots.encoded, fmt.Sprintf("%d.%d", snapshots.generation, snapshots.version), snapshots.changed
+		}
+		encoded, version, changed := read()
 		if encoded == nil {
 			http.Error(w, "the first menu snapshot is not ready", http.StatusServiceUnavailable)
 			return
 		}
-		w.Header().Set("Content-Type", "application/x-protobuf")
+		after := r.URL.Query().Get("after")
+		if after == version {
+			select {
+			case <-changed:
+			case <-snapshots.stopping:
+			case <-r.Context().Done():
+				return
+			case <-time.After(menuSnapshotLongestWait):
+			}
+			encoded, version, _ = read()
+		}
 		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Snapshot-Version", version)
+		if after == version {
+			// The reader's snapshot is current; it learns when that was confirmed.
+			var latest menupb.MenuSnapshot
+			if err := proto.Unmarshal(encoded, &latest); err == nil {
+				w.Header().Set("X-Snapshot-Composed-At", latest.GeneratedAt.AsTime().UTC().Format(time.RFC3339Nano))
+			}
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-protobuf")
 		_, _ = w.Write(encoded)
 	})
 }

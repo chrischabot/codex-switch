@@ -22,24 +22,9 @@ func (r LocalReader) TaskTitles(ctx context.Context, taskIDs []string) (map[stri
 	if len(taskIDs) == 0 {
 		return result, nil
 	}
-	paths, err := filepath.Glob(filepath.Join(r.CodexHome, "state_*.sqlite"))
-	if err != nil {
-		return nil, err
-	}
-	var newest os.FileInfo
-	var databasePath string
-	for _, path := range paths {
-		info, err := os.Stat(path)
-		if err != nil {
-			return nil, err
-		}
-		if newest == nil || info.ModTime().After(newest.ModTime()) {
-			newest = info
-			databasePath = path
-		}
-	}
-	if databasePath == "" {
-		return result, nil
+	databasePath, err := r.taskTitleDatabase()
+	if err != nil || databasePath == "" {
+		return result, err
 	}
 	databaseURL := url.URL{Scheme: "file", Path: databasePath, RawQuery: "mode=ro"}
 	database, err := sql.Open("sqlite", databaseURL.String())
@@ -64,6 +49,39 @@ func (r LocalReader) TaskTitles(ctx context.Context, taskIDs []string) (map[stri
 		result[id] = taskTitle(name, source, directory, origin)
 	}
 	return result, rows.Err()
+}
+
+// TaskTitleInputs identifies Codex's thread database and its write-ahead log,
+// where a new or renamed task lands first. Titles can change only when this
+// does.
+func (r LocalReader) TaskTitleInputs() (string, error) {
+	databasePath, err := r.taskTitleDatabase()
+	if err != nil || databasePath == "" {
+		return "", err
+	}
+	return fileIdentity(databasePath) + "\n" + fileIdentity(databasePath+"-wal"), nil
+}
+
+// taskTitleDatabase is the newest state database in the Codex home, or ""
+// when there is none.
+func (r LocalReader) taskTitleDatabase() (string, error) {
+	paths, err := filepath.Glob(filepath.Join(r.CodexHome, "state_*.sqlite"))
+	if err != nil {
+		return "", err
+	}
+	var newest os.FileInfo
+	var databasePath string
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			return "", err
+		}
+		if newest == nil || info.ModTime().After(newest.ModTime()) {
+			newest = info
+			databasePath = path
+		}
+	}
+	return databasePath, nil
 }
 
 func taskTitle(name, source, directory, origin string) string {

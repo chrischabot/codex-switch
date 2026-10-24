@@ -1,81 +1,37 @@
 package usage
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/joshp123/codex-switch/internal/store"
 )
 
-type allowanceOwnerReader interface {
-	FindAccountForAllowanceWindow(int64, time.Time, time.Time) (store.ProviderAccountID, bool, error)
-}
-
-type nativeLocation struct {
-	path   string
-	offset int64
-}
 type allowanceIdentityKey struct{ seconds, reset int64 }
 
-// attributeAccounts uses recorded serving identities or unique authenticated allowance windows.
-func attributeAccounts(completions []reconciledCompletion, native []sessionUsageObservation, identities []store.AccountIdentity, windows allowanceOwnerReader) error {
-	providerByName := make(map[store.AccountName]store.ProviderAccountID)
-	for _, identity := range identities {
-		providerByName[identity.AccountName] = store.ProviderAccountID(identity.ProviderAccountID)
+// attributeCompletion prefers the serving account and otherwise uses only
+// authenticated allowance windows covering the completion's timestamp.
+// attributeCompletion also notes in consulted every allowance window it
+// looked up, so a later change of that window's owner rebuilds the totals.
+func attributeCompletion(completion *reconciledCompletion, allowance *sessionAllowance, providerByName map[store.AccountName]store.ProviderAccountID, owners map[allowanceIdentityKey]store.ProviderAccountID, consulted map[allowanceIdentityKey]bool) {
+	completion.ProviderAccountID = providerByName[completion.AccountName]
+	if completion.ProviderAccountID != "" {
+		return
 	}
-	responseAllowances := make(map[string]*sessionAllowance)
-	locationAllowances := make(map[nativeLocation]*sessionAllowance)
-	for _, observation := range native {
-		if observation.Allowance == nil {
+	if allowance == nil || (allowance.LimitID != "" && allowance.LimitID != "codex") {
+		return
+	}
+	for _, window := range []*sessionAllowanceWindow{allowance.Primary, allowance.Secondary} {
+		if window == nil || window.WindowMinutes <= 0 || window.ResetsAt.IsZero() {
 			continue
 		}
-		if observation.ResponseID != "" {
-			responseAllowances[observation.ResponseID] = observation.Allowance
-		}
-		if observation.Usage != nil {
-			locationAllowances[nativeLocation{observation.SourcePath, observation.SourceOffset}] = observation.Allowance
-		}
-	}
-	owners := make(map[allowanceIdentityKey]store.ProviderAccountID)
-	checked := make(map[allowanceIdentityKey]bool)
-	for index := range completions {
-		completion := &completions[index]
-		completion.ProviderAccountID = providerByName[completion.AccountName]
-		allowance := responseAllowances[string(completion.ResponseID)]
-		if source := completion.NativeSource; allowance == nil && source != nil {
-			allowance = locationAllowances[nativeLocation{source.SourcePath, source.SourceOffset}]
-		}
-		if allowance == nil || (allowance.LimitID != "" && allowance.LimitID != "codex") {
+		duration := window.WindowMinutes * 60
+		if completion.At.Before(window.ResetsAt.Add(-time.Duration(duration)*time.Second)) || !completion.At.Before(window.ResetsAt) {
 			continue
 		}
-		for _, window := range []*sessionAllowanceWindow{allowance.Primary, allowance.Secondary} {
-			if window == nil || window.WindowMinutes <= 0 || window.ResetsAt.IsZero() {
-				continue
-			}
-			duration := window.WindowMinutes * 60
-			if completion.At.Before(window.ResetsAt.Add(-time.Duration(duration)*time.Second)) || !completion.At.Before(window.ResetsAt) {
-				continue
-			}
-			key := allowanceIdentityKey{duration, window.ResetsAt.Unix()}
-			if !checked[key] {
-				owner, found, err := windows.FindAccountForAllowanceWindow(duration, window.ResetsAt, completion.At)
-				if err != nil {
-					return err
-				}
-				checked[key] = true
-				if found {
-					owners[key] = owner
-				}
-			}
-			owner := owners[key]
-			if owner == "" {
-				continue
-			}
-			if completion.ProviderAccountID != "" && completion.ProviderAccountID != owner {
-				return fmt.Errorf("allowance ownership disagrees with recorded account for task %s at %s", completion.TaskID, completion.At)
-			}
+		key := allowanceIdentityKey{duration, window.ResetsAt.Unix()}
+		consulted[key] = true
+		if owner := owners[key]; owner != "" {
 			completion.ProviderAccountID = owner
 		}
 	}
-	return nil
 }

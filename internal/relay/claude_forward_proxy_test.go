@@ -104,6 +104,9 @@ func TestClaudeForwardProxyPoolsOnlyModelPostsAndKeepsOneRelay(t *testing.T) {
 			t.Error("proxy credentials leaked upstream")
 		}
 		if request.Method == http.MethodPost && request.URL.Path == "/v1/messages" {
+			if request.Header.Get("Accept-Encoding") != "identity" {
+				t.Error("Claude stream did not request the measured uncompressed response path")
+			}
 			if string(payload) != body || request.Header.Get("Anthropic-Version") != "2023-06-01" || request.Header.Get("X-Api-Key") != "" {
 				t.Error("pooled request bytes or headers differ from the existing relay contract")
 			}

@@ -1,7 +1,7 @@
 package usage
 
 import (
-	"path/filepath"
+	"context"
 	"testing"
 	"time"
 
@@ -40,23 +40,27 @@ func TestClaudeStreamUsageAndMixedCachePrices(t *testing.T) {
 	if record.CostNanoUSD == nil || *record.CostNanoUSD != 6600000 {
 		t.Fatalf("price=%v, want 6600000 nano-USD", record.CostNanoUSD)
 	}
-	database, err := store.OpenStoreDatabase(filepath.Join(t.TempDir(), "usage.sqlite"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.CloseStoreDatabase()
+	ledger := openTestUsageLedger(t)
 	for range 2 {
-		if err := database.RecordCompletedResponse(record); err != nil {
+		if err := ledger.database.RecordCompletedResponse(record); err != nil {
 			t.Fatal(err)
 		}
 	}
-	responses, err := database.ReadCompletedResponsesSince(record.CompletedAt.Add(-time.Second))
+	var responses []store.CompletedResponseRecord
+	marks, err := readUsageRowWatermarks(context.Background(), ledger.sqlDatabase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = store.StreamCompletedResponses(context.Background(), ledger.sqlDatabase, 0, marks.CompletedResponses, record.CompletedAt.Add(-time.Second), record.CompletedAt.Add(time.Second), func(_ int64, response store.CompletedResponseRecord) error {
+		responses = append(responses, response)
+		return nil
+	})
 	if err != nil || len(responses) != 1 {
 		t.Fatalf("deduplicated ledger responses=%+v, error=%v", responses, err)
 	}
-	completions, err := reconcileCompletions(nil, responses)
-	if err != nil || len(completions) != 1 || completions[0].Cost == nil || *completions[0].Cost != 6600000 {
-		t.Fatalf("shared ledger price: completions=%+v, error=%v", completions, err)
+	completion := proxyCompletion(responses[0])
+	if completion.Cost == nil || *completion.Cost != 6600000 {
+		t.Fatalf("shared ledger price: %+v", completion)
 	}
 }
 

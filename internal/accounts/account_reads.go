@@ -14,11 +14,11 @@ import (
 
 var errWhamUsageUnauthorized = errors.New("wham/usage rejected account credentials")
 
-// observeAccount reads current credentials, allowance and model availability,
-// starting from the fact as it was when the read was scheduled. Failures are
-// carried on the fact, and the monitor logs a change of state once: the
-// provider, not a monitoring gap, decides limits.
-func (monitor *Monitor) observeAccount(parent context.Context, account PoolAccount, savedLogin *savedLogin, fact AccountRoutingFact) AccountRoutingFact {
+// observeAccount reads current credentials, allowance and, when readModelList
+// is set, model availability, starting from the fact as it was when the read
+// was scheduled. Failures are carried on the fact, and the monitor logs a
+// change of state once: the provider, not a monitoring gap, decides limits.
+func (monitor *Monitor) observeAccount(parent context.Context, account PoolAccount, savedLogin *savedLogin, fact AccountRoutingFact, readModelList bool) AccountRoutingFact {
 	if fact.Credentials.AccountID != account.AccountID {
 		fact = AccountRoutingFact{Credentials: Credentials{AccountID: account.AccountID}}
 	}
@@ -68,6 +68,9 @@ func (monitor *Monitor) observeAccount(parent context.Context, account PoolAccou
 		fact.RefreshedAt = startedAt
 	}
 
+	if !readModelList {
+		return fact
+	}
 	modelContext, cancelModels := context.WithTimeout(parent, accountReadTimeout)
 	defer cancelModels()
 	models, modelErr := monitor.readSupportedModelSlugs(modelContext, fact.Credentials)
@@ -107,6 +110,7 @@ func (monitor *Monitor) readAllowanceSample(ctx context.Context, account PoolAcc
 	if err != nil {
 		return AllowanceSample{}, err
 	}
+	monitor.recordWeeklyAllowance(account.Name, sample)
 	for _, window := range []*usageWindow{usage.RateLimit.Primary, usage.RateLimit.Secondary} {
 		if window == nil || *window.UsedPercent <= 0 || window.ResetAt == nil || *window.ResetAt <= 0 {
 			continue
@@ -122,6 +126,20 @@ func (monitor *Monitor) readAllowanceSample(ctx context.Context, account PoolAcc
 		}
 	}
 	return sample, nil
+}
+
+func (monitor *Monitor) recordWeeklyAllowance(accountName string, sample AllowanceSample) {
+	for _, window := range sample.Windows {
+		if window.DurationSeconds != 7*86400 || window.ModelID != "" || window.ModelName != "" || window.ResetsAt.IsZero() {
+			continue
+		}
+		if err := monitor.storeDatabase.RecordWeeklyAllowanceReading(store.WeeklyAllowanceReading{
+			AccountName: store.AccountName(accountName), ResetsAt: window.ResetsAt,
+			UsedPercent: window.UsedPercent, ObservedAt: sample.ObservedAt,
+		}); err != nil {
+			log.Printf("%s: could not record weekly allowance: %v", accountName, err)
+		}
+	}
 }
 
 // readSupportedModelSlugs reads the model catalogue Codex itself would see, so

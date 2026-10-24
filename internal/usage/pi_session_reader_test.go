@@ -32,12 +32,13 @@ func TestNativePiUsageImportsOnceAndJoinsItsRoutedResponse(t *testing.T) {
 	}
 	ledger := openTestUsageLedger(t)
 	ctx := context.Background()
-	imported, err := ledger.importPiSessions(ctx, sessions, time.Time{})
+	err := ledger.importNativeSessions(ctx, t.TempDir(), sessions, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if imported.FilesDiscovered != 1 || imported.UsageObservations != 0 {
-		t.Fatalf("partial import: %+v", imported)
+	var count int
+	if err := ledger.sqlDatabase.QueryRow(`SELECT COUNT(*) FROM native_usage_observations`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("partial line imported: count=%d err=%v", count, err)
 	}
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
@@ -49,21 +50,27 @@ func TestNativePiUsageImportsOnceAndJoinsItsRoutedResponse(t *testing.T) {
 	if err = file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	imported, err = ledger.importPiSessions(ctx, sessions, time.Time{})
+	recordFoldProxy(t, ledger, "response", taskidentity.PiSession("01a00000-0000-7000-8000-000000000001"), time.Date(2026, 9, 6, 10, 51, 55, 0, time.UTC), 5176, 73)
+	err = ledger.importNativeSessions(ctx, t.TempDir(), sessions, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if imported.UsageObservations != 1 {
-		t.Fatalf("completed import: %+v", imported)
-	}
-	repeated, err := ledger.importPiSessions(ctx, sessions, time.Time{})
+	before, err := readUsageRowWatermarks(ctx, ledger.sqlDatabase)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if repeated.BytesRead != 0 {
-		t.Fatalf("unchanged import: %+v", repeated)
+	if err = ledger.importNativeSessions(ctx, t.TempDir(), sessions, time.Time{}); err != nil {
+		t.Fatal(err)
 	}
-	observations, err := ledger.readSessionUsageObservations(ctx, time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC), time.Date(2026, 9, 7, 0, 0, 0, 0, time.UTC))
+	after, err := readUsageRowWatermarks(ctx, ledger.sqlDatabase)
+	if err != nil || after != before {
+		t.Fatalf("unchanged import rewrote rows: before=%+v after=%+v err=%v", before, after, err)
+	}
+	var observations []sessionUsageObservation
+	err = streamNativeUsageWithResponses(ctx, ledger.sqlDatabase, 0, after.NativeObservations, time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC), time.Date(2026, 9, 7, 0, 0, 0, 0, time.UTC), true, func(_ int64, observation sessionUsageObservation, _ *store.CompletedResponseRecord) error {
+		observations = append(observations, observation)
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,19 +81,19 @@ func TestNativePiUsageImportsOnceAndJoinsItsRoutedResponse(t *testing.T) {
 	if observed.TaskID != "f93bcdbe-7619-834b-9e1e-c6de8ec66b67" || observed.Usage.InputTokens != 5176 || observed.Usage.CachedInputTokens != 4608 || observed.Usage.CacheWriteInputTokens != nil {
 		t.Fatalf("native observation: %+v usage=%+v", observed, observed.Usage)
 	}
-	nativeOnly, err := reconcileCompletions(observations, nil)
+	nativeOnly, err := nativeCompletion(&observed, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if nativeOnly[0].Cost == nil || *nativeOnly[0].Cost != 293360 {
-		t.Fatalf("a Pi response without a service tier is not priced at Standard: %+v", nativeOnly[0])
+	if nativeOnly.Cost == nil || *nativeOnly.Cost != 293360 {
+		t.Fatalf("a Pi response without a service tier is not priced at Standard: %+v", nativeOnly)
 	}
 	zero := int64(0)
-	joined, err := reconcileCompletions(observations, []store.CompletedResponseRecord{{CompletedResponseID: "response", TaskID: store.TaskID(observed.TaskID), AccountName: "account-2", ModelSlug: "gpt-5.6-luna", HarnessMode: "standard", InputTokens: 5176, CachedInputTokens: 4608, CacheWriteInputTokens: &zero, OutputTokens: 73, ReasoningTokens: 22, CompletedAt: observed.At}})
+	joined, err := nativeCompletion(&observed, &store.CompletedResponseRecord{CompletedResponseID: "response", TaskID: store.TaskID(observed.TaskID), AccountName: "account-2", ModelSlug: "gpt-5.6-luna", HarnessMode: "standard", InputTokens: 5176, CachedInputTokens: 4608, CacheWriteInputTokens: &zero, OutputTokens: 73, ReasoningTokens: 22, CompletedAt: observed.At})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(joined) != 1 || joined[0].Tokens != 5249 || joined[0].AccountName != "account-2" || joined[0].Cost == nil || *joined[0].Cost != 293360 {
+	if joined.Tokens != 5249 || joined.AccountName != "account-2" || joined.Cost == nil || *joined.Cost != 293360 {
 		t.Fatalf("joined response: %+v", joined)
 	}
 }
@@ -111,11 +118,12 @@ func TestPiForkFirstImportAfterStandardParentRemoval(t *testing.T) {
 			if err = os.WriteFile(path, append(header, '\n'), 0600); err != nil {
 				t.Fatal(err)
 			}
-			sources, err := discoverPiSessions(directory, time.Time{})
+			ledger := openTestUsageLedger(t)
+			sources, err := ledger.discoverPiSessions(directory, time.Time{})
 			if err != nil {
 				t.Fatal(err)
 			}
-			result, err := readPiSession(context.Background(), sources[0], sessionReadCursor{KnownParentTaskID: test.knownParent})
+			result, err := ledger.readPiSession(context.Background(), sources[0], sessionReadCursor{KnownParentTaskID: test.knownParent})
 			if test.wantError {
 				if err == nil {
 					t.Fatal("missing arbitrary parent was assigned an identity")
@@ -171,43 +179,45 @@ func TestPiParentRecordsImportIncrementallyAndRespectHeaderAncestry(t *testing.T
 	writeSession(parentPath, "parent", "")
 	ledger := openTestUsageLedger(t)
 	ctx := context.Background()
-	importSessions := func() sessionImportSummary {
+	importSessions := func() {
 		t.Helper()
-		result, err := ledger.importPiSessions(ctx, directory, time.Time{})
+		sources, err := ledger.discoverPiSessions(directory, time.Time{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		return result
+		if err := ledger.importSessionFiles(ctx, sources, ledger.readPiSession); err != nil {
+			t.Fatal(err)
+		}
 	}
 	checkParent := func() {
 		t.Helper()
-		metadata, err := ledger.readTaskMetadata(ctx)
+		state := refreshTestFold(t, ledger, time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC))
+		metadata, err := ledger.foldMetadata(state)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, item := range metadata {
-			if item.TaskID == taskidentity.PiSession("child") {
-				if item.ParentTaskID != taskidentity.PiSession("parent") {
-					t.Fatalf("child parent: %q", item.ParentTaskID)
-				}
-				return
-			}
+		if item := metadata(taskidentity.PiSession("child")); item.ParentTaskID != taskidentity.PiSession("parent") {
+			t.Fatalf("child parent: %q", item.ParentTaskID)
 		}
-		t.Fatal("child metadata absent")
 	}
 	importSessions()
 	appendChildRecord(parentPath)
-	if result := importSessions(); result.FilesRead != 1 {
-		t.Fatalf("incremental import: %+v", result)
-	}
+	importSessions()
 	checkParent()
-	if result := importSessions(); result.BytesRead != 0 {
-		t.Fatalf("unchanged import: %+v", result)
+	before, err := readUsageRowWatermarks(ctx, ledger.sqlDatabase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	importSessions()
+	after, err := readUsageRowWatermarks(ctx, ledger.sqlDatabase)
+	if err != nil || before != after {
+		t.Fatalf("unchanged import rewrote rows: before=%+v after=%+v err=%v", before, after, err)
 	}
 	writeSession(otherParentPath, "other-parent", "")
 	appendChildRecord(otherParentPath)
 	importSessions()
-	if _, err := ledger.readTaskMetadata(ctx); err == nil {
+	state := refreshTestFold(t, ledger, time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC))
+	if _, err := ledger.foldMetadata(state); err == nil {
 		t.Fatal("incompatible parent evidence was silently accepted")
 	}
 	writeSession(childPath, "child", parentPath)

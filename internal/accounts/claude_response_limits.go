@@ -65,6 +65,7 @@ func (monitor *Monitor) ObserveClaudeResponse(name store.AccountName, model stri
 			incoming.Windows = append(incoming.Windows, window)
 		}
 	}
+	monitor.recordWeeklyAllowance(string(name), incoming)
 	fact.AllowanceSample = mergeClaudeAllowance(fact.AllowanceSample, incoming)
 	fact.ClaudeRestrictions = mergeClaudeRestrictions(nil, fact.ClaudeRestrictions)
 	if status == http.StatusTooManyRequests {

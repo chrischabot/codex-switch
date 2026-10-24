@@ -20,7 +20,7 @@ func TestClaudeScopedAllowanceSurvivesHaikuSideRequestAndProxyRestart(t *testing
 		t.Fatal(err)
 	}
 	origin, _ := url.Parse("https://api.anthropic.com")
-	monitor := NewMonitor(data, origin, "", http.DefaultClient, nil)
+	monitor := NewMonitor(data, origin, "", http.DefaultClient, monitorTestDatabase(t))
 	var payload claudeUsageResponse
 	if err := json.Unmarshal([]byte(`{"limits":[{"kind":"weekly_all","percent":14,"resets_at":"`+now.Add(7*24*time.Hour).Format(time.RFC3339)+`"},{"kind":"weekly_scoped","percent":100,"resets_at":"`+now.Add(7*24*time.Hour).Format(time.RFC3339)+`","scope":{"model":{"id":null,"display_name":"Fable"}}}]}`), &payload); err != nil {
 		t.Fatal(err)
@@ -44,7 +44,7 @@ func TestClaudeScopedAllowanceSurvivesHaikuSideRequestAndProxyRestart(t *testing
 	if reason, _ := ClaudeUnavailableReason(fact, "claude-opus-4-8", now); reason != "" {
 		t.Fatal("Fable limit blocked Opus")
 	}
-	restarted := NewMonitor(data, origin, "", http.DefaultClient, nil)
+	restarted := NewMonitor(data, origin, "", http.DefaultClient, monitorTestDatabase(t))
 	cache, _, err := restarted.reserveClaudeUsageRead("account-1", now)
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +62,7 @@ func TestClaudeResponseModelBucketUsesRequestingModelAndPreservesSharedCapacity(
 		t.Fatal(err)
 	}
 	origin, _ := url.Parse("https://api.anthropic.com")
-	monitor := NewMonitor(data, origin, "", http.DefaultClient, nil)
+	monitor := NewMonitor(data, origin, "", http.DefaultClient, monitorTestDatabase(t))
 	headers := make(http.Header)
 	headers.Set("anthropic-ratelimit-unified-7d_oi-utilization", "1")
 	headers.Set("anthropic-ratelimit-unified-7d_oi-reset", strconv.FormatInt(now.Add(time.Hour).Unix(), 10))
@@ -98,7 +98,7 @@ func TestClaudeExactModelWindowAppliesToItsUndatedAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	origin, _ := url.Parse("https://api.anthropic.com")
-	monitor := NewMonitor(data, origin, "", http.DefaultClient, nil)
+	monitor := NewMonitor(data, origin, "", http.DefaultClient, monitorTestDatabase(t))
 	fact := AccountRoutingFact{AllowanceSample: AllowanceSample{Windows: []ReportedWindow{{ModelID: "claude-opus-4-5-20251101", ModelName: "Opus", DurationSeconds: 7 * 86400, UsedPercent: 100, ResetsAt: now.Add(time.Hour)}}}}
 	monitor.monitoredAccountLocked("account-1", ProviderClaude).fact = fact
 	headers := make(http.Header)
@@ -121,8 +121,8 @@ func TestClaudeUsageBackoffIsSharedAcrossProxyProcesses(t *testing.T) {
 		t.Fatal(err)
 	}
 	origin, _ := url.Parse("https://api.anthropic.com")
-	first := NewMonitor(data, origin, "", http.DefaultClient, nil)
-	second := NewMonitor(data, origin, "", http.DefaultClient, nil)
+	first := NewMonitor(data, origin, "", http.DefaultClient, monitorTestDatabase(t))
+	second := NewMonitor(data, origin, "", http.DefaultClient, monitorTestDatabase(t))
 	now := time.Now()
 	cache, due, err := first.reserveClaudeUsageRead("account-1", now)
 	if err != nil || !due {

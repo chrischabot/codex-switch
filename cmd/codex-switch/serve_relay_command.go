@@ -99,6 +99,11 @@ func serveRelay(tcpListenAddress string, checkProviders bool) {
 	}
 	defer func() { stopFacts(); background.Wait() }()
 	taskRouter := routing.CreateTaskRouter(storeDatabase, accountMonitor)
+	codexReader, err := codexstate.DefaultReader()
+	if err != nil {
+		log.Fatal(err)
+	}
+	snapshots := newMenuSnapshots(dataDir(), taskRouter, storeDatabase, usageLedger, codexReader)
 	relayHandler, err := relay.CreateTrafficRelayHandler(relay.RelayHandlerOptions{
 		UpstreamOrigin:       upstreamOrigin,
 		ClaudeUpstreamOrigin: claudeUpstreamOrigin,
@@ -107,19 +112,14 @@ func serveRelay(tcpListenAddress string, checkProviders bool) {
 		CacheAffinity:        storeDatabase,
 		ClientCapability:     capability,
 		TaskRouter:           taskRouter,
-		CompletionLedger:     storeDatabase,
+		CompletionLedger:     composeAfterCompletedResponse{ledger: storeDatabase, snapshots: snapshots},
 		RequestCounters:      storeDatabase,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	codexReader, err := codexstate.DefaultReader()
-	if err != nil {
-		log.Fatal(err)
-	}
-	snapshots := &menuSnapshots{dataDirectory: dataDir(), router: taskRouter, usageLedger: usageLedger, codex: codexReader}
-	forwardProxy, err := relay.CreateClaudeForwardProxy(dataDir(), capability, relayHandler, snapshots.serveOrRelay(capability, deployStatusOrRelay(capability, relayHandler)))
+	forwardProxy, err := relay.CreateClaudeForwardProxy(dataDir(), capability, relayHandler, snapshots.serveOrRelay(capability, profileOrRelay(capability, deployStatusOrRelay(capability, relayHandler))))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -162,6 +162,7 @@ func serveRelay(tcpListenAddress string, checkProviders bool) {
 		// Model responses have no deadline; other Claude connections do.
 		drainStarted := time.Now()
 		log.Printf("process %d stopping: it accepts no new requests and finishes model work in progress", os.Getpid())
+		snapshots.StopWaiting()
 		relayHandler.CloseWebSocketsOnceIdle()
 		forwardProxy.DrainConnections()
 		if err := server.Shutdown(context.Background()); err != nil {

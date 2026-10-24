@@ -1,9 +1,19 @@
 import Foundation
 import SwiftProtobuf
 
+/// What the proxy said about its menu snapshot.
+enum SnapshotFetch: Sendable {
+    /// A snapshot newer than the one the menu shows, as protobuf bytes, and its version.
+    case changed(Data, version: String?)
+    /// The snapshot the menu shows is still current, as of this time.
+    case current(confirmedAt: Date)
+}
+
 protocol SnapshotLoading: Sendable {
-    /// The proxy's current menu snapshot as protobuf bytes.
-    func loadSnapshot() async throws -> Data
+    /// The proxy's menu snapshot. Given the version the menu shows, the proxy
+    /// answers as soon as a newer one exists, or within a minute to confirm
+    /// the menu's is current; without one it answers at once.
+    func loadSnapshot(after version: String?) async throws -> SnapshotFetch
 }
 
 enum SnapshotClientError: Error, Equatable {
@@ -68,7 +78,8 @@ struct LaunchConfiguration: Equatable, Sendable {
 
 /// Fetches the snapshot the proxy composes and serves at the URL it writes to
 /// `menu-snapshot-url`. The file is read on every fetch because the port
-/// changes when the proxy is redeployed.
+/// changes when the proxy is redeployed; a stopping proxy answers its waiting
+/// readers at once, so the next fetch reaches the new one.
 struct SnapshotClient: SnapshotLoading {
     let urlFile: URL
 
@@ -76,27 +87,47 @@ struct SnapshotClient: SnapshotLoading {
         urlFile = dataDirectory.appending(path: "menu-snapshot-url")
     }
 
+    /// The proxy holds a waiting request for up to 55 seconds.
+    private static let waitingTimeout: TimeInterval = 75
+    private static let immediateTimeout: TimeInterval = 5
+
     private static let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 5
-        configuration.timeoutIntervalForResource = 5
+        configuration.timeoutIntervalForRequest = waitingTimeout
+        configuration.timeoutIntervalForResource = waitingTimeout
         configuration.urlCache = nil
         return URLSession(configuration: configuration)
     }()
 
-    func loadSnapshot() async throws -> Data {
-        let url = try snapshotURL()
+    func loadSnapshot(after version: String?) async throws -> SnapshotFetch {
+        var components = URLComponents(url: try snapshotURL(), resolvingAgainstBaseURL: false)
+        if let version {
+            components?.queryItems = [URLQueryItem(name: "after", value: version)]
+        }
+        guard let url = components?.url else { throw SnapshotClientError.unreadableURLFile }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = version == nil ? Self.immediateTimeout : Self.waitingTimeout
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await Self.session.data(from: url)
+            (data, response) = try await Self.session.data(for: request)
         } catch let error as URLError {
             if error.code == .cancelled { throw CancellationError() }
             throw SnapshotClientError.unreachable(error.code)
         }
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard status == 200 else { throw SnapshotClientError.status(status) }
-        return data
+        let http = response as? HTTPURLResponse
+        let latestVersion = http?.value(forHTTPHeaderField: "X-Snapshot-Version")
+            .flatMap { $0.isEmpty ? nil : $0 }
+        switch http?.statusCode ?? 0 {
+        case 200:
+            return .changed(data, version: latestVersion)
+        case 304:
+            let confirmed = http?.value(forHTTPHeaderField: "X-Snapshot-Composed-At")
+                .flatMap { try? Date($0, strategy: .iso8601.year().month().day().time(includingFractionalSeconds: true)) }
+            return .current(confirmedAt: confirmed ?? .now)
+        case let status:
+            throw SnapshotClientError.status(status)
+        }
     }
 
     func snapshotURL() throws -> URL {

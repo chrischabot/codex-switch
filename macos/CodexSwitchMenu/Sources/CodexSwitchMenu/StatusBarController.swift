@@ -1,6 +1,12 @@
 import AppKit
 import SwiftUI
 
+/// What a closed panel shows: a store that never changes, so the panel's views
+/// do no work while the real store takes new snapshots.
+private struct ClosedPanelSnapshots: SnapshotLoading {
+    func loadSnapshot(after version: String?) async throws -> SnapshotFetch { throw CancellationError() }
+}
+
 /// A borderless panel that can take key input without activating the app,
 /// so Escape closes it and its menus open, while the app behind keeps focus.
 private final class MenuBarPanel: NSPanel {
@@ -14,12 +20,15 @@ final class StatusBarController: NSObject {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let panel: MenuBarPanel
     private let panelController: NSHostingController<CodexSwitchPanel>
+    private let closedPanelStore = OverviewStore(client: ClosedPanelSnapshots(), cacheFile: URL(filePath: "/dev/null"))
     private var refreshTask: Task<Void, Never>?
     private var eventMonitors: [Any] = []
     private var resizeObserver: NSObjectProtocol?
     /// Where the panel's top-left corner sits while it is shown, so it grows
     /// downward when its content changes height.
     private var anchorTopLeft: NSPoint = .zero
+    /// What the status item shows now; it is drawn again only when this changes.
+    private var shownValues: [MenuBarAccountValue]?
 
     /// Space between the menu bar and the panel, and between the panel and the screen's edges.
     private static let screenMargin: CGFloat = 6
@@ -29,7 +38,7 @@ final class StatusBarController: NSObject {
         self.updates = updates
         panelController = NSHostingController(
             rootView: CodexSwitchPanel(
-                store: store,
+                store: closedPanelStore,
                 maximumHeight: NSScreen.main?.visibleFrame.height ?? 700,
                 updates: updates
             )
@@ -81,11 +90,16 @@ final class StatusBarController: NSObject {
         button.sendAction(on: [.leftMouseUp])
         updateStatusItem()
 
+        // The proxy answers when its snapshot changes, so the menu does
+        // nothing while nothing changes.
         refreshTask = Task { [weak self] in
+            await self?.store.refresh()
+            self?.updateStatusItem()
             while let self, !Task.isCancelled {
-                await self.store.refresh()
+                if !(await self.store.waitForChange()) {
+                    try? await Task.sleep(for: .seconds(5))
+                }
                 self.updateStatusItem()
-                try? await Task.sleep(for: OverviewStore.refreshInterval)
             }
         }
     }
@@ -118,14 +132,15 @@ final class StatusBarController: NSObject {
         let screen = buttonWindow.screen ?? NSScreen.main
         let visibleFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1_512, height: 945)
         let buttonFrame = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
-        let width = UsageTheme.panelWidth
-        let x = min(max(buttonFrame.midX - width / 2, visibleFrame.minX + Self.screenMargin),
-                    visibleFrame.maxX - width - Self.screenMargin)
-        anchorTopLeft = NSPoint(x: x, y: visibleFrame.maxY - Self.screenMargin)
-        let maximumHeight = anchorTopLeft.y - visibleFrame.minY - Self.screenMargin
+        let top = visibleFrame.maxY - Self.screenMargin
+        let maximumHeight = top - visibleFrame.minY - Self.screenMargin
         panelController.rootView = CodexSwitchPanel(store: store, maximumHeight: max(maximumHeight, 320), updates: updates)
         panelController.view.layoutSubtreeIfNeeded()
         let size = panelController.view.fittingSize
+        let width = UsageTheme.panelWidth
+        let x = min(max(buttonFrame.midX - width / 2, visibleFrame.minX + Self.screenMargin),
+                    visibleFrame.maxX - width - Self.screenMargin)
+        anchorTopLeft = NSPoint(x: x, y: top)
         panel.setFrame(NSRect(x: anchorTopLeft.x, y: anchorTopLeft.y - size.height, width: width, height: size.height),
                        display: false)
         panel.makeKeyAndOrderFront(nil)
@@ -135,6 +150,7 @@ final class StatusBarController: NSObject {
     private func closePanel() {
         stopDismissMonitors()
         panel.orderOut(nil)
+        panelController.rootView = CodexSwitchPanel(store: closedPanelStore, maximumHeight: panelController.rootView.maximumHeight, updates: updates)
     }
 
     private func keepAnchored() {
@@ -180,6 +196,8 @@ final class StatusBarController: NSObject {
         guard let button = statusItem.button else { return }
         let accounts = store.latestSnapshot?.accounts ?? []
         let values = MenuBarAccountValue.values(for: accounts)
+        guard values != shownValues else { return }
+        shownValues = values
 
         if values.isEmpty {
             showIdentity(button: button, toolTip: "Codex Switch")

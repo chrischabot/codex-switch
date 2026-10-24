@@ -3,13 +3,17 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"sync"
 
 	_ "modernc.org/sqlite"
 )
 
 // StoreDatabase is shared by old and new proxy generations during a live drain.
 type StoreDatabase struct {
-	sqlDatabase *sql.DB
+	sqlDatabase              *sql.DB
+	weeklyAllowanceBurnMutex sync.Mutex
+	weeklyAllowanceBurnRowID int64
+	weeklyAllowanceBurns     []weeklyAllowanceBurn
 }
 
 // OpenStoreDatabase enables WAL before exposing the database to concurrent proxy generations.
@@ -35,6 +39,10 @@ func OpenStoreDatabase(databasePath string) (*StoreDatabase, error) {
 	if err := createAllowanceWindowIdentitySchema(sqlDatabase); err != nil {
 		sqlDatabase.Close()
 		return nil, fmt.Errorf("create allowance window identity schema: %w", err)
+	}
+	if err := createWeeklyAllowanceSchema(sqlDatabase); err != nil {
+		sqlDatabase.Close()
+		return nil, fmt.Errorf("create weekly allowance schema: %w", err)
 	}
 	return &StoreDatabase{sqlDatabase: sqlDatabase}, nil
 }

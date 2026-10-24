@@ -11,6 +11,7 @@ import (
 type reconciledCompletion struct {
 	TaskID            string
 	At                time.Time
+	LastCompletedAt   time.Time
 	AccountName       store.AccountName
 	ProviderAccountID store.ProviderAccountID
 	Model             string
@@ -21,75 +22,47 @@ type reconciledCompletion struct {
 	ResponseID        store.CompletedResponseID
 }
 
-// reconcileCompletions counts native and proxy observations of the same response once.
-// Provider response IDs identify the work across both sources.
-func reconcileCompletions(native []sessionUsageObservation, responses []store.CompletedResponseRecord) ([]reconciledCompletion, error) {
-	byResponseID := make(map[store.CompletedResponseID]store.CompletedResponseRecord)
-	firstResponseByTask := make(map[string]time.Time)
-	for _, response := range responses {
-		byResponseID[response.CompletedResponseID] = response
-		taskID := string(response.TaskID)
-		if first := firstResponseByTask[taskID]; first.IsZero() || response.CompletedAt.Before(first) {
-			firstResponseByTask[taskID] = response.CompletedAt
-		}
+func nativeCompletion(observation *sessionUsageObservation, proxy *store.CompletedResponseRecord) (reconciledCompletion, error) {
+	usage := *observation.Usage
+	completion := reconciledCompletion{TaskID: observation.TaskID, At: observation.At, LastCompletedAt: observation.At, Model: observation.Model, Tokens: usage.InputTokens + usage.OutputTokens, NativeSource: observation, ResponseID: store.CompletedResponseID(observation.ResponseID)}
+	mode := harnessStandard
+	if observation.ServiceTier != nil && (*observation.ServiceTier == "priority" || *observation.ServiceTier == "fast") {
+		mode = harnessFast
 	}
-	matched := make(map[store.CompletedResponseID]bool)
-	var completions []reconciledCompletion
-	for index := range native {
-		observation := &native[index]
-		if observation.Usage == nil {
-			continue
+	if proxy != nil {
+		if usage.InputTokens != proxy.InputTokens || usage.CachedInputTokens != proxy.CachedInputTokens || usage.OutputTokens != proxy.OutputTokens || usage.ReasoningOutputTokens != proxy.ReasoningTokens {
+			return reconciledCompletion{}, fmt.Errorf("token counts disagree for response %s", completion.ResponseID)
 		}
-		responseID := store.CompletedResponseID(observation.ResponseID)
-		if responseID == "" {
-			if first := firstResponseByTask[observation.TaskID]; !first.IsZero() && !observation.At.Before(first) {
-				return nil, fmt.Errorf("native usage without response identity overlaps proxy history: %s at %d", observation.SourcePath, observation.SourceOffset)
-			}
-		} else {
-			if matched[responseID] {
-				continue
-			}
-			matched[responseID] = true
+		completion.AccountName = proxy.AccountName
+		completion.Model = proxy.ModelSlug
+		// A task's latest completion uses the latest proxy or native response
+		// timestamp. Its usage date still comes from the native timestamp.
+		if proxy.CompletedAt.After(completion.LastCompletedAt) {
+			completion.LastCompletedAt = proxy.CompletedAt
 		}
-		usage := *observation.Usage
-		completion := reconciledCompletion{TaskID: observation.TaskID, At: observation.At, Model: observation.Model, Tokens: usage.InputTokens + usage.OutputTokens, NativeSource: observation, ResponseID: responseID}
-		mode := harnessStandard
-		if observation.ServiceTier != nil && (*observation.ServiceTier == "priority" || *observation.ServiceTier == "fast") {
+		// Either record saying Codex requested Fast means Fast. Proxies
+		// before October 2026 took the speed from OpenAI's response,
+		// which reports "default" for Fast work OpenAI bills as Fast.
+		if proxy.HarnessMode == string(harnessFast) {
 			mode = harnessFast
 		}
-		if response, found := byResponseID[responseID]; found {
-			if usage.InputTokens != response.InputTokens || usage.CachedInputTokens != response.CachedInputTokens || usage.OutputTokens != response.OutputTokens || usage.ReasoningOutputTokens != response.ReasoningTokens {
-				return nil, fmt.Errorf("token counts disagree for response %s", responseID)
-			}
-			completion.AccountName = response.AccountName
-			completion.Model = response.ModelSlug
-			// Either record saying Codex requested Fast means Fast. Proxies
-			// before October 2026 took the speed from OpenAI's response,
-			// which reports "default" for Fast work OpenAI bills as Fast.
-			if response.HarnessMode == string(harnessFast) {
-				mode = harnessFast
-			}
-		}
-		completion.Fast = mode == harnessFast
-		completion.Cost = apiEquivalentPrice(completion.Model, mode, usage)
-		if response, found := byResponseID[responseID]; found && response.CostNanoUSD != nil {
-			cost := nanoUSD(*response.CostNanoUSD)
-			completion.Cost = &cost
-		}
-		completions = append(completions, completion)
 	}
-	for _, response := range responses {
-		if matched[response.CompletedResponseID] {
-			continue
-		}
-		usage := tokenUsage{InputTokens: response.InputTokens, CachedInputTokens: response.CachedInputTokens, CacheWriteInputTokens: response.CacheWriteInputTokens, OutputTokens: response.OutputTokens, ReasoningOutputTokens: response.ReasoningTokens}
-		mode := harnessMode(response.HarnessMode)
-		cost := apiEquivalentPrice(response.ModelSlug, mode, usage)
-		if response.CostNanoUSD != nil {
-			price := nanoUSD(*response.CostNanoUSD)
-			cost = &price
-		}
-		completions = append(completions, reconciledCompletion{TaskID: string(response.TaskID), At: response.CompletedAt, AccountName: response.AccountName, Model: response.ModelSlug, Tokens: response.InputTokens + response.OutputTokens, Cost: cost, Fast: mode == harnessFast, ResponseID: response.CompletedResponseID})
+	completion.Fast = mode == harnessFast
+	completion.Cost = apiEquivalentPrice(completion.Model, mode, usage)
+	if proxy != nil && proxy.CostNanoUSD != nil {
+		cost := nanoUSD(*proxy.CostNanoUSD)
+		completion.Cost = &cost
 	}
-	return completions, nil
+	return completion, nil
+}
+
+func proxyCompletion(response store.CompletedResponseRecord) reconciledCompletion {
+	usage := tokenUsage{InputTokens: response.InputTokens, CachedInputTokens: response.CachedInputTokens, CacheWriteInputTokens: response.CacheWriteInputTokens, OutputTokens: response.OutputTokens, ReasoningOutputTokens: response.ReasoningTokens}
+	mode := harnessMode(response.HarnessMode)
+	cost := apiEquivalentPrice(response.ModelSlug, mode, usage)
+	if response.CostNanoUSD != nil {
+		price := nanoUSD(*response.CostNanoUSD)
+		cost = &price
+	}
+	return reconciledCompletion{TaskID: string(response.TaskID), At: response.CompletedAt, LastCompletedAt: response.CompletedAt, AccountName: response.AccountName, Model: response.ModelSlug, Tokens: response.InputTokens + response.OutputTokens, Cost: cost, Fast: mode == harnessFast, ResponseID: response.CompletedResponseID}
 }

@@ -102,6 +102,19 @@ func writeCurrentStatus(output io.Writer, snapshot *menupb.MenuSnapshot) {
 		}
 	}
 	fmt.Fprintf(output, "%d of %d accounts can take new work.\n", available, len(snapshot.Accounts))
+	for _, burn := range snapshot.ProviderBurns {
+		providerName := "Codex"
+		if burn.Provider == menupb.Provider_PROVIDER_CLAUDE {
+			providerName = "Claude"
+		}
+		poolSize := 0
+		for _, account := range snapshot.Accounts {
+			if account.Provider == burn.Provider && account.OffersConfiguredModel {
+				poolSize++
+			}
+		}
+		fmt.Fprintf(output, "%s: burning %.1f accounts a week, %d in the pool\n", providerName, burn.AccountsPerWeek, poolSize)
+	}
 	if hasChatGPTAccount && !snapshot.GetConnection().GetNewTasksConfigured() {
 		fmt.Fprintln(output, "Codex is not configured to send new work to this proxy.")
 	}

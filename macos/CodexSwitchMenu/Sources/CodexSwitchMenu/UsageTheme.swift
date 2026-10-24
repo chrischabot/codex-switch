@@ -76,7 +76,7 @@ enum PanelDensity {
     var columnGap: CGFloat { 6 }
     var numberWidth: CGFloat { 20 }
     var percentWidth: CGFloat { self == .regular ? 58 : 54 }
-    var timeWidth: CGFloat { self == .regular ? 104 : 100 }
+    var timeWidth: CGFloat { self == .regular ? 136 : 128 }
 }
 
 private struct PanelDensityKey: EnvironmentKey {
