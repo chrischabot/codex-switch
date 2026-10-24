@@ -9,6 +9,50 @@ final class PanelRenderTests: XCTestCase {
     private static let laptopHeight: CGFloat = 982 - 37 - 16
     private static let desktopHeight: CGFloat = 1_440 - 25 - 16
 
+    @MainActor
+    func testProviderContentFitsPanelWithLongAccountStatus() async throws {
+        var account = CSSwitch_Account()
+        account.key = "layout-account"
+        account.accountNumber = 1
+        account.provider = .chatgpt
+        account.email = "alexandria.engineering.department@example.com"
+        account.plan = "promax"
+        account.offersConfiguredModel = true
+        account.unavailableReason = "OpenAI reports its usage limit reached until Fri 30 Oct 17:42"
+        var snapshot = CSSwitch_MenuSnapshot()
+        snapshot.accounts = [account]
+        let availableWidth = UsageTheme.panelWidth - 2 * UsageTheme.outerInset
+
+        for privacy in [false, true] {
+            for density in [PanelDensity.regular, .compact] {
+                let measurement = LayoutMeasurement()
+                let content = ProviderSection(snapshot: snapshot, provider: .chatgpt, hideIdentity: privacy, now: .now)
+                    .environment(\.panelDensity, density)
+                    .background {
+                        GeometryReader { proxy in
+                            Color.clear.preference(key: ContentBoundsKey.self, value: proxy.frame(in: .named("viewport")))
+                        }
+                    }
+                    .frame(width: availableWidth, alignment: .leading)
+                    .coordinateSpace(name: "viewport")
+                    .onPreferenceChange(ContentBoundsKey.self) { bounds in
+                        MainActor.assumeIsolated { measurement.bounds = bounds }
+                    }
+                let host = NSHostingView(rootView: content)
+                host.frame = CGRect(x: 0, y: 0, width: availableWidth, height: 400)
+                for _ in 0..<6 {
+                    host.layoutSubtreeIfNeeded()
+                    try await Task.sleep(for: .milliseconds(20))
+                    host.setFrameSize(host.fittingSize)
+                }
+                let bounds = try XCTUnwrap(measurement.bounds)
+                XCTAssertGreaterThan(bounds.height, 0)
+                XCTAssertGreaterThanOrEqual(bounds.minX, -0.5, "Privacy \(privacy), density \(density): left edge must remain visible")
+                XCTAssertLessThanOrEqual(bounds.maxX, availableWidth + 0.5, "Privacy \(privacy), density \(density): right edge must remain visible")
+            }
+        }
+    }
+
     /// Renders the menu bar item and every panel state from a real snapshot,
     /// light and dark, without opening a window or taking focus. Every state
     /// must fit the laptop screen.
@@ -168,6 +212,19 @@ final class PanelRenderTests: XCTestCase {
     }
 }
 
+@MainActor
+private final class LayoutMeasurement {
+    var bounds: CGRect?
+}
+
+private struct ContentBoundsKey: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if !next.isEmpty { value = next }
+    }
+}
+
 private struct SavedSnapshot: SnapshotLoading {
     let bytes: Data
     func loadSnapshot() async throws -> Data { bytes }
@@ -220,7 +277,8 @@ extension CSSwitch_MenuSnapshot {
     /// One more Claude account: the last Claude account again, under the
     /// next number, with the same totals and days.
     func withSixthAccount() -> CSSwitch_MenuSnapshot {
-        guard let source = accounts.last(where: { $0.menuProvider == .claude }),
+        guard accounts.count < 6,
+              let source = accounts.last(where: { $0.menuProvider == .claude }),
               let sourceIndex = accounts.lastIndex(of: source) else { return self }
         var copy = self
         var added = source

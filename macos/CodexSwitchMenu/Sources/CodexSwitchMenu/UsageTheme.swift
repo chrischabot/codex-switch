@@ -59,7 +59,7 @@ enum PanelDensity {
     var cardInset: CGFloat { self == .regular ? 12 : 10 }
     var sectionGap: CGFloat { self == .regular ? 10 : 6 }
     /// Between the identity group and the first window block, and between blocks.
-    var groupGap: CGFloat { self == .regular ? 18 : 10 }
+    var groupGap: CGFloat { self == .regular ? 18 : 8 }
     var blockTitleGap: CGFloat { self == .regular ? 8 : 6 }
     var identityFont: Font { .system(size: self == .regular ? 12 : 11) }
     var identityGap: CGFloat { self == .regular ? 4 : 2 }

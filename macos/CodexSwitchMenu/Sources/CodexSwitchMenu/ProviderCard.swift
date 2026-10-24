@@ -43,10 +43,8 @@ struct ProviderSection: View {
     }
 }
 
-/// One line per account: its colour, number, address (censored in privacy
-/// mode, never cut), plan, stored resets, and the one state that keeps new
-/// work off it when there is one, in the proxy's words. The dot sits on the
-/// same edge as the dots in the rows below.
+/// Account identity and plan share a row. Availability details wrap below
+/// the identity, so a provider's full explanation stays inside the panel.
 private struct AccountIdentities: View {
     let accounts: [CSSwitch_Account]
     let snapshot: CSSwitch_MenuSnapshot
@@ -54,11 +52,9 @@ private struct AccountIdentities: View {
     @Environment(\.panelDensity) private var density
 
     var body: some View {
-        // Columns, so plans and states line up under each other across the
-        // provider's accounts: number, address, then the plan and any extras.
-        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: density.columnGap + 4, verticalSpacing: density.identityGap) {
+        VStack(alignment: .leading, spacing: density.identityGap) {
             ForEach(accounts, id: \.key) { account in
-                GridRow {
+                HStack(alignment: .firstTextBaseline, spacing: density.columnGap + 4) {
                     HStack(spacing: 3) {
                         AccountMarker(colour: snapshot.colour(of: account), size: 7)
                         Text("\(account.accountNumber)")
@@ -66,10 +62,22 @@ private struct AccountIdentities: View {
                             .monospacedDigit()
                     }
                     .frame(width: density.numberWidth, alignment: .leading)
-                    Text(hideIdentity ? UsageFormatting.privateEmail(account.email) : account.email)
-                        .fixedSize()
-                    Text(([account.planTitle] + extras(account)).filter { !$0.isEmpty }.joined(separator: " · "))
-                        .fixedSize()
+                    VStack(alignment: .leading, spacing: density.identityGap) {
+                        HStack(alignment: .firstTextBaseline, spacing: density.columnGap + 4) {
+                            Text(hideIdentity ? UsageFormatting.privateEmail(account.email) : account.email)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text(([account.planTitle] + resets(account)).filter { !$0.isEmpty }.joined(separator: " · "))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        let status = availability(account)
+                        if !status.isEmpty {
+                            Text(status)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .font(density.identityFont)
                 .foregroundStyle(.secondary)
@@ -77,17 +85,18 @@ private struct AccountIdentities: View {
         }
     }
 
-    /// "3 stored resets", "held back · 10% reserve", "not in pool": what is
-    /// worth knowing beyond the plan, in the proxy's words.
-    private func extras(_ account: CSSwitch_Account) -> [String] {
+    private func resets(_ account: CSSwitch_Account) -> [String] {
         var parts: [String] = []
         if account.allowance.hasAvailableResetCredits, account.allowance.availableResetCredits > 0 {
             let count = account.allowance.availableResetCredits
             parts.append(count == 1 ? "1 stored reset" : "\(count) stored resets")
         }
-        if !account.offersConfiguredModel { parts.append("not in pool") }
-        parts.append(account.usable ? account.reserveStatus : account.offersConfiguredModel ? account.unavailableReason : "")
         return parts
+    }
+
+    private func availability(_ account: CSSwitch_Account) -> String {
+        guard account.offersConfiguredModel else { return "not in pool" }
+        return account.usable ? account.reserveStatus : account.unavailableReason
     }
 }
 

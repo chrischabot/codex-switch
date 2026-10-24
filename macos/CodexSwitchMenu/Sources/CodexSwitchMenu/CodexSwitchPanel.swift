@@ -111,6 +111,7 @@ struct CodexSwitchPanel: View {
                             EmptyPanelState()
                         }
                     }
+                    .frame(width: UsageTheme.panelWidth - 2 * UsageTheme.outerInset, alignment: .leading)
                     .padding(.horizontal, UsageTheme.outerInset)
                     .padding(.top, Self.topInset)
                     .padding(.bottom, Self.bottomInset)
